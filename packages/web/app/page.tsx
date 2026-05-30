@@ -21,11 +21,18 @@ const CTAS = [
   { key: "link", label: "자세한 내용은 하단 링크를 클릭하세요!" },
 ];
 
-type Job = {
-  no: number;
-  url: string;
-  status: "대기중" | "처리중" | "완료" | "오류";
+const API = "http://127.0.0.1:8000";
+
+type JobState = {
+  id: string;
+  status: string;
   progress: number;
+  stage: string;
+  script: string;
+  preview: string | null;   // 자막제거 영상 경로
+  output: string | null;    // 최종 영상 경로
+  has_speech: boolean | null;
+  error: string | null;
 };
 
 export default function Home() {
@@ -36,18 +43,73 @@ export default function Home() {
   const [script, setScript] = useState("");
   const [rate, setRate] = useState(1.0);
   const [subMode, setSubMode] = useState<"bar" | "blur">("bar");
-  const [jobs, setJobs] = useState<Job[]>([]);
   const [playing, setPlaying] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  function addJob() {
-    if (!url.trim()) return;
-    setJobs((prev) => [
-      ...prev,
-      { no: prev.length + 1, url: url.trim(), status: "대기중", progress: 0 },
-    ]);
-    setUrl("");
+  const [job, setJob] = useState<JobState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 작업 상태 폴링
+  function pollJob(id: string, onAnalyzed: (j: JobState) => void) {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${API}/jobs/${id}`);
+        const j: JobState = await r.json();
+        setJob(j);
+        if (j.status === "analyzed") {
+          clearInterval(pollRef.current!);
+          setBusy(false);
+          if (j.script) setScript(j.script);
+          onAnalyzed(j);
+        } else if (j.status === "done" || j.status === "error") {
+          clearInterval(pollRef.current!);
+          setBusy(false);
+        }
+      } catch {}
+    }, 1500);
+  }
+
+  // 1단계: 분석 (다운로드 + 자막제거 + 자동대본)
+  async function analyze() {
+    if (!url.trim() || busy) return;
+    setBusy(true);
+    setJob(null);
+    try {
+      const r = await fetch(`${API}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const { job_id } = await r.json();
+      pollJob(job_id, () => {});
+    } catch {
+      setBusy(false);
+      alert("서버 연결 실패. 서버가 켜져있는지 확인하세요 (포트 8000).");
+    }
+  }
+
+  // 2단계: 작업시작 (대본+설정 → 최종 렌더)
+  async function startRender() {
+    if (!job?.id || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/render`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: job.id, script, voice,
+          speaking_rate: rate, cta,
+        }),
+      });
+      const { job_id } = await r.json();
+      pollJob(job_id, () => {});
+    } catch {
+      setBusy(false);
+      alert("렌더 요청 실패.");
+    }
   }
 
   // 성우 미리듣기 — 재생/정지 토글. 다른 성우 누르면 이전건 멈춤.
@@ -78,11 +140,11 @@ export default function Home() {
     }
   }
 
-  // 데모: 실제 서버 연동 전까지 가짜 진행률
-  function startJobs() {
-    setJobs((prev) => prev.map((j) => ({ ...j, status: "처리중", progress: 1 })));
-    // TODO: packages/server 의 /jobs API 호출로 교체
-  }
+  const previewUrl = job?.output
+    ? `${API}${job.output}`
+    : job?.preview
+    ? `${API}${job.preview}`
+    : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
@@ -117,8 +179,8 @@ export default function Home() {
             <input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addJob()}
-              placeholder="https://www.douyin.com/video/..."
+              onKeyDown={(e) => e.key === "Enter" && analyze()}
+              placeholder="공유 텍스트 통째로 붙여넣어도 됩니다 (도우인 링크 자동추출)"
               className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
             <button
@@ -128,12 +190,44 @@ export default function Home() {
               붙여넣기
             </button>
             <button
-              onClick={addJob}
-              className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold hover:bg-slate-50"
+              onClick={analyze}
+              disabled={busy || !url.trim()}
+              className="rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-6 py-3 text-sm font-bold text-white shadow hover:opacity-90 disabled:opacity-40"
             >
-              추가
+              {busy && job?.status !== "done" ? "처리중..." : "분석"}
             </button>
           </div>
+
+          {/* 미리보기 — 자막제거 영상 / 최종 결과 */}
+          {(previewUrl || (busy && !job?.output)) && (
+            <div className="mt-5 flex flex-col items-center gap-3 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-950 p-5">
+              <div className="flex w-full items-center justify-between text-xs text-zinc-300">
+                <span>{job?.output ? "✅ 완성 영상" : "미리보기 (중국어 자막 제거됨)"}</span>
+                {job && <span>{job.stage} · {job.progress}%</span>}
+              </div>
+              {previewUrl ? (
+                <video
+                  key={previewUrl}
+                  src={previewUrl}
+                  controls
+                  className="max-h-[420px] rounded-xl"
+                  style={{ aspectRatio: "9/16" }}
+                />
+              ) : (
+                <div className="flex h-72 w-40 items-center justify-center rounded-xl bg-zinc-800 text-sm text-zinc-400">
+                  처리중...
+                </div>
+              )}
+              {job?.has_speech !== null && job?.status === "analyzed" && (
+                <p className="text-xs text-zinc-400">
+                  {job?.has_speech
+                    ? "🎤 음성 감지 → 번역 대본 자동작성됨 (아래에서 수정 가능)"
+                    : "🎵 음악만 있는 영상 → 아래에 대본을 직접 입력하세요"}
+                </p>
+              )}
+              {job?.error && <p className="text-xs text-rose-400">오류: {job.error}</p>}
+            </div>
+          )}
 
           {/* 성우 — 선택 + 재생/정지 미리듣기 */}
           <div className="mt-6">
@@ -237,13 +331,19 @@ export default function Home() {
           {/* 대본 */}
           <div className="mt-4">
             <label className="mb-2 block text-sm font-semibold text-slate-700">
-              한국어 대본 (비우면 원본 음성 유지)
+              한국어 대본
+              {job?.has_speech === false && (
+                <span className="ml-2 text-xs font-normal text-amber-600">음악만 있는 영상 — 직접 입력</span>
+              )}
+              {job?.has_speech === true && (
+                <span className="ml-2 text-xs font-normal text-emerald-600">번역 대본 자동작성됨 — 수정 가능</span>
+              )}
             </label>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
               rows={3}
-              placeholder="이 제품 정말 좋아요. 지금 바로 확인하세요..."
+              placeholder="비우면 원본 음성 유지. 분석하면 번역 대본이 자동으로 채워집니다."
               className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
@@ -251,14 +351,14 @@ export default function Home() {
           {/* 작업 시작 */}
           <div className="mt-6 flex items-center justify-between">
             <p className="text-xs text-slate-400">
-              결과는 9:16 세로 쇼츠 mp4로 생성됩니다.
+              {job?.id ? "분석 완료. 설정 확인 후 작업 시작하세요." : "먼저 링크를 분석하세요."}
             </p>
             <button
-              onClick={startJobs}
-              disabled={jobs.length === 0}
+              onClick={startRender}
+              disabled={!job?.id || busy}
               className="rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-8 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition hover:opacity-90 disabled:opacity-40"
             >
-              작업 시작
+              {busy && job?.status !== "analyzed" ? `${job?.stage || "처리중"}...` : "작업 시작"}
             </button>
           </div>
         </section>
@@ -268,32 +368,19 @@ export default function Home() {
           <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
         </div>
 
-        {/* 작업 큐 */}
-        <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="grid grid-cols-[60px_1fr_120px] gap-2 border-b border-slate-100 px-6 py-3 text-xs font-bold text-slate-500">
-            <div>No</div>
-            <div>URL</div>
-            <div className="text-right">상태</div>
-          </div>
-          {jobs.length === 0 ? (
-            <div className="px-6 py-16 text-center text-sm text-slate-400">
-              위에서 링크를 추가하세요. 여러 개를 한번에 처리할 수 있어요.
-            </div>
-          ) : (
-            jobs.map((j) => (
-              <div
-                key={j.no}
-                className="grid grid-cols-[60px_1fr_120px] items-center gap-2 border-b border-slate-50 px-6 py-3 text-sm"
-              >
-                <div className="text-slate-400">{j.no}</div>
-                <div className="truncate text-slate-700">{j.url}</div>
-                <div className="text-right">
-                  <StatusBadge status={j.status} />
-                </div>
-              </div>
-            ))
-          )}
-        </section>
+        {/* 완성 결과 다운로드 */}
+        {job?.output && (
+          <section className="mt-8 flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-5">
+            <div className="text-sm font-semibold text-emerald-700">✅ 영상 완성!</div>
+            <a
+              href={`${API}${job.output}`}
+              download
+              className="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
+            >
+              다운로드
+            </a>
+          </section>
+        )}
       </main>
     </div>
   );
@@ -308,16 +395,3 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function StatusBadge({ status }: { status: Job["status"] }) {
-  const map: Record<Job["status"], string> = {
-    대기중: "bg-slate-100 text-slate-500",
-    처리중: "bg-amber-100 text-amber-700",
-    완료: "bg-emerald-100 text-emerald-700",
-    오류: "bg-rose-100 text-rose-700",
-  };
-  return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${map[status]}`}>
-      {status}
-    </span>
-  );
-}

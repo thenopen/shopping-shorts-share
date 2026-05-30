@@ -1,21 +1,5 @@
 @import "tailwindcss";
 
-/* 자막용 무료 한국어 폰트. 검증된 fonts-archive CDN. pretendard는 layout <link>. */
-@font-face { font-family:"GmarketSans"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansMedium.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"GmarketSansBold"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansBold.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"SeoulNamsan"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/SeoulNamsan/SeoulNamsan-Bold.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"TmonMonsori"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/TmonMonsori/TmonMonsori.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"BMHANNAPro"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/BMHANNAPro/BMHANNAPro.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"BMDOHYEON"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/BMDOHYEON/BMDOHYEON.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"BMEULJIRO"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/BMEULJIRO/BMEULJIRO.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"BMJUA"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/BMJUA/BMJUA.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"BMYEONSUNG"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/BMYEONSUNG/BMYEONSUNG.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"Cafe24Ssurround"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/Cafe24Ssurround/Cafe24Ssurround.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"Jalnan"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/Jalnan/Jalnan.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"JejuDoldam"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/JejuDoldam/JejuDoldam.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"DovemayoGothic"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/DovemayoGothic/Dovemayo-Gothic.woff2") format("woff2"); font-display:swap; }
-@font-face { font-family:"HSSantokki"; src:url("https://cdn.jsdelivr.net/gh/fonts-archive/HSSantokki/HSSantokki.woff2") format("woff2"); font-display:swap; }
-
 :root {
   --background: #ffffff;
   --foreground: #171717;

@@ -32,6 +32,8 @@ export default function RootLayout({
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"
         />
+        {/* 자막 폰트 — Tailwind와 분리해 직접 로드 (순서충돌 회피) */}
+        <link rel="stylesheet" href="/fonts.css" />
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
