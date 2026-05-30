@@ -17,18 +17,7 @@ from app.config import BACKEND_ROOT
 
 KEY_PATH = BACKEND_ROOT / "auth" / "google_tts_key.json"
 
-# 한국어 고품질 보이스 (Chirp3-HD = 가장 자연스러움, Neural2 = 안정적)
-# 성우 닉네임 → Google 보이스명 매핑
-GOOGLE_VOICES = {
-    "하은": ("ko-KR-Chirp3-HD-Aoede", "FEMALE"),
-    "서연": ("ko-KR-Chirp3-HD-Kore", "FEMALE"),
-    "소담": ("ko-KR-Chirp3-HD-Leda", "FEMALE"),
-    "제니": ("ko-KR-Chirp3-HD-Zephyr", "FEMALE"),
-    "안나": ("ko-KR-Neural2-A", "FEMALE"),
-    "지연": ("ko-KR-Neural2-B", "FEMALE"),
-    "태형": ("ko-KR-Chirp3-HD-Puck", "MALE"),
-    "상호": ("ko-KR-Neural2-C", "MALE"),
-}
+# 보이스 매핑은 voices.py 단일 소스 사용
 
 
 def available() -> bool:
@@ -52,9 +41,10 @@ def synthesize(text: str, out_path: Path, nickname: str = "소담",
     """
     from google.cloud import texttospeech as tts
 
+    from app.voices import get_voice
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    voice_name, gender = GOOGLE_VOICES.get(nickname, GOOGLE_VOICES["소담"])
+    voice_name = get_voice(nickname).google
 
     client = _client()
     synthesis_input = tts.SynthesisInput(text=text)

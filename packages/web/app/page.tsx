@@ -1,8 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
-const VOICES = ["하은", "서연", "소담", "제니", "안나", "지연", "태형", "상호"];
+const VOICES: { name: string; gender: "F" | "M" }[] = [
+  { name: "소담", gender: "F" }, { name: "서연", gender: "F" }, { name: "하은", gender: "F" },
+  { name: "제니", gender: "F" }, { name: "지우", gender: "F" }, { name: "수아", gender: "F" },
+  { name: "나윤", gender: "F" }, { name: "예린", gender: "F" }, { name: "가은", gender: "F" },
+  { name: "리아", gender: "F" }, { name: "채원", gender: "F" }, { name: "유나", gender: "F" },
+  { name: "민서", gender: "F" }, { name: "아인", gender: "F" },
+  { name: "태형", gender: "M" }, { name: "준호", gender: "M" }, { name: "도윤", gender: "M" },
+  { name: "시우", gender: "M" }, { name: "재민", gender: "M" }, { name: "우진", gender: "M" },
+  { name: "성호", gender: "M" }, { name: "건우", gender: "M" }, { name: "현우", gender: "M" },
+  { name: "지훈", gender: "M" }, { name: "동현", gender: "M" }, { name: "민준", gender: "M" },
+  { name: "상호", gender: "M" },
+];
 // 폰트 표시명 → CSS font-family (globals.css의 @font-face와 일치)
 const FONTS: { label: string; css: string }[] = [
   { label: "G마켓 산스", css: "GmarketSans" },
@@ -34,6 +45,9 @@ export default function Home() {
   const [rate, setRate] = useState(1.0);
   const [subMode, setSubMode] = useState<"bar" | "blur">("bar");
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   function addJob() {
     if (!url.trim()) return;
@@ -44,10 +58,23 @@ export default function Home() {
     setUrl("");
   }
 
-  // 성우 미리듣기 — public/voices/<성우>.mp3 재생
-  function playVoice(nick: string) {
+  // 성우 미리듣기 — 재생/정지 토글. 다른 성우 누르면 이전건 멈춤.
+  function toggleVoice(nick: string) {
+    // 재생중인 거 정지
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    // 같은 거 다시 누르면 정지만
+    if (playing === nick) {
+      setPlaying(null);
+      return;
+    }
     const audio = new Audio(`/voices/${encodeURIComponent(nick)}.mp3`);
-    audio.play().catch(() => {});
+    audioRef.current = audio;
+    audio.onended = () => setPlaying(null);
+    audio.play().catch(() => setPlaying(null));
+    setPlaying(nick);
   }
 
   async function pasteFromClipboard() {
@@ -116,32 +143,52 @@ export default function Home() {
             </button>
           </div>
 
-          {/* 성우 — 선택 + 미리듣기 */}
+          {/* 성우 — 선택 + 재생/정지 미리듣기 */}
           <div className="mt-6">
-            <div className="mb-2 text-sm font-semibold text-slate-700">
-              성우 <span className="text-xs font-normal text-slate-400">(▶ 눌러 미리듣기)</span>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-700">
+                성우 <span className="text-xs font-normal text-slate-400">({VOICES.length}종 · ▶ 미리듣기)</span>
+              </div>
+              <div className="flex gap-1">
+                {([["all", "전체"], ["F", "여성"], ["M", "남성"]] as const).map(([g, lbl]) => (
+                  <button
+                    key={g}
+                    onClick={() => setGenderFilter(g)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                      genderFilter === g ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {VOICES.map((v) => (
+            <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
+              {VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter).map((v) => (
                 <div
-                  key={v}
-                  onClick={() => setVoice(v)}
+                  key={v.name}
+                  onClick={() => setVoice(v.name)}
                   className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                    voice === v
+                    voice === v.name
                       ? "border-indigo-400 bg-indigo-50 font-semibold text-indigo-700"
                       : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
-                  <span>{v}</span>
+                  <span className="flex items-center gap-1.5">
+                    {v.name}
+                    <span className={`text-[10px] ${v.gender === "F" ? "text-pink-400" : "text-sky-400"}`}>
+                      {v.gender === "F" ? "여" : "남"}
+                    </span>
+                  </span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      playVoice(v);
+                      toggleVoice(v.name);
                     }}
                     className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs shadow hover:bg-indigo-100"
-                    aria-label={`${v} 미리듣기`}
+                    aria-label={`${v.name} 미리듣기`}
                   >
-                    ▶
+                    {playing === v.name ? "■" : "▶"}
                   </button>
                 </div>
               ))}

@@ -1,36 +1,72 @@
-"""성우 닉네임 ↔ edge-tts 보이스 매핑.
+"""성우 닉네임 ↔ TTS 보이스 매핑.
 
-UI에 보이는 성우 이름(하은/서연/소담/...)을 실제 edge-tts 보이스 ID로 연결.
-edge-tts 한국어 보이스는 현재 2종(SunHi=여, InJoon=남)뿐이라,
-부족한 닉네임은 같은 보이스에 pitch/rate를 달리해 캐릭터를 만든다.
+기본 엔진 = Google Cloud TTS (Chirp3-HD = 가장 자연스러움).
+Google 키 없으면 edge-tts로 폴백.
 
-TODO: 보이스 다양화 — Piper(로컬, 한국어 모델 여러개) 도입 검토.
-      edge-tts만으로는 8가지 뚜렷한 목소리 한계.
+Google 한국어 보이스 41개 중 자연스러운 Chirp3-HD 위주로 한국 닉네임 부여.
+각 닉네임 = (google_voice, edge_id, gender). edge_id는 폴백용.
 """
 from dataclasses import dataclass
 
 
 @dataclass
 class Voice:
-    nickname: str       # UI 표시명
-    edge_id: str        # edge-tts 보이스 ID
-    pitch: str = "+0Hz"
+    nickname: str
+    google: str          # Google 보이스명
+    edge_id: str         # edge-tts 폴백 보이스
+    gender: str          # "F" | "M"
+    pitch: str = "+0Hz"  # edge 폴백용
     rate: str = "+0%"
-    gender: str = "F"
 
 
-# 스크린샷의 성우 8종. 현재는 2개 실보이스 + pitch 변형으로 흉내.
-VOICES = {
-    "하은": Voice("하은", "ko-KR-SunHiNeural", pitch="+15Hz", gender="F"),
-    "서연": Voice("서연", "ko-KR-SunHiNeural", pitch="+5Hz", gender="F"),
-    "소담": Voice("소담", "ko-KR-SunHiNeural", pitch="+0Hz", gender="F"),
-    "제니": Voice("제니", "ko-KR-SunHiNeural", pitch="-5Hz", rate="+5%", gender="F"),
-    "안나": Voice("안나", "ko-KR-SunHiNeural", pitch="+10Hz", rate="-5%", gender="F"),
-    "지연": Voice("지연", "ko-KR-SunHiNeural", pitch="-10Hz", gender="F"),
-    "태형": Voice("태형", "ko-KR-InJoonNeural", pitch="+0Hz", gender="M"),
-    "상호": Voice("상호", "ko-KR-InJoonNeural", pitch="-8Hz", rate="-3%", gender="M"),
-}
+_EDGE_F = "ko-KR-SunHiNeural"
+_EDGE_M = "ko-KR-InJoonNeural"
+
+# 여성 보이스 (Chirp3-HD)
+_FEMALE = [
+    ("소담", "ko-KR-Chirp3-HD-Leda"),
+    ("서연", "ko-KR-Chirp3-HD-Kore"),
+    ("하은", "ko-KR-Chirp3-HD-Aoede"),
+    ("제니", "ko-KR-Chirp3-HD-Zephyr"),
+    ("지우", "ko-KR-Chirp3-HD-Autonoe"),
+    ("수아", "ko-KR-Chirp3-HD-Callirrhoe"),
+    ("나윤", "ko-KR-Chirp3-HD-Despina"),
+    ("예린", "ko-KR-Chirp3-HD-Erinome"),
+    ("가은", "ko-KR-Chirp3-HD-Gacrux"),
+    ("리아", "ko-KR-Chirp3-HD-Laomedeia"),
+    ("채원", "ko-KR-Chirp3-HD-Pulcherrima"),
+    ("유나", "ko-KR-Chirp3-HD-Sulafat"),
+    ("민서", "ko-KR-Chirp3-HD-Vindemiatrix"),
+    ("아인", "ko-KR-Neural2-A"),
+]
+
+# 남성 보이스 (Chirp3-HD)
+_MALE = [
+    ("태형", "ko-KR-Chirp3-HD-Puck"),
+    ("준호", "ko-KR-Chirp3-HD-Charon"),
+    ("도윤", "ko-KR-Chirp3-HD-Fenrir"),
+    ("시우", "ko-KR-Chirp3-HD-Orus"),
+    ("재민", "ko-KR-Chirp3-HD-Achird"),
+    ("우진", "ko-KR-Chirp3-HD-Algenib"),
+    ("성호", "ko-KR-Chirp3-HD-Alnilam"),
+    ("건우", "ko-KR-Chirp3-HD-Enceladus"),
+    ("현우", "ko-KR-Chirp3-HD-Iapetus"),
+    ("지훈", "ko-KR-Chirp3-HD-Rasalgethi"),
+    ("동현", "ko-KR-Chirp3-HD-Schedar"),
+    ("민준", "ko-KR-Chirp3-HD-Umbriel"),
+    ("상호", "ko-KR-Neural2-C"),
+]
+
+VOICES: dict[str, Voice] = {}
+for nick, g in _FEMALE:
+    VOICES[nick] = Voice(nick, g, _EDGE_F, "F")
+for nick, g in _MALE:
+    VOICES[nick] = Voice(nick, g, _EDGE_M, "M")
 
 
 def get_voice(nickname: str) -> Voice:
     return VOICES.get(nickname, VOICES["소담"])
+
+
+def all_voices() -> list[Voice]:
+    return list(VOICES.values())
