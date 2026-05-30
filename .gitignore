@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+dist/
+
+# Work files
+backend/workdir/*
+!backend/workdir/.gitkeep
+*.mp4
+*.mp3
+*.wav
+*.tmp
+
+# DB
+*.sqlite
+*.db
+
+# Env
+.env
+.env.local
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
