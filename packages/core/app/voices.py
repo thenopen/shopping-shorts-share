@@ -27,7 +27,6 @@ _FEMALE = [
     ("소담", "ko-KR-Chirp3-HD-Leda"),
     ("서연", "ko-KR-Chirp3-HD-Kore"),
     ("하은", "ko-KR-Chirp3-HD-Aoede"),
-    ("제니", "ko-KR-Chirp3-HD-Zephyr"),
     ("지우", "ko-KR-Chirp3-HD-Autonoe"),
     ("수아", "ko-KR-Chirp3-HD-Callirrhoe"),
     ("나윤", "ko-KR-Chirp3-HD-Despina"),
@@ -37,7 +36,6 @@ _FEMALE = [
     ("채원", "ko-KR-Chirp3-HD-Pulcherrima"),
     ("유나", "ko-KR-Chirp3-HD-Sulafat"),
     ("민서", "ko-KR-Chirp3-HD-Vindemiatrix"),
-    ("아인", "ko-KR-Neural2-A"),
 ]
 
 # 남성 보이스 (Chirp3-HD)

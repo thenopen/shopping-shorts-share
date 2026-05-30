@@ -5,10 +5,9 @@ import CaptionEditor, { CaptionStyle, DEFAULT_STYLE } from "./CaptionEditor";
 
 const VOICES: { name: string; gender: "F" | "M" }[] = [
   { name: "소담", gender: "F" }, { name: "서연", gender: "F" }, { name: "하은", gender: "F" },
-  { name: "제니", gender: "F" }, { name: "지우", gender: "F" }, { name: "수아", gender: "F" },
-  { name: "나윤", gender: "F" }, { name: "예린", gender: "F" }, { name: "가은", gender: "F" },
-  { name: "리아", gender: "F" }, { name: "채원", gender: "F" }, { name: "유나", gender: "F" },
-  { name: "민서", gender: "F" }, { name: "아인", gender: "F" },
+  { name: "지우", gender: "F" }, { name: "수아", gender: "F" }, { name: "나윤", gender: "F" },
+  { name: "예린", gender: "F" }, { name: "가은", gender: "F" }, { name: "리아", gender: "F" },
+  { name: "채원", gender: "F" }, { name: "유나", gender: "F" }, { name: "민서", gender: "F" },
   { name: "태형", gender: "M" }, { name: "준호", gender: "M" }, { name: "도윤", gender: "M" },
   { name: "시우", gender: "M" }, { name: "재민", gender: "M" }, { name: "우진", gender: "M" },
   { name: "성호", gender: "M" }, { name: "건우", gender: "M" }, { name: "현우", gender: "M" },
