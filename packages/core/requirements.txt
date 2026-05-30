@@ -2,17 +2,20 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
+python-multipart==0.0.20
+
+# Download/browser
+yt-dlp==2025.1.15
+playwright==1.57.0
+
+# AI APIs
+google-genai>=1.0.0
+google-cloud-texttospeech>=2.25.0
 
 # Pipeline
-yt-dlp==2025.1.15
 edge-tts==7.2.8
 ffmpeg-python==0.2.0
-
-# Phase 2 (자막제거 / STT / 번역) — 무거움, 필요할 때 주석 해제
-# easyocr==1.7.2
-# opencv-python==4.10.0.84
-# faster-whisper==1.1.0
-# deep-translator==1.11.4
-
-# Util
-python-multipart==0.0.20
+opencv-python==4.10.0.84
+easyocr==1.7.2
+faster-whisper==1.1.0
+deep-translator==1.11.4

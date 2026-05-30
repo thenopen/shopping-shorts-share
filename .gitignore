@@ -42,3 +42,10 @@ auth/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# IDE / 로컬 도구 설정
+.vscode/
+.claude/
+
+# 분석용 임시 이미지
+workdir_analyze/

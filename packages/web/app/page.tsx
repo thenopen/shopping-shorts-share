@@ -1,22 +1,38 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useRef, useState } from "react";
 import CaptionEditor, { CaptionStyle, DEFAULT_STYLE } from "./CaptionEditor";
 
 const VOICES: { name: string; gender: "F" | "M" }[] = [
-  { name: "소담", gender: "F" }, { name: "서연", gender: "F" }, { name: "하은", gender: "F" },
-  { name: "지우", gender: "F" }, { name: "수아", gender: "F" }, { name: "나윤", gender: "F" },
-  { name: "예린", gender: "F" }, { name: "가은", gender: "F" }, { name: "리아", gender: "F" },
-  { name: "채원", gender: "F" }, { name: "유나", gender: "F" }, { name: "민서", gender: "F" },
-  { name: "태형", gender: "M" }, { name: "준호", gender: "M" }, { name: "도윤", gender: "M" },
-  { name: "시우", gender: "M" }, { name: "재민", gender: "M" }, { name: "우진", gender: "M" },
-  { name: "성호", gender: "M" }, { name: "건우", gender: "M" }, { name: "현우", gender: "M" },
-  { name: "동현", gender: "M" }, { name: "민준", gender: "M" },
+  { name: "소담", gender: "F" },
+  { name: "서연", gender: "F" },
+  { name: "나윤", gender: "F" },
+  { name: "지우", gender: "F" },
+  { name: "수아", gender: "F" },
+  { name: "하은", gender: "F" },
+  { name: "예린", gender: "F" },
+  { name: "가은", gender: "F" },
+  { name: "리아", gender: "F" },
+  { name: "채원", gender: "F" },
+  { name: "유나", gender: "F" },
+  { name: "민서", gender: "F" },
+  { name: "태형", gender: "M" },
+  { name: "준호", gender: "M" },
+  { name: "현우", gender: "M" },
+  { name: "시우", gender: "M" },
+  { name: "도윤", gender: "M" },
+  { name: "재민", gender: "M" },
+  { name: "성호", gender: "M" },
+  { name: "건우", gender: "M" },
+  { name: "우진", gender: "M" },
+  { name: "동현", gender: "M" },
+  { name: "민준", gender: "M" },
 ];
+
 const CTAS = [
-  { key: "comment", label: "제품 정보는 고정 댓글을 확인해주세요!" },
-  { key: "profile", label: "구매처는 프로필 링크에 있어요!" },
-  { key: "link", label: "자세한 내용은 하단 링크를 클릭하세요!" },
+  { key: "comment", label: "제품 정보는 고정 댓글에서 확인하세요!" },
+  { key: "profile", label: "구매처는 프로필 링크에 있어요." },
+  { key: "link", label: "자세한 내용은 하단 링크를 눌러주세요." },
 ];
 
 const API = "http://127.0.0.1:8000";
@@ -27,8 +43,8 @@ type JobState = {
   progress: number;
   stage: string;
   script: string;
-  preview: string | null;   // 자막제거 영상 경로
-  output: string | null;    // 최종 영상 경로
+  preview: string | null;
+  output: string | null;
   has_speech: boolean | null;
   error: string | null;
 };
@@ -42,34 +58,38 @@ export default function Home() {
   const [rate, setRate] = useState(1.0);
   const [playing, setPlaying] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
   const [job, setJob] = useState<JobState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scriptBusy, setScriptBusy] = useState(false);
+  const [refineBusy, setRefineBusy] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentNotes, setAgentNotes] = useState("");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 작업 상태 폴링
-  function pollJob(id: string, onAnalyzed: (j: JobState) => void) {
+  function stopPoll() {
     if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  }
+
+  function pollJob(id: string, stopStatuses: string[], done?: (j: JobState) => void) {
+    stopPoll();
     pollRef.current = setInterval(async () => {
       try {
         const r = await fetch(`${API}/jobs/${id}`);
         const j: JobState = await r.json();
         setJob(j);
-        if (j.status === "analyzed") {
-          clearInterval(pollRef.current!);
+        if (j.script) setScript(j.script);
+        if (stopStatuses.includes(j.status)) {
+          stopPoll();
           setBusy(false);
-          if (j.script) setScript(j.script);
-          onAnalyzed(j);
-        } else if (j.status === "done" || j.status === "error") {
-          clearInterval(pollRef.current!);
-          setBusy(false);
+          setScriptBusy(false);
+          done?.(j);
         }
       } catch {}
-    }, 1500);
+    }, 1200);
   }
 
-  // 1단계: 분석 (다운로드 + 자막제거 + 자동대본)
   async function analyze() {
     if (!url.trim() || busy) return;
     setBusy(true);
@@ -81,15 +101,13 @@ export default function Home() {
         body: JSON.stringify({ url: url.trim() }),
       });
       const { job_id } = await r.json();
-      pollJob(job_id, () => {});
+      pollJob(job_id, ["analyzed", "error"]);
     } catch {
       setBusy(false);
-      alert("서버 연결 실패. 서버가 켜져있는지 확인하세요 (포트 8000).");
+      alert("서버 연결 실패. 8000 포트 백엔드를 확인하세요.");
     }
   }
 
-  // 자동 대본생성 (STT→번역)
-  const [scriptBusy, setScriptBusy] = useState(false);
   async function genScript() {
     if (!job?.id || scriptBusy) return;
     setScriptBusy(true);
@@ -99,25 +117,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ job_id: job.id }),
       });
-      // transcribe 완료까지 폴링
-      const timer = setInterval(async () => {
-        const r = await fetch(`${API}/jobs/${job.id}`);
-        const j: JobState = await r.json();
-        if (j.status === "transcribed" || j.status === "error") {
-          clearInterval(timer);
-          setScriptBusy(false);
-          if (j.script) setScript(j.script);
-          setJob(j);
-        }
-      }, 1500);
+      pollJob(job.id, ["transcribed", "error"]);
     } catch {
       setScriptBusy(false);
-      alert("대본 생성 실패.");
+      alert("자동 대본 생성 실패.");
     }
   }
 
-  // AI 대본 다듬기 (Gemini)
-  const [refineBusy, setRefineBusy] = useState(false);
   async function refineScript() {
     if (!script.trim() || refineBusy) return;
     setRefineBusy(true);
@@ -128,19 +134,43 @@ export default function Home() {
         body: JSON.stringify({ script }),
       });
       if (!r.ok) {
-        alert("AI 수정 실패 (Gemini 키 필요).");
+        alert("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
       } else {
-        const { script: refined } = await r.json();
-        if (refined) setScript(refined);
+        const data = await r.json();
+        if (data.script) setScript(data.script);
       }
     } catch {
-      alert("AI 수정 실패.");
+      alert("AI 가공 실패.");
     } finally {
       setRefineBusy(false);
     }
   }
 
-  // 2단계: 작업시작 (대본+설정 → 최종 렌더)
+  async function agentRefineScript() {
+    if (!script.trim() || agentBusy) return;
+    setAgentBusy(true);
+    setAgentNotes("");
+    try {
+      const r = await fetch(`${API}/agent/refine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script, mode: "shopping_shorts" }),
+      });
+      if (!r.ok) {
+        const msg = await r.text();
+        alert(`Antigravity 검수 실패: ${msg}`);
+      } else {
+        const data = await r.json();
+        if (data.script) setScript(data.script);
+        if (data.notes) setAgentNotes(data.notes);
+      }
+    } catch {
+      alert("Antigravity 검수 실패.");
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
   async function startRender() {
     if (!job?.id || busy) return;
     setBusy(true);
@@ -148,27 +178,21 @@ export default function Home() {
       const r = await fetch(`${API}/render`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: job.id, script, voice,
-          speaking_rate: rate, cta,
-        }),
+        body: JSON.stringify({ job_id: job.id, script, voice, speaking_rate: rate, cta }),
       });
       const { job_id } = await r.json();
-      pollJob(job_id, () => {});
+      pollJob(job_id, ["done", "error"]);
     } catch {
       setBusy(false);
       alert("렌더 요청 실패.");
     }
   }
 
-  // 성우 미리듣기 — 재생/정지 토글. 다른 성우 누르면 이전건 멈춤.
   function toggleVoice(nick: string) {
-    // 재생중인 거 정지
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
-    // 같은 거 다시 누르면 정지만
     if (playing === nick) {
       setPlaying(null);
       return;
@@ -182,118 +206,90 @@ export default function Home() {
 
   async function pasteFromClipboard() {
     try {
-      const t = await navigator.clipboard.readText();
-      setUrl(t);
-    } catch {
-      /* 권한 거부시 무시 */
-    }
+      setUrl(await navigator.clipboard.readText());
+    } catch {}
   }
 
-  const previewUrl = job?.output
-    ? `${API}${job.output}`
-    : job?.preview
-    ? `${API}${job.preview}`
-    : null;
+  const previewUrl = job?.output ? `${API}${job.output}` : job?.preview ? `${API}${job.preview}` : null;
+  const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
-      {/* 헤더 */}
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white/80 px-8 py-5 backdrop-blur">
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white font-bold">
-            S
-          </div>
-          <h1 className="text-xl font-extrabold tracking-tight">쇼핑쇼츠 메이커</h1>
-          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600">
-            BETA
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium hover:bg-slate-50">
-            로그인
-          </button>
-          <button className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
-            구독
-          </button>
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-white font-bold">S</div>
+          <h1 className="text-xl font-extrabold tracking-tight">쇼핏 쇼츠 메이커</h1>
+          <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600">BETA</span>
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-10">
-        {/* 링크 입력 */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <label className="mb-2 block text-sm font-semibold text-slate-700">
-            도우인 영상 링크
-          </label>
-          <div className="flex gap-2">
+      <main className="mx-auto max-w-5xl px-6 py-8">
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <label className="mb-2 block text-sm font-semibold text-slate-700">도우인 영상 링크</label>
+          <div className="flex flex-col gap-2 md:flex-row">
             <input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && analyze()}
-              placeholder="공유 텍스트 통째로 붙여넣어도 됩니다 (도우인 링크 자동추출)"
-              className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              placeholder="공유 텍스트 또는 링크를 붙여넣으세요"
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
-            <button
-              onClick={pasteFromClipboard}
-              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700"
-            >
+            <button onClick={pasteFromClipboard} className="rounded-lg bg-slate-800 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700">
               붙여넣기
             </button>
             <button
               onClick={analyze}
               disabled={busy || !url.trim()}
-              className="rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-6 py-3 text-sm font-bold text-white shadow hover:opacity-90 disabled:opacity-40"
+              className="rounded-lg bg-indigo-600 px-6 py-3 text-sm font-bold text-white shadow hover:bg-indigo-500 disabled:opacity-40"
             >
-              {busy && job?.status !== "done" ? "처리중..." : "분석"}
+              {busy && job?.status !== "done" ? "분석 중..." : "분석"}
             </button>
           </div>
 
-          {/* 분석 진행 표시 (영상 아직 없을 때) */}
-          {busy && !previewUrl && job?.status !== "done" && (
-            <div className="mt-5 flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-4 text-sm text-zinc-300">
+          {(busy || scriptBusy) && job?.status !== "done" && (
+            <div className="mt-5 flex items-center gap-3 rounded-lg bg-slate-900 px-5 py-4 text-sm text-zinc-300">
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
-              {job?.stage || "분석 준비중"} · {job?.progress ?? 0}%
+              {job?.stage || "준비 중"} · {job?.progress ?? 0}%
             </div>
           )}
-          {job?.error && (
-            <p className="mt-3 rounded-lg bg-rose-50 px-4 py-2 text-xs text-rose-600">오류: {job.error}</p>
+
+          {job?.error && <p className="mt-3 rounded-lg bg-rose-50 px-4 py-2 text-xs text-rose-600">오류: {job.error}</p>}
+
+          {previewUrl && (
+            <div className="mt-6 flex flex-col items-center gap-2 rounded-xl bg-zinc-950 p-5">
+              <div className="flex w-full items-center justify-between text-xs text-zinc-300">
+                <span>{job?.output ? "완성 영상" : "자막 제거 미리보기"}</span>
+                {busy && <span>{job?.stage} · {job?.progress}%</span>}
+              </div>
+              <video key={previewUrl} src={previewUrl} controls className="max-h-[440px] rounded-lg bg-black" style={{ aspectRatio: "9/16" }} />
+            </div>
           )}
 
-          {/* 성우 — 선택 + 재생/정지 미리듣기 */}
           <div className="mt-6">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-700">
-                성우 <span className="text-xs font-normal text-slate-400">({VOICES.length}종 · ▶ 미리듣기)</span>
-              </div>
+              <div className="text-sm font-semibold text-slate-700">보이스</div>
               <div className="flex gap-1">
-                {([["all", "전체"], ["F", "여성"], ["M", "남성"]] as const).map(([g, lbl]) => (
-                  <button
-                    key={g}
-                    onClick={() => setGenderFilter(g)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                      genderFilter === g ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
+                {([
+                  ["all", "전체"],
+                  ["F", "여성"],
+                  ["M", "남성"],
+                ] as const).map(([g, lbl]) => (
+                  <button key={g} onClick={() => setGenderFilter(g)} className={`rounded-md px-2.5 py-1 text-xs font-medium ${genderFilter === g ? "bg-indigo-500 text-white" : "bg-slate-100 text-slate-500"}`}>
                     {lbl}
                   </button>
                 ))}
               </div>
             </div>
             <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
-              {VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter).map((v) => (
+              {visibleVoices.map((v) => (
                 <div
                   key={v.name}
                   onClick={() => setVoice(v.name)}
-                  className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm ${
-                    voice === v.name
-                      ? "border-indigo-400 bg-indigo-50 font-semibold text-indigo-700"
-                      : "border-slate-200 hover:bg-slate-50"
-                  }`}
+                  className={`flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-sm ${voice === v.name ? "border-indigo-400 bg-indigo-50 font-semibold text-indigo-700" : "border-slate-200 hover:bg-slate-50"}`}
                 >
                   <span className="flex items-center gap-1.5">
                     {v.name}
-                    <span className={`text-[10px] ${v.gender === "F" ? "text-pink-400" : "text-sky-400"}`}>
-                      {v.gender === "F" ? "여" : "남"}
-                    </span>
+                    <span className={`text-[10px] ${v.gender === "F" ? "text-pink-400" : "text-sky-400"}`}>{v.gender === "F" ? "여" : "남"}</span>
                   </span>
                   <button
                     onClick={(e) => {
@@ -310,34 +306,9 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 영상 미리보기 — 성우 밑, 대본 위. 길이·결과 확인용 */}
-          {previewUrl && (
-            <div className="mt-6 flex flex-col items-center gap-2 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-950 p-5">
-              <div className="flex w-full items-center justify-between text-xs text-zinc-300">
-                <span>{job?.output ? "✅ 완성 영상 (더빙·자막 적용)" : "미리보기 (중국어 자막 제거됨)"}</span>
-                {busy && job?.status !== "done" && <span>{job?.stage} · {job?.progress}%</span>}
-              </div>
-              <video
-                key={previewUrl}
-                src={previewUrl}
-                controls
-                className="max-h-[440px] rounded-xl bg-black"
-                style={{ aspectRatio: "9/16" }}
-              />
-              <p className="text-[11px] text-zinc-400">
-                ▶ 재생해서 길이·자막제거 상태를 확인하세요
-              </p>
-            </div>
-          )}
-
-          {/* 설정 카드들 */}
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Field label="CTA (마지막 멘트)">
-              <select
-                value={cta}
-                onChange={(e) => setCta(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              >
+            <Field label="CTA">
+              <select value={cta} onChange={(e) => setCta(e.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
                 {CTAS.map((c) => (
                   <option key={c.key} value={c.key}>
                     {c.label}
@@ -345,88 +316,55 @@ export default function Home() {
                 ))}
               </select>
             </Field>
-
-            <Field label={`배속 (${rate.toFixed(1)}x)`}>
-              <input
-                type="range"
-                min={0.5}
-                max={2}
-                step={0.1}
-                value={rate}
-                onChange={(e) => setRate(parseFloat(e.target.value))}
-                className="w-full"
-              />
+            <Field label={`배속 ${rate.toFixed(1)}x`}>
+              <input type="range" min={0.5} max={2} step={0.1} value={rate} onChange={(e) => setRate(parseFloat(e.target.value))} className="w-full" />
             </Field>
-
             <Field label="중국어 자막 제거">
-              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                <span>✓ 자동</span>
-                <span className="text-emerald-600/70">AI가 자막 위치를 인식해 자연스럽게 제거합니다</span>
-              </div>
+              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">분석 단계에서 자동 처리</div>
             </Field>
           </div>
 
-          {/* 대본 */}
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between">
               <label className="text-sm font-semibold text-slate-700">한국어 대본</label>
               <div className="flex gap-2">
-                <button
-                  onClick={genScript}
-                  disabled={!job?.id || scriptBusy}
-                  className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-40"
-                  title="원본 영상의 중국어 음성을 인식해 번역 대본 생성"
-                >
-                  {scriptBusy ? "생성중..." : "🎤 자동대본생성"}
+                <button onClick={genScript} disabled={!job?.id || scriptBusy} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-40">
+                  {scriptBusy ? "생성 중..." : "자동 대본 생성"}
                 </button>
-                <button
-                  onClick={refineScript}
-                  disabled={!script.trim() || refineBusy}
-                  className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-1.5 text-xs font-semibold text-fuchsia-700 hover:bg-fuchsia-100 disabled:opacity-40"
-                  title="어색한 번역을 자연스럽게 다듬기"
-                >
-                  {refineBusy ? "수정중..." : "✨ AI로 수정"}
+                <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-1.5 text-xs font-semibold text-fuchsia-700 hover:bg-fuchsia-100 disabled:opacity-40">
+                  {refineBusy ? "가공 중..." : "AI로 가공"}
+                </button>
+                <button onClick={agentRefineScript} disabled={!script.trim() || agentBusy} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-40">
+                  {agentBusy ? "검수 중..." : "Antigravity 검수"}
                 </button>
               </div>
             </div>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
-              rows={3}
-              placeholder="비우면 원본 음성 유지. 분석하면 번역 대본이 자동으로 채워집니다."
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              rows={5}
+              placeholder="자동 대본 생성 버튼을 누르거나 직접 입력하세요."
+              className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
             />
+            {agentNotes && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{agentNotes}</p>}
           </div>
 
-          {/* 작업 시작 */}
           <div className="mt-6 flex items-center justify-between">
-            <p className="text-xs text-slate-400">
-              {job?.id ? "분석 완료. 설정 확인 후 작업 시작하세요." : "먼저 링크를 분석하세요."}
-            </p>
-            <button
-              onClick={startRender}
-              disabled={!job?.id || busy}
-              className="rounded-xl bg-gradient-to-r from-indigo-500 to-fuchsia-500 px-8 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition hover:opacity-90 disabled:opacity-40"
-            >
-              {busy && job?.status !== "analyzed" ? `${job?.stage || "처리중"}...` : "작업 시작"}
+            <p className="text-xs text-slate-400">{job?.id ? "분석 완료 후 대본을 확인하고 작업을 시작하세요." : "먼저 링크를 분석하세요."}</p>
+            <button onClick={startRender} disabled={!job?.id || busy} className="rounded-lg bg-indigo-600 px-8 py-3 text-sm font-bold text-white shadow hover:bg-indigo-500 disabled:opacity-40">
+              {busy && job?.status !== "analyzed" ? `${job?.stage || "처리 중"}...` : "작업 시작"}
             </button>
           </div>
         </section>
 
-        {/* 자막 스타일 편집기 */}
         <div className="mt-8">
           <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
         </div>
 
-        {/* 완성 결과 다운로드 */}
         {job?.output && (
-          <section className="mt-8 flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-5">
-            <div className="text-sm font-semibold text-emerald-700">✅ 영상 완성!</div>
-            <a
-              href={`${API}${job.output}`}
-              download
-              className="rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
-            >
+          <section className="mt-8 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-6 py-5">
+            <div className="text-sm font-semibold text-emerald-700">영상 완성</div>
+            <a href={`${API}${job.output}`} download className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
               다운로드
             </a>
           </section>
@@ -438,10 +376,9 @@ export default function Home() {
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
       <div className="mb-2 text-xs font-semibold text-slate-500">{label}</div>
       {children}
     </div>
   );
 }
-
