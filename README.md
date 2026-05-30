@@ -1,49 +1,62 @@
-# AI 쇼핑 쇼츠 메이커
+# 쇼핑쇼츠 메이커
 
-영상 URL → 한국어 더빙 + 자막/CTA → 9:16 세로 쇼츠 자동 생성.
-무료 스택 (edge-tts, yt-dlp, ffmpeg). API키 불필요.
+도우인(중국 틱톡) 상품영상 링크 → 자동으로 **한국어 쇼핑 쇼츠**로 변환.
+웹앱 + 데스크톱앱, 구독형 유료 SaaS가 목표.
 
-> ⚠️ 저작권 고지: 남의 영상 재가공 시 원저작권 살아있음. 사용 책임은 본인. 자세히는 [PLAN.md](PLAN.md) 참고.
+> 👀 **처음 보는 사람(동생)은 [ARCHITECTURE.md](ARCHITECTURE.md) 부터 읽으세요.** 전체 그림이 거기 있음.
+>
+> ⚠️ 저작권: 남의 영상 재가공해도 원저작권 살아있음. 사용 책임은 사용자 본인. → [PLAN.md](PLAN.md)
 
-## 요구사항
-- Python 3.12
-- Node 24+ (프론트, 추후)
-- ffmpeg (PATH 등록) ✓ 설치됨
+## 모노레포 구조
 
-## 셋업 (backend)
+```
+packages/
+├── core/      ← 영상처리 엔진 (Python). 심장. 로컬·서버 공용.   [일부 동작]
+├── server/    ← SaaS 백엔드 (FastAPI). 인증·결제·작업큐.        [구조만]
+├── web/       ← 웹앱 (Next.js).                                [구조만]
+└── desktop/   ← 데스크톱앱 (Tauri).                            [구조만]
+shared/        ← 공통 스키마/타입
+```
+
+각 패키지 폴더에 README 있음. 역할은 거기 참고.
+
+## 지금 동작하는 것 (core 엔진)
+
+요구사항: Python 3.12, ffmpeg(PATH).
+
 ```powershell
-cd backend
+cd packages\core
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# 무료 TTS 동작 확인 (제일 쉬운 검증)
+.venv\Scripts\python.exe -m app.pipeline.tts
+
+# 전체 파이프라인 (구현된 단계 실행, Phase2는 [SKIP] 로그)
+.venv\Scripts\python.exe -m app.pipeline.run "<도우인URL>" --script "한국어 대본" --voice 소담 --cta profile
 ```
 
-VSCode 인터프리터: `Ctrl+Shift+P` → "Python: Select Interpreter" → `backend\.venv` 선택.
+VSCode 인터프리터: `Ctrl+Shift+P` → "Python: Select Interpreter" → `packages\core\.venv`.
 
-## 사용 (CLI MVP)
-```powershell
-cd backend
-# 대본 직접 입력
-.venv\Scripts\python.exe -m app.pipeline.run "<영상URL>" --script "안녕하세요. 이 제품 정말 좋아요." --cta "지금 구매하기"
+## 파이프라인 9단계 진행상황
 
-# 대본 파일
-.venv\Scripts\python.exe -m app.pipeline.run "<영상URL>" --script-file script.txt
+| # | 단계 | 파일 | 상태 |
+|---|------|------|------|
+| 1 | 다운로드+분석 | `pipeline/download.py` | ✅ |
+| 2 | 사운드 제거 | `pipeline/audio_strip.py` | ✅ |
+| 3 | 중국어 자막 제거 | `pipeline/subtitle_remove.py` | ✅ 하단고정 / ⬜ OCR |
+| 4 | 얼굴샷 컷 제거 | `pipeline/face_cut.py` | ⬜ Phase 2 |
+| 5 | 한국어 TTS 더빙 | `pipeline/tts.py` | ✅ (성우/배속/타임스탬프) |
+| 6 | 자동 자막(ASS) | `pipeline/caption.py` | ⬜ Phase 2 |
+| 7 | BGM/효과음 | `pipeline/audio_mix.py` | ⬜ Phase 2 |
+| 8 | CTA 멘트 | `pipeline/compose.py` | △ 일부 |
+| 9 | 9:16 합성 | `pipeline/compose.py` | ✅ |
 
-# 대본 없이 (원본 음성 유지, 9:16 변환만)
-.venv\Scripts\python.exe -m app.pipeline.run "<영상URL>"
-```
-결과: `backend/workdir/<job_id>/output.mp4`
+## 로드맵
+- [x] Phase 0 셋업, 무료 TTS 검증
+- [~] Phase 1 코어 파이프라인 CLI (자막제거/얼굴컷/ASS자막 마저)
+- [ ] Phase 2 고급처리 (face_cut, caption, audio_mix, 템플릿)
+- [ ] Phase 3 Tauri 데스크톱 + Next.js 웹 UI
+- [ ] Phase 4 SaaS(인증/구독결제) + 배포(인스톨러)
 
-## TTS 보이스 목록
-```powershell
-.venv\Scripts\python.exe -c "import asyncio; from app.pipeline.tts import list_korean_voices; print([v['ShortName'] for v in asyncio.run(list_korean_voices())])"
-```
-
-## 현재 상태
-- [x] Phase 0 셋업
-- [x] 다운로드 / TTS / 합성 코어
-- [ ] Phase 2 자막제거 + STT
-- [ ] Phase 3 웹 UI (FastAPI + Next.js)
-- [ ] Phase 4 제휴링크 관리
-- [ ] Phase 5 데스크톱(Tauri)/모바일(PWA)
-
-로드맵 전체: [PLAN.md](PLAN.md)
+전체 로드맵: [PLAN.md](PLAN.md) · 시스템 구조: [ARCHITECTURE.md](ARCHITECTURE.md)

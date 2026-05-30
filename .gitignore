@@ -12,12 +12,16 @@ out/
 dist/
 
 # Work files
-backend/workdir/*
-!backend/workdir/.gitkeep
+packages/core/workdir/*
+!packages/core/workdir/.gitkeep
 *.mp4
 *.mp3
 *.wav
 *.tmp
+
+# Rust / Tauri
+target/
+packages/desktop/src-tauri/target/
 
 # DB
 *.sqlite

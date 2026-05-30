@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShortsJob",
+  "description": "쇼츠 변환 작업 1건의 요청/상태. 웹·데스크톱·서버·core가 공유하는 데이터 모양.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "작업 ID" },
+    "url": { "type": "string", "description": "도우인 영상 링크" },
+    "script": { "type": "string", "description": "한국어 대본 (없으면 원음 유지)" },
+    "voice": {
+      "type": "string",
+      "description": "성우 닉네임",
+      "enum": ["하은", "서연", "소담", "제니", "안나", "지연", "태형", "상호"]
+    },
+    "rate": { "type": "string", "description": "배속 예: +10%, -10%" },
+    "subtitleRemove": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string", "enum": ["bar", "blur"] }
+      }
+    },
+    "faceCut": { "type": "boolean", "description": "얼굴 전체샷 컷 제거 여부" },
+    "captionTemplate": { "type": "string", "description": "자막 템플릿 이름" },
+    "bgm": { "type": "string", "description": "BGM 파일명 (선택)" },
+    "cta": { "type": "string", "enum": ["comment", "profile", "link"] },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "downloading", "removing_subtitle", "dubbing", "captioning", "composing", "done", "error"]
+    },
+    "progress": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "outputPath": { "type": "string" },
+    "error": { "type": "string" }
+  },
+  "required": ["id", "url", "status"]
+}
