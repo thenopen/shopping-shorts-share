@@ -40,7 +40,6 @@ export default function Home() {
   const [cta, setCta] = useState("profile");
   const [script, setScript] = useState("");
   const [rate, setRate] = useState(1.0);
-  const [subMode, setSubMode] = useState<"bar" | "blur">("bar");
   const [playing, setPlaying] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -308,20 +307,9 @@ export default function Home() {
             </Field>
 
             <Field label="중국어 자막 제거">
-              <div className="flex gap-2">
-                {(["bar", "blur"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setSubMode(m)}
-                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
-                      subMode === m
-                        ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                        : "border-slate-200"
-                    }`}
-                  >
-                    {m === "bar" ? "자막바 덮기" : "블러"}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                <span>✓ 자동</span>
+                <span className="text-emerald-600/70">AI가 자막 위치를 인식해 자연스럽게 제거합니다</span>
               </div>
             </Field>
           </div>
