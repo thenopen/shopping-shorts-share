@@ -69,10 +69,14 @@ def run(url, script=None, voice="소담", rate=None, cta="profile",
         print("[2/9] strip audio...")
         cur = strip_audio(cur, job / "muted.mp4")
 
-    # [3] 중국어 자막 제거
+    # [3] 중국어 자막 자연제거 (시간구간별 OCR 탐지 → delogo)
     if remove_sub:
-        print(f"[3/9] remove subtitle (mode={sub_mode})...")
-        cur = remove_subtitle_bottom(cur, job / "nosub.mp4", mode=sub_mode)
+        print("[3/9] remove subtitle (구간별 OCR + delogo)...")
+        from app.pipeline.subtitle_detect import detect_segments
+        from app.pipeline.subtitle_remove import remove_subtitle_segments
+        segs = detect_segments(cur, interval_sec=0.5, bottom_ratio=0.3)
+        print(f"      자막구간 {len(segs)}개 탐지")
+        cur = remove_subtitle_segments(cur, job / "nosub.mp4", segs)
 
     # [4] 얼굴 컷 제거 (Phase 2)
     try:

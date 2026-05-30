@@ -57,11 +57,26 @@ def synthesize(
 
 
 def synthesize_by_nickname(text: str, out_path: Path, nickname: str = "소담",
-                           rate_override: str | None = None) -> tuple[Path, list]:
+                           rate_override: str | None = None,
+                           speaking_rate: float = 1.0) -> tuple[Path, list]:
     """성우 닉네임으로 더빙. UI에서 이걸 호출.
 
-    rate_override: 배속 조절 UI값으로 성우 기본 rate를 덮어씀.
+    엔진 자동선택: Google TTS 키 있으면 Google(자연스러움↑), 없으면 edge-tts.
+    Google은 단어 타임스탬프 미지원 → 빈 리스트 반환(자막싱크는 STT로 별도).
+
+    rate_override: edge-tts 배속 문자열("+10%"). speaking_rate: Google 배속(1.0).
     """
+    # 1순위: Google Cloud TTS (자연스러움)
+    try:
+        from app.pipeline import google_tts
+        if google_tts.available():
+            out = google_tts.synthesize(text, out_path, nickname=nickname,
+                                        speaking_rate=speaking_rate)
+            return out, []   # Google은 타임스탬프 없음
+    except Exception as e:
+        print(f"  [Google TTS 실패, edge-tts 폴백: {str(e)[:80]}]")
+
+    # 폴백: edge-tts (무료, 타임스탬프 O)
     v = get_voice(nickname)
     return synthesize(text, out_path, voice=v.edge_id,
                       rate=rate_override or v.rate, pitch=v.pitch)
