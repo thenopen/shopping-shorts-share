@@ -26,6 +26,66 @@
   src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/2404@1.0/MoneygraphyRounded.woff2") format("woff2");
   font-display: swap;
 }
+@font-face {
+  font-family: "BMHANNAPro";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/BMHANNAPro.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "BMDOHYEON";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/BMDOHYEON.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "BMEULJIRO";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/BMEULJIRO.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "BMJUA";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/BMJUA.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cafe24Ssurround";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/Cafe24Ssurround.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cafe24Simplehae";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/Cafe24Simplehae.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Jalnan";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_191@1.0/Jalnan.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "GmarketSansBold";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/GmarketSansBold.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "THEdog";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_twelve@1.0/EF_jejudoldam.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Dovemayo";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/2402-2@1.0/Dovemayo_gothic.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "HSSanton";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2107@1.1/HSSantokki20-Regular.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ownglyph";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/2404-2@1.0/Ownglyph_meetme-Rg.woff2") format("woff2");
+  font-display: swap;
+}
 
 :root {
   --background: #ffffff;

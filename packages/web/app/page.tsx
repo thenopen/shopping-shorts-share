@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import CaptionEditor, { CaptionStyle, DEFAULT_STYLE } from "./CaptionEditor";
 
 const VOICES: { name: string; gender: "F" | "M" }[] = [
   { name: "소담", gender: "F" }, { name: "서연", gender: "F" }, { name: "하은", gender: "F" },
@@ -13,15 +14,6 @@ const VOICES: { name: string; gender: "F" | "M" }[] = [
   { name: "성호", gender: "M" }, { name: "건우", gender: "M" }, { name: "현우", gender: "M" },
   { name: "지훈", gender: "M" }, { name: "동현", gender: "M" }, { name: "민준", gender: "M" },
   { name: "상호", gender: "M" },
-];
-// 폰트 표시명 → CSS font-family (globals.css의 @font-face와 일치)
-const FONTS: { label: string; css: string }[] = [
-  { label: "G마켓 산스", css: "GmarketSans" },
-  { label: "프리텐다드", css: "Pretendard" },
-  { label: "서울한강체", css: "SeoulHangang" },
-  { label: "페이퍼로지", css: "Paperlogy" },
-  { label: "티몬체", css: "TmonMonsori" },
-  { label: "머니그라피", css: "MoneygraphyRounded" },
 ];
 const CTAS = [
   { key: "comment", label: "제품 정보는 고정 댓글을 확인해주세요!" },
@@ -39,7 +31,7 @@ type Job = {
 export default function Home() {
   const [url, setUrl] = useState("");
   const [voice, setVoice] = useState("소담");
-  const [font, setFont] = useState(FONTS[2]); // 서울한강체
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [cta, setCta] = useState("profile");
   const [script, setScript] = useState("");
   const [rate, setRate] = useState(1.0);
@@ -195,37 +187,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 자막 폰트 — 선택 + 미리보기 */}
-          <div className="mt-6">
-            <div className="mb-2 text-sm font-semibold text-slate-700">자막 폰트</div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {FONTS.map((f) => (
-                <button
-                  key={f.css}
-                  onClick={() => setFont(f)}
-                  style={{ fontFamily: f.css }}
-                  className={`rounded-lg border px-3 py-3 text-lg ${
-                    font.css === f.css
-                      ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                      : "border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  가나다 ABC
-                  <span className="mt-1 block text-[11px] font-normal text-slate-400" style={{ fontFamily: "inherit" }}>
-                    {f.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-            {/* 큰 미리보기 */}
-            <div
-              className="mt-3 flex items-center justify-center rounded-xl bg-slate-900 px-4 py-6 text-2xl font-bold text-white"
-              style={{ fontFamily: font.css }}
-            >
-              이 제품 정말 좋아요! 지금 확인하세요
-            </div>
-          </div>
-
           {/* 설정 카드들 */}
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
             <Field label="CTA (마지막 멘트)">
@@ -301,6 +262,11 @@ export default function Home() {
             </button>
           </div>
         </section>
+
+        {/* 자막 스타일 편집기 */}
+        <div className="mt-8">
+          <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
+        </div>
 
         {/* 작업 큐 */}
         <section className="mt-8 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

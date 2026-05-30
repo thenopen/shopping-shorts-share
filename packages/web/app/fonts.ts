@@ -1,0 +1,21 @@
+// 자막용 무료 한국어 폰트 목록. globals.css의 @font-face와 일치.
+export const FONTS: { label: string; css: string }[] = [
+  { label: "프리텐다드", css: "Pretendard" },
+  { label: "G마켓 산스", css: "GmarketSans" },
+  { label: "G마켓 산스 볼드", css: "GmarketSansBold" },
+  { label: "서울한강체", css: "SeoulHangang" },
+  { label: "페이퍼로지", css: "Paperlogy" },
+  { label: "티몬체", css: "TmonMonsori" },
+  { label: "머니그라피", css: "MoneygraphyRounded" },
+  { label: "배민 한나Pro", css: "BMHANNAPro" },
+  { label: "배민 도현체", css: "BMDOHYEON" },
+  { label: "배민 을지로체", css: "BMEULJIRO" },
+  { label: "배민 주아체", css: "BMJUA" },
+  { label: "카페24 써라운드", css: "Cafe24Ssurround" },
+  { label: "카페24 심플해", css: "Cafe24Simplehae" },
+  { label: "여기어때 잘난체", css: "Jalnan" },
+  { label: "제주돌담체", css: "THEdog" },
+  { label: "도브마요", css: "Dovemayo" },
+  { label: "HS산토끼체", css: "HSSanton" },
+  { label: "온글잎 밑미체", css: "Ownglyph" },
+];
