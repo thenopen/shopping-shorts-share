@@ -70,34 +70,56 @@ def _analyze_worker(jid: str, raw_url: str):
         segs = detect_segments(str(src), interval_sec=0.5, bottom_ratio=0.3)
         nosub = remove_subtitle_segments(src, job_dir / "nosub.mp4", segs)
 
-        # 미리보기용 = 자막제거 영상 (웹에서 9:16로 보여줄 수 있게 web-friendly 인코딩)
+        # 미리보기용 = 자막제거 영상
         j["preview"] = f"/file/{jid}/nosub.mp4"
-
-        # 말(음성) 유무 판정 → 있으면 STT 번역대본
-        j.update(status="transcribing", stage="음성 분석/대본", progress=70)
-        script, has_speech = _auto_script(src)
-        j["script"] = script
-        j["has_speech"] = has_speech
-
+        # STT는 사용자가 '자동대본생성' 누를 때만 (분석 빠르게)
         j.update(status="analyzed", stage="분석 완료", progress=100)
     except Exception as e:
         j.update(status="error", error=str(e)[:300])
 
 
-def _auto_script(src: Path) -> tuple[str, bool]:
-    """말 있으면 STT→번역 대본, 없으면 빈 문자열.
+# ---------- 자동 대본생성 (STT→번역) ----------
+class TranscribeReq(BaseModel):
+    job_id: str
 
-    간이 판정: STT 돌려서 텍스트 나오면 말 있음.
-    """
+
+def _transcribe_worker(jid: str):
+    j = JOBS[jid]
     try:
         from app.pipeline.transcribe import transcribe_to_korean
+        src = WORKDIR / jid / "source.mp4"
+        if not src.exists():
+            cand = list((WORKDIR / jid).glob("source.*"))
+            src = cand[0] if cand else src
+        j.update(status="transcribing", stage="음성 인식/번역", progress=30)
         r = transcribe_to_korean(src, model_size="small")
         ko = (r.get("ko_text") or "").strip()
-        if len(ko) >= 4:
-            return ko, True
-        return "", False
-    except Exception:
-        return "", False
+        j["script"] = ko
+        j["has_speech"] = len(ko) >= 4
+        j.update(status="transcribed", stage="대본 생성 완료", progress=100)
+    except Exception as e:
+        j.update(status="error", error=str(e)[:300])
+
+
+@app.post("/transcribe")
+def transcribe(req: TranscribeReq):
+    if req.job_id not in JOBS:
+        raise HTTPException(404, "job not found")
+    threading.Thread(target=_transcribe_worker, args=(req.job_id,), daemon=True).start()
+    return {"job_id": req.job_id}
+
+
+# ---------- AI 대본 다듬기 (Gemini) ----------
+class RefineReq(BaseModel):
+    script: str
+
+
+@app.post("/refine")
+def refine(req: RefineReq):
+    from app.pipeline.refine import refine_script, available
+    if not available():
+        raise HTTPException(400, "Gemini 키 없음 (auth/gemini_key.txt)")
+    return {"script": refine_script(req.script)}
 
 
 @app.post("/analyze")

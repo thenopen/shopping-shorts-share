@@ -88,6 +88,58 @@ export default function Home() {
     }
   }
 
+  // 자동 대본생성 (STT→번역)
+  const [scriptBusy, setScriptBusy] = useState(false);
+  async function genScript() {
+    if (!job?.id || scriptBusy) return;
+    setScriptBusy(true);
+    try {
+      await fetch(`${API}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id }),
+      });
+      // transcribe 완료까지 폴링
+      const timer = setInterval(async () => {
+        const r = await fetch(`${API}/jobs/${job.id}`);
+        const j: JobState = await r.json();
+        if (j.status === "transcribed" || j.status === "error") {
+          clearInterval(timer);
+          setScriptBusy(false);
+          if (j.script) setScript(j.script);
+          setJob(j);
+        }
+      }, 1500);
+    } catch {
+      setScriptBusy(false);
+      alert("대본 생성 실패.");
+    }
+  }
+
+  // AI 대본 다듬기 (Gemini)
+  const [refineBusy, setRefineBusy] = useState(false);
+  async function refineScript() {
+    if (!script.trim() || refineBusy) return;
+    setRefineBusy(true);
+    try {
+      const r = await fetch(`${API}/refine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script }),
+      });
+      if (!r.ok) {
+        alert("AI 수정 실패 (Gemini 키 필요).");
+      } else {
+        const { script: refined } = await r.json();
+        if (refined) setScript(refined);
+      }
+    } catch {
+      alert("AI 수정 실패.");
+    } finally {
+      setRefineBusy(false);
+    }
+  }
+
   // 2단계: 작업시작 (대본+설정 → 최종 렌더)
   async function startRender() {
     if (!job?.id || busy) return;
@@ -195,35 +247,15 @@ export default function Home() {
             </button>
           </div>
 
-          {/* 미리보기 — 자막제거 영상 / 최종 결과 */}
-          {(previewUrl || (busy && !job?.output)) && (
-            <div className="mt-5 flex flex-col items-center gap-3 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-950 p-5">
-              <div className="flex w-full items-center justify-between text-xs text-zinc-300">
-                <span>{job?.output ? "✅ 완성 영상" : "미리보기 (중국어 자막 제거됨)"}</span>
-                {job && <span>{job.stage} · {job.progress}%</span>}
-              </div>
-              {previewUrl ? (
-                <video
-                  key={previewUrl}
-                  src={previewUrl}
-                  controls
-                  className="max-h-[420px] rounded-xl"
-                  style={{ aspectRatio: "9/16" }}
-                />
-              ) : (
-                <div className="flex h-72 w-40 items-center justify-center rounded-xl bg-zinc-800 text-sm text-zinc-400">
-                  처리중...
-                </div>
-              )}
-              {job?.has_speech !== null && job?.status === "analyzed" && (
-                <p className="text-xs text-zinc-400">
-                  {job?.has_speech
-                    ? "🎤 음성 감지 → 번역 대본 자동작성됨 (아래에서 수정 가능)"
-                    : "🎵 음악만 있는 영상 → 아래에 대본을 직접 입력하세요"}
-                </p>
-              )}
-              {job?.error && <p className="text-xs text-rose-400">오류: {job.error}</p>}
+          {/* 분석 진행 표시 (영상 아직 없을 때) */}
+          {busy && !previewUrl && job?.status !== "done" && (
+            <div className="mt-5 flex items-center gap-3 rounded-xl bg-slate-900 px-5 py-4 text-sm text-zinc-300">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
+              {job?.stage || "분석 준비중"} · {job?.progress ?? 0}%
             </div>
+          )}
+          {job?.error && (
+            <p className="mt-3 rounded-lg bg-rose-50 px-4 py-2 text-xs text-rose-600">오류: {job.error}</p>
           )}
 
           {/* 성우 — 선택 + 재생/정지 미리듣기 */}
@@ -278,6 +310,26 @@ export default function Home() {
             </div>
           </div>
 
+          {/* 영상 미리보기 — 성우 밑, 대본 위. 길이·결과 확인용 */}
+          {previewUrl && (
+            <div className="mt-6 flex flex-col items-center gap-2 rounded-2xl bg-gradient-to-br from-zinc-800 to-zinc-950 p-5">
+              <div className="flex w-full items-center justify-between text-xs text-zinc-300">
+                <span>{job?.output ? "✅ 완성 영상 (더빙·자막 적용)" : "미리보기 (중국어 자막 제거됨)"}</span>
+                {busy && job?.status !== "done" && <span>{job?.stage} · {job?.progress}%</span>}
+              </div>
+              <video
+                key={previewUrl}
+                src={previewUrl}
+                controls
+                className="max-h-[440px] rounded-xl bg-black"
+                style={{ aspectRatio: "9/16" }}
+              />
+              <p className="text-[11px] text-zinc-400">
+                ▶ 재생해서 길이·자막제거 상태를 확인하세요
+              </p>
+            </div>
+          )}
+
           {/* 설정 카드들 */}
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
             <Field label="CTA (마지막 멘트)">
@@ -316,15 +368,27 @@ export default function Home() {
 
           {/* 대본 */}
           <div className="mt-4">
-            <label className="mb-2 block text-sm font-semibold text-slate-700">
-              한국어 대본
-              {job?.has_speech === false && (
-                <span className="ml-2 text-xs font-normal text-amber-600">음악만 있는 영상 — 직접 입력</span>
-              )}
-              {job?.has_speech === true && (
-                <span className="ml-2 text-xs font-normal text-emerald-600">번역 대본 자동작성됨 — 수정 가능</span>
-              )}
-            </label>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-sm font-semibold text-slate-700">한국어 대본</label>
+              <div className="flex gap-2">
+                <button
+                  onClick={genScript}
+                  disabled={!job?.id || scriptBusy}
+                  className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-40"
+                  title="원본 영상의 중국어 음성을 인식해 번역 대본 생성"
+                >
+                  {scriptBusy ? "생성중..." : "🎤 자동대본생성"}
+                </button>
+                <button
+                  onClick={refineScript}
+                  disabled={!script.trim() || refineBusy}
+                  className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-1.5 text-xs font-semibold text-fuchsia-700 hover:bg-fuchsia-100 disabled:opacity-40"
+                  title="어색한 번역을 자연스럽게 다듬기"
+                >
+                  {refineBusy ? "수정중..." : "✨ AI로 수정"}
+                </button>
+              </div>
+            </div>
             <textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
