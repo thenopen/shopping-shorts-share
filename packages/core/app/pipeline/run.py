@@ -52,19 +52,16 @@ def run(url, script=None, voice="소담", rate=None, cta="profile",
     print(f"[job {job_id}] start  url={url}")
     cur = None  # 현재 작업중인 영상 경로
 
-    # [1] 다운로드 (도우인은 쿠키 필요)
-    # cookiefile 명시 안 했고 도우인 URL이면, 저장된 도우인 쿠키 자동사용
-    if not cookiefile and not cookies_from_browser and "douyin" in url:
-        from app.douyin_auth import get_cookiefile
-        cookiefile = get_cookiefile()
-        if cookiefile:
-            print(f"      (도우인 저장쿠키 사용: {cookiefile})")
-        else:
-            print("      ⚠️ 도우인 쿠키 없음. 먼저 'python -m app.douyin_auth' 로 로그인하세요.")
+    # [1] 다운로드
     print("[1/9] download...")
-    cur = download_video(url, job_id,
-                         cookiefile=cookiefile,
-                         cookies_from_browser=cookies_from_browser)
+    if "douyin" in url:
+        # 도우인 = yt-dlp 불가(msToken 차단). Playwright 직접추출 사용.
+        from app.pipeline.douyin_download import download_douyin
+        cur = download_douyin(url, job_id)
+    else:
+        cur = download_video(url, job_id,
+                             cookiefile=cookiefile,
+                             cookies_from_browser=cookies_from_browser)
     print(f"      -> {cur}")
 
     # [2] 사운드 제거 (대본 있어 더빙할 때만 의미)
