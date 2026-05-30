@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* 자막 미리보기용 무료 한국어 폰트. pretendard는 layout.tsx의 <link>로 로드. */
+@font-face {
+  font-family: "GmarketSans";
+  src: url("https://cdn.jsdelivr.net/gh/wngenc/gmarketsans@master/GmarketSansTTFMedium.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "SeoulHangang";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/SeoulHangangM.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Paperlogy";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/2410-3@1.0/Paperlogy-6SemiBold.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: "TmonMonsori";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/noonfonts_2104@1.0/TmonMonsori.woff") format("woff");
+  font-display: swap;
+}
+@font-face {
+  font-family: "MoneygraphyRounded";
+  src: url("https://fastly.jsdelivr.net/gh/projectnoonnu/2404@1.0/MoneygraphyRounded.woff2") format("woff2");
+  font-display: swap;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

@@ -18,6 +18,8 @@ packages/core/workdir/*
 *.mp3
 *.wav
 *.tmp
+# 단, 성우 미리듣기 샘플은 웹에 필요하므로 커밋
+!packages/web/public/voices/*.mp3
 
 # Rust / Tauri
 target/
@@ -30,6 +32,11 @@ packages/desktop/src-tauri/target/
 # Env
 .env
 .env.local
+
+# 인증/쿠키 (민감정보 — 절대 커밋 금지)
+auth/
+*cookies*.txt
+*_state.json
 
 # OS
 Thumbs.db
