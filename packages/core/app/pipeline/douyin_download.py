@@ -21,6 +21,47 @@ from app.douyin_auth import STATE_PATH
 VIDEO_URL_RE = re.compile(r"(douyinvod\.com|aweme\.snssdk|\.mp4|/video/tos/)", re.I)
 
 
+def _has_video_track(data: bytes) -> bool:
+    """바이트 앞부분으로 video 트랙 유무 확인 (임시파일 ffprobe)."""
+    import subprocess, tempfile, os
+    from app.config import FFPROBE
+    tf = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    try:
+        tf.write(data)
+        tf.close()
+        out = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", tf.name],
+            capture_output=True, text=True)
+        return "video" in out.stdout
+    finally:
+        os.unlink(tf.name)
+
+
+def _pick_best_video(api, candidates):
+    """후보 중 video 트랙 있는 가장 큰 mp4의 URL 반환."""
+    # 중복 제거 + 큰 것 우선
+    seen, uniq = set(), []
+    for u, ct, clen in candidates:
+        if u in seen:
+            continue
+        seen.add(u)
+        uniq.append((u, ct, clen))
+    uniq.sort(key=lambda x: x[2], reverse=True)
+
+    for u, ct, clen in uniq:
+        try:
+            r = api.get(u)
+            if not r.ok:
+                continue
+            body = r.body()
+            if _has_video_track(body):
+                return u
+        except Exception:
+            continue
+    return None
+
+
 def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Path:
     """공유텍스트/URL → 도우인 영상 mp4 다운로드. 반환: 저장경로."""
     from playwright.sync_api import sync_playwright
@@ -30,7 +71,8 @@ def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Pa
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "source.mp4"
 
-    captured = {"url": None}
+    # 미디어 후보 수집 (오디오/조각 섞임 → 나중에 video만 선별)
+    candidates = []  # (url, content_type, content_length)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -43,41 +85,42 @@ def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Pa
         def on_response(resp):
             u = resp.url
             ct = resp.headers.get("content-type", "")
-            if captured["url"]:
-                return
             if "video/mp4" in ct or (VIDEO_URL_RE.search(u) and "image" not in ct):
-                # 큰 미디어만 (썸네일/조각 제외 위해 길이 체크 가능)
-                captured["url"] = u
+                try:
+                    clen = int(resp.headers.get("content-length", "0"))
+                except Exception:
+                    clen = 0
+                candidates.append((u, ct, clen))
 
         page.on("response", on_response)
 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            # 영상 로드 트리거: play 시도 + 잠깐 대기
-            page.wait_for_timeout(5000)
-            # <video src> 직접 시도
-            if not captured["url"]:
-                src = page.evaluate(
-                    "() => { const v=document.querySelector('video'); "
-                    "return v ? (v.src || (v.querySelector('source')||{}).src) : null; }"
-                )
-                if src:
-                    captured["url"] = src
-            # 더 기다려보기
-            if not captured["url"]:
-                page.wait_for_timeout(5000)
+            page.wait_for_timeout(6000)
+            # <video src> 도 후보에 추가 (보통 영상 본체)
+            src = page.evaluate(
+                "() => { const v=document.querySelector('video'); "
+                "return v ? (v.src || (v.querySelector('source')||{}).src) : null; }"
+            )
+            if src:
+                candidates.append((src, "video/mp4", 0))
+            page.wait_for_timeout(3000)
         except Exception as e:
             print(f"[douyin_dl] page error: {str(e)[:120]}")
 
-        vurl = captured["url"]
-        if not vurl:
+        if not candidates:
             browser.close()
-            raise RuntimeError("영상 URL 캐치 실패 — 로그인/페이지 구조 확인 필요")
+            raise RuntimeError("미디어 URL 캐치 실패 — 로그인/페이지 구조 확인 필요")
 
-        # 같은 컨텍스트(쿠키 유지)로 영상 바이트 받기
-        print(f"[douyin_dl] video url 캐치: {vurl[:90]}...")
+        # 후보 중 실제 video 트랙이 있는 가장 큰 mp4 선택
         api = context.request
-        r = api.get(vurl)
+        best = _pick_best_video(api, candidates)
+        if not best:
+            browser.close()
+            raise RuntimeError("video 트랙 있는 미디어를 못 찾음 (오디오만 잡힘)")
+
+        print(f"[douyin_dl] video url: {best[:90]}...")
+        r = api.get(best)
         if not r.ok:
             browser.close()
             raise RuntimeError(f"영상 다운로드 실패: HTTP {r.status}")
