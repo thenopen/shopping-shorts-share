@@ -11,8 +11,7 @@ const VOICES: { name: string; gender: "F" | "M" }[] = [
   { name: "태형", gender: "M" }, { name: "준호", gender: "M" }, { name: "도윤", gender: "M" },
   { name: "시우", gender: "M" }, { name: "재민", gender: "M" }, { name: "우진", gender: "M" },
   { name: "성호", gender: "M" }, { name: "건우", gender: "M" }, { name: "현우", gender: "M" },
-  { name: "지훈", gender: "M" }, { name: "동현", gender: "M" }, { name: "민준", gender: "M" },
-  { name: "상호", gender: "M" },
+  { name: "동현", gender: "M" }, { name: "민준", gender: "M" },
 ];
 const CTAS = [
   { key: "comment", label: "제품 정보는 고정 댓글을 확인해주세요!" },

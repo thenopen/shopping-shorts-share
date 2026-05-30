@@ -49,10 +49,8 @@ _MALE = [
     ("성호", "ko-KR-Chirp3-HD-Alnilam"),
     ("건우", "ko-KR-Chirp3-HD-Enceladus"),
     ("현우", "ko-KR-Chirp3-HD-Iapetus"),
-    ("지훈", "ko-KR-Chirp3-HD-Rasalgethi"),
     ("동현", "ko-KR-Chirp3-HD-Schedar"),
     ("민준", "ko-KR-Chirp3-HD-Umbriel"),
-    ("상호", "ko-KR-Neural2-C"),
 ]
 
 VOICES: dict[str, Voice] = {}
