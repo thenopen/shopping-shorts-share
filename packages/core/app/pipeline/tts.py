@@ -17,8 +17,12 @@ from app.voices import get_voice
 
 
 async def _synth(text, out_path, voice, rate, pitch):
-    """음성 저장 + WordBoundary 타임스탬프 수집."""
-    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+    """음성 저장 + WordBoundary 타임스탬프 수집.
+
+    boundary="WordBoundary" 필수 — 기본값 SentenceBoundary면 단어 타임스탬프 안 나옴.
+    """
+    communicate = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch,
+                                       boundary="WordBoundary")
     timestamps = []
     with open(out_path, "wb") as f:
         async for chunk in communicate.stream():

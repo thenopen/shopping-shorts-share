@@ -2,7 +2,12 @@
 import subprocess
 from pathlib import Path
 
-from app.config import FFMPEG, FFPROBE, TARGET_W, TARGET_H
+from app.config import FFMPEG, FFPROBE, TARGET_W, TARGET_H, DEFAULT_FONT
+
+
+def _ff_path(p: str) -> str:
+    """ffmpeg 필터 인자용 경로 이스케이프 (윈도우 콜론 문제)."""
+    return p.replace("\\", "/").replace(":", "\\:")
 
 
 def _probe_duration(path: Path) -> float:
@@ -42,8 +47,9 @@ def compose(
     )
     if cta_text:
         txt = _escape_drawtext(cta_text)
+        font = _ff_path(DEFAULT_FONT)
         vf += (
-            f",drawtext=text='{txt}':fontcolor=white:fontsize=56:"
+            f",drawtext=fontfile='{font}':text='{txt}':fontcolor=white:fontsize=56:"
             f"borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-220"
         )
 
@@ -66,5 +72,7 @@ def compose(
         str(out_path),
     ]
 
-    subprocess.run(cmd, check=True, capture_output=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        raise RuntimeError(f"ffmpeg compose 실패 (code {r.returncode}):\n{r.stderr[-1500:]}")
     return out_path

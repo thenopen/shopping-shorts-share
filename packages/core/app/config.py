@@ -17,3 +17,7 @@ VOICE_MALE = "ko-KR-InJoonNeural"     # 남성
 # ffmpeg 실행파일 (PATH에 있으면 그대로)
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
+
+# 기본 한글 폰트 (drawtext용). 윈도우 맑은고딕.
+# 추후 assets/fonts 의 번들 폰트로 교체.
+DEFAULT_FONT = "C:/Windows/Fonts/malgun.ttf"
