@@ -16,7 +16,7 @@ from app.config import BACKEND_ROOT
 
 GEMINI_KEY_PATH = BACKEND_ROOT / "auth" / "gemini_key.txt"
 SA_KEY_PATH = BACKEND_ROOT / "auth" / "google_tts_key.json"
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.5-flash-lite"   # 무료등급 할당량 넉넉, 빠름
 
 PROMPT = """다음은 중국어 쇼핑 영상을 한국어로 1차 번역한 대본이다.
 틱톡/쇼츠용으로 자연스럽고 매끄러운 구어체 한국어로 다듬어라.
