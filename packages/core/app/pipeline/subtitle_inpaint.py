@@ -86,13 +86,43 @@ def _to_xywh(box):
     return int(x), int(y), int(w), int(h)
 
 
+def _stroke_mask_in_box(frame, x, y, w, h, dilate=3):
+    """박스 안에서 '글자 획'만 마스킹(박스 전체 X).
+
+    자막/워터마크 글자는 보통 흰색(밝음)+검은 외곽선. 박스영역을 grayscale로
+    보고 매우 밝거나 매우 어두운 픽셀(=글자/외곽선)만 골라 마스크.
+    박스 전체를 inpaint하면 LaMa가 큰 영역을 뭉개 뿌옇게 됨 → 획만 좁게 덮어
+    주변 원본 디테일 보존(선명).
+    반환: (H,W) uint8 마스크의 해당 박스 부분에 255 채워진 것 일부.
+    """
+    H, W = frame.shape[:2]
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(W, x + w), min(H, y + h)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    roi = frame[y0:y1, x0:x1]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # 밝은 글자(흰자막) + 어두운 외곽선/그림자 둘 다 잡기
+    bright = gray >= 200
+    dark = gray <= 55
+    m = np.zeros(gray.shape, dtype=np.uint8)
+    m[bright | dark] = 255
+    # 획을 살짝 굵게(외곽선까지 확실히 덮어 잔상 제거)
+    if dilate > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate, dilate))
+        m = cv2.dilate(m, k, iterations=1)
+    return (x0, y0, m)
+
+
 def inpaint_subtitles(video_path, out_path, segments, fixed_boxes=None,
-                      progress_cb=None):
-    """자막(시간구간별 segments) + 고정 UI오버레이(fixed_boxes, 전 프레임) 통째 inpaint.
+                      progress_cb=None, stroke_only=True):
+    """자막(시간구간별 segments) + 고정 UI오버레이(fixed_boxes, 전 프레임) inpaint.
 
     segments: [{start, end, box(x,y,w,h)}] — 해당 시간에만 덮음
     fixed_boxes: [(x,y,w,h)] — 모든 프레임에 항상 덮음(도우인 고정 UI). None이면 자막만.
     progress_cb: callable(frac 0~1) — 프레임 처리 진행률 콜백(웹 진행바용).
+    stroke_only: True면 박스 안 '글자 획'만 마스킹(주변 보존, 선명). False면 박스 전체
+                 inpaint(큰 영역 뭉개져 뿌예짐 — 옛 동작).
     """
     video_path, out_path = Path(video_path), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,11 +156,25 @@ def inpaint_subtitles(video_path, out_path, segments, fixed_boxes=None,
         if boxes:
             mask = np.zeros((H, W), dtype=np.uint8)
             for (x, y, w, h) in boxes:
-                mask[y:y + h, x:x + w] = 255
-            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            msk = Image.fromarray(mask).convert("L")
-            res = model(img, msk)
-            frame = cv2.cvtColor(np.array(res), cv2.COLOR_RGB2BGR)
+                if stroke_only:
+                    sm = _stroke_mask_in_box(frame, x, y, w, h)
+                    if sm is not None:
+                        ox, oy, m = sm
+                        mh, mw = m.shape
+                        # 획이 충분히 잡혔으면 획만, 거의 없으면(빈 박스) 전체 폴백
+                        if int(m.sum()) > 255 * 8:
+                            mask[oy:oy + mh, ox:ox + mw] = np.maximum(
+                                mask[oy:oy + mh, ox:ox + mw], m)
+                        else:
+                            mask[y:y + h, x:x + w] = 255
+                else:
+                    mask[y:y + h, x:x + w] = 255
+            # 마스크에 칠해진 게 있을 때만 LaMa 호출(빈 박스면 원본 그대로 = 선명).
+            if int(mask.sum()) > 0:
+                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                msk = Image.fromarray(mask).convert("L")
+                res = model(img, msk)
+                frame = cv2.cvtColor(np.array(res), cv2.COLOR_RGB2BGR)
         _imwrite_unicode(work / ("f_%06d.png" % idx), frame)
         idx += 1
         if progress_cb and total > 0:
