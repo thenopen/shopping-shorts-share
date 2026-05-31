@@ -1,8 +1,39 @@
 @import "tailwindcss";
 
+/* 로컬 폰트 (public/fonts/*.woff2) — 자막 미리보기 + UI */
+@font-face { font-family: "Pretendard"; src: url("/fonts/Pretendard.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "GmarketSans"; src: url("/fonts/GmarketSans.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "GmarketSansBold"; src: url("/fonts/GmarketSansBold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "SeoulNamsan"; src: url("/fonts/SeoulNamsan.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "TmonMonsori"; src: url("/fonts/TmonMonsori.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "BMHANNAPro"; src: url("/fonts/BMHANNAPro.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "BMDOHYEON"; src: url("/fonts/BMDOHYEON.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "BMEULJIRO"; src: url("/fonts/BMEULJIRO.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "BMJUA"; src: url("/fonts/BMJUA.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "BMYEONSUNG"; src: url("/fonts/BMYEONSUNG.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Cafe24Ssurround"; src: url("/fonts/Cafe24Ssurround.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Jalnan"; src: url("/fonts/Jalnan.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "JejuDoldam"; src: url("/fonts/JejuDoldam.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "DovemayoGothic"; src: url("/fonts/DovemayoGothic.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "HSSantokki"; src: url("/fonts/HSSantokki.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "NanumGothic"; src: url("/fonts/NanumGothic.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "NanumPenScript"; src: url("/fonts/NanumPenScript.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "NanumSquare"; src: url("/fonts/NanumSquare.woff2") format("woff2"); font-display: swap; }
+@font-face { font-family: "Paperlogy"; src: url("/fonts/Paperlogy.woff2") format("woff2"); font-display: swap; }
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #eef0ff;
+  --foreground: #2a2444;
+  /* 레퍼런스 파스텔 팔레트: 페리윙클→라벤더→핑크 */
+  --c-blue: #bdcfff;
+  --c-blue2: #b8c0ff;
+  --c-violet: #c8b6fe;
+  --c-lilac: #e7c5ff;
+  --c-pink: #fed5ff;
+  --ink: #2a2444;
+  --ink-soft: #6b6488;
+  --accent: #7b8cff;
+  --accent-deep: #6a5cff;
 }
 
 @theme inline {
@@ -12,15 +43,47 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* 다크모드 강제 비활성 — 앱은 라이트 파스텔 디자인. OS 다크여도 색감 유지 */
 
 body {
-  background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Pretendard", system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  /* 바깥 배경은 흰색(요청) — 그라데이션은 안쪽 카드에만 */
+  background: #ffffff;
+  min-height: 100vh;
 }
+
+/* 글래스 카드 — 파스텔 그라데이션을 카드 안쪽에 적용 + 큰 라운드 + 부드러운 그림자 */
+.glass {
+  background:
+    radial-gradient(120% 140% at 0% 0%, var(--c-blue) 0%, transparent 45%),
+    radial-gradient(120% 140% at 100% 0%, var(--c-pink) 0%, transparent 42%),
+    radial-gradient(140% 160% at 50% 120%, var(--c-violet) 0%, transparent 50%),
+    linear-gradient(135deg, #e3e9ff 0%, #ece4ff 48%, #fce6ff 100%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 18px 50px -22px rgba(106, 92, 255, 0.3), 0 2px 8px -4px rgba(106, 92, 255, 0.15);
+}
+/* 카드 안에 또 들어가는 소형 패널 — 카드 그라데이션 위에 얹는 반투명 흰판 */
+.glass-soft {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+/* 그라데이션 입력바 테두리(레퍼런스 이미지4 하단 입력) */
+.grad-ring {
+  background: linear-gradient(120deg, var(--c-blue) 0%, var(--c-violet) 50%, var(--c-pink) 100%);
+  padding: 2px;
+  border-radius: 9999px;
+}
+/* 메인 액션 버튼 그라데이션 */
+.btn-grad {
+  background: linear-gradient(120deg, #7b8cff 0%, #9a7bff 55%, #c98bff 100%);
+  color: #fff;
+  box-shadow: 0 12px 28px -10px rgba(122, 92, 255, 0.6);
+}
+.btn-grad:hover { filter: brightness(1.06); }
+.btn-grad:disabled { opacity: 0.45; filter: none; box-shadow: none; }
+/* 스크롤바 (보이스 리스트) */
+.thin-scroll::-webkit-scrollbar { width: 6px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: rgba(122, 140, 255, 0.4); border-radius: 9999px; }

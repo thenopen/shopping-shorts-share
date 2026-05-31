@@ -49,3 +49,10 @@ desktop.ini
 
 # 분석용 임시 이미지
 workdir_analyze/
+
+# 서버/개발 로그 (런타임 산출물)
+*_out.log
+*_err.log
+_dev.log
+packages/web/_dev.log
+packages/core/_server_*.log

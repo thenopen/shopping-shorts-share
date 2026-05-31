@@ -22,8 +22,14 @@ def detect_segments(
     y_merge_tol: int = 80,
     time_gap: float = 2.0,
     pad: int = 10,
+    full_frame: bool = False,
+    require_center: bool = False,
 ) -> list[dict]:
-    """Return [{start, end, box}] for likely Chinese subtitle regions."""
+    """Return [{start, end, box}] for likely Chinese subtitle/overlay text regions.
+
+    full_frame=True  : 하단제한 풀고 화면 전체 OCR(워터마크 아이디·상단 텍스트 등 모든 중국어).
+    require_center   : 가로 중앙정렬 + 글자높이 필터로 상품패키지/배경 한자 오검출 줄임(자막 한정).
+    """
     from app.pipeline.ocr import get_reader
     reader = get_reader()   # GPU 자동 + 캐싱
     cap = cv2.VideoCapture(str(video_path))
@@ -35,7 +41,7 @@ def detect_segments(
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     duration = total / fps
-    y_off = int(height * bottom_ratio)
+    y_off = 0 if full_frame else int(height * bottom_ratio)
 
     hits: list[tuple[float, float, float, float, float]] = []
     sec = 0.0
@@ -43,7 +49,7 @@ def detect_segments(
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(sec * fps))
         ok, frame = cap.read()
         if ok:
-            crop = frame[y_off:, :]
+            crop = frame if full_frame else frame[y_off:, :]
             for bbox, text, conf in reader.readtext(crop):
                 # 자막제거는 글자 위치만 필요(텍스트 정확도 불필요). easyocr이 흰자막에
                 # conf≈0을 주므로 conf 필터하면 자막 다 놓침 → conf_min=0, 중국어 글자 유무로만 판정.
@@ -51,7 +57,20 @@ def detect_segments(
                     continue
                 xs = [p[0] for p in bbox]
                 ys = [p[1] + y_off for p in bbox]
-                hits.append((sec, min(xs), min(ys), max(xs), max(ys)))
+                x0, x1 = min(xs), max(xs)
+                y0, y1 = min(ys), max(ys)
+                if require_center:
+                    cx = (x0 + x1) / 2
+                    bh = y1 - y0
+                    bw = x1 - x0
+                    # 가로 중앙 ±35%, 글자높이 화면 1.8~12%, 가로로 긴 모양만 = 자막 특징
+                    if not (0.15 * width <= cx <= 0.85 * width):
+                        continue
+                    if not (0.018 * height <= bh <= 0.12 * height):
+                        continue
+                    if bw < bh * 0.8:
+                        continue
+                hits.append((sec, x0, y0, x1, y1))
         sec += interval_sec
     cap.release()
 

@@ -69,14 +69,24 @@ def run(url, script=None, voice="소담", rate=None, cta="profile",
         print("[2/9] strip audio...")
         cur = strip_audio(cur, job / "muted.mp4")
 
-    # [3] 중국어 자막 자연제거 (시간구간별 OCR 탐지 → delogo)
+    # [3] 자막·워터마크 자연제거 (화면전체 OCR 탐지 + 고정UI영역 → AI 인페인팅)
     if remove_sub:
-        print("[3/9] remove subtitle (구간별 OCR + delogo)...")
+        print("[3/9] remove subtitle+watermark (전체 OCR + 고정UI inpaint)...")
         from app.pipeline.subtitle_detect import detect_segments
-        from app.pipeline.subtitle_remove import remove_subtitle_segments
-        segs = detect_segments(cur, interval_sec=0.5, bottom_ratio=0.3)
+        from app.pipeline.subtitle_inpaint import inpaint_subtitles
+        from app.pipeline.overlay_mask import fixed_overlay_boxes
+        import cv2 as _cv2
+        segs = detect_segments(cur, interval_sec=0.5, full_frame=True)
         print(f"      자막구간 {len(segs)}개 탐지")
-        cur = remove_subtitle_segments(cur, job / "nosub.mp4", segs)
+        platform = "douyin" if "douyin" in url else ("tiktok" if "tiktok" in url else "")
+        fixed = []
+        if platform:
+            _c = _cv2.VideoCapture(str(cur))
+            _w = int(_c.get(_cv2.CAP_PROP_FRAME_WIDTH))
+            _h = int(_c.get(_cv2.CAP_PROP_FRAME_HEIGHT))
+            _c.release()
+            fixed = fixed_overlay_boxes(_w, _h, platform=platform)
+        cur = inpaint_subtitles(cur, job / "nosub.mp4", segs, fixed_boxes=fixed)
 
     # [4] 얼굴 컷 제거 (Phase 2)
     try:

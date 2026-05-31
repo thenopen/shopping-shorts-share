@@ -14,4 +14,8 @@ export const FONTS: { label: string; css: string }[] = [
   { label: "Jeju Doldam", css: "JejuDoldam" },
   { label: "Dovemayo Gothic", css: "DovemayoGothic" },
   { label: "HS Santokki", css: "HSSantokki" },
+  { label: "나눔 펜", css: "NanumPenScript" },
+  { label: "나눔스퀘어", css: "NanumSquare" },
+  { label: "나눔고딕", css: "NanumGothic" },
+  { label: "Paperlogy", css: "Paperlogy" },
 ];

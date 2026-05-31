@@ -21,14 +21,83 @@ def _get_model():
     return _model
 
 
+def _resolve_ffmpeg():
+    """FFMPEG가 'ffmpeg'(PATH 의존)면 절대경로로 변환.
+    한글 cwd/env에서 CreateProcess가 PATH 탐색 실패하는 케이스 회피.
+    """
+    import shutil
+    if FFMPEG and ("/" in FFMPEG or "\\" in FFMPEG):
+        return FFMPEG  # 이미 절대/상대 경로
+    found = shutil.which(FFMPEG or "ffmpeg")
+    return found or FFMPEG or "ffmpeg"
+
+
+def _short_path(p):
+    """Windows 8.3 short path(ASCII)로 변환. 한글경로가 subprocess argv에서
+    surrogate로 깨져 ffmpeg가 파일 못 찾는 문제 회피. 비윈도우/실패 시 원본.
+    파일이 존재해야 변환됨 → 없으면 부모디렉토리로 변환 후 파일명 결합.
+    """
+    import os
+    if os.name != "nt":
+        return str(p)
+    import ctypes
+    from ctypes import wintypes
+    p = os.path.abspath(str(p))
+    _GSPN = ctypes.windll.kernel32.GetShortPathNameW
+    _GSPN.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+    _GSPN.restype = wintypes.DWORD
+
+    def conv(path):
+        buf = ctypes.create_unicode_buffer(600)
+        n = _GSPN(path, buf, 600)
+        return buf.value if n and n < 600 else None
+
+    if os.path.exists(p):
+        r = conv(p)
+        if r:
+            return r
+    # 미존재(출력파일): 부모만 변환 후 결합
+    parent, name = os.path.split(p)
+    if os.path.isdir(parent):
+        rp = conv(parent)
+        if rp:
+            return os.path.join(rp, name)
+    return p
+
+
+def _imwrite_unicode(path, img):
+    """cv2.imwrite는 한글(non-ASCII) 경로에 못 씀(Windows) → 조용히 실패.
+    imencode로 메모리 인코딩 후 numpy.tofile로 직접 기록(경로 인코딩 무관).
+    """
+    path = Path(path)
+    ok, buf = cv2.imencode(path.suffix, img)
+    if not ok:
+        raise RuntimeError(f"cv2.imencode 실패: {path.name}")
+    buf.tofile(str(path))
+
+
 def _seg_at(segments, t):
     return [s["box"] for s in segments if s["start"] <= t <= s["end"]]
 
 
-def inpaint_subtitles(video_path, out_path, segments):
+def _to_xywh(box):
+    """seg box는 (x, y, w, h), fixed box도 (x, y, w, h). 통일."""
+    x, y, w, h = box
+    return int(x), int(y), int(w), int(h)
+
+
+def inpaint_subtitles(video_path, out_path, segments, fixed_boxes=None,
+                      progress_cb=None):
+    """자막(시간구간별 segments) + 고정 UI오버레이(fixed_boxes, 전 프레임) 통째 inpaint.
+
+    segments: [{start, end, box(x,y,w,h)}] — 해당 시간에만 덮음
+    fixed_boxes: [(x,y,w,h)] — 모든 프레임에 항상 덮음(도우인 고정 UI). None이면 자막만.
+    progress_cb: callable(frac 0~1) — 프레임 처리 진행률 콜백(웹 진행바용).
+    """
     video_path, out_path = Path(video_path), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    if not segments:
+    fixed_boxes = fixed_boxes or []
+    if not segments and not fixed_boxes:
         import shutil
         shutil.copy(str(video_path), str(out_path))
         return out_path
@@ -39,18 +108,21 @@ def inpaint_subtitles(video_path, out_path, segments):
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
 
     work = out_path.parent / "_inpaint_frames"
     work.mkdir(exist_ok=True)
     model = _get_model()
 
     idx = 0
+    last_report = -1
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         t = idx / fps
-        boxes = _seg_at(segments, t)
+        boxes = [_to_xywh(b) for b in _seg_at(segments, t)]
+        boxes += [_to_xywh(b) for b in fixed_boxes]  # 고정 UI는 전 프레임
         if boxes:
             mask = np.zeros((H, W), dtype=np.uint8)
             for (x, y, w, h) in boxes:
@@ -59,16 +131,47 @@ def inpaint_subtitles(video_path, out_path, segments):
             msk = Image.fromarray(mask).convert("L")
             res = model(img, msk)
             frame = cv2.cvtColor(np.array(res), cv2.COLOR_RGB2BGR)
-        cv2.imwrite(str(work / ("f_%06d.png" % idx)), frame)
+        _imwrite_unicode(work / ("f_%06d.png" % idx), frame)
         idx += 1
+        if progress_cb and total > 0:
+            pct = int(idx * 100 / total)
+            if pct != last_report:
+                last_report = pct
+                progress_cb(idx / total)
     cap.release()
 
-    cmd = [FFMPEG, "-y", "-framerate", str(fps),
-           "-i", str(work / "f_%06d.png"), "-i", str(video_path),
+    if idx == 0:
+        raise RuntimeError(
+            f"인페인팅 프레임 추출 실패 — OpenCV가 {video_path} 에서 프레임을 0개 읽음"
+        )
+
+    fps_safe = fps if fps and fps > 0 else 30
+    ffmpeg_exe = _resolve_ffmpeg()
+    # 한글 경로가 subprocess argv에서 surrogate로 깨져 ffmpeg가 파일 못찾는 문제.
+    # 8.3 short path는 짧은 한글이름엔 안 먹음 → cwd=work + 상대경로로 한글 부모를
+    # argv에서 완전 제거. frame=현재폴더, source/out=상위폴더(../).
+    import os
+    work_abs = work.resolve()
+    frames_pat = "f_%06d.png"                       # cwd 기준
+    src_rel = os.path.relpath(video_path.resolve(), work_abs)   # ../source.mp4
+    out_rel = os.path.relpath(out_path.resolve(), work_abs)     # ../nosub.mp4
+    # 오디오: HE-AACv2 등 copy 실패 대비 aac 재인코딩(호환성↑). 음질 손실 미미.
+    cmd = [ffmpeg_exe, "-hide_banner", "-y", "-framerate", str(fps_safe),
+           "-i", frames_pat, "-i", src_rel,
            "-map", "0:v:0", "-map", "1:a:0?",
            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
-           "-c:a", "copy", "-shortest", str(out_path)]
-    subprocess.run(cmd, check=True, capture_output=True)
+           "-c:a", "aac", "-b:a", "128k", "-shortest", out_rel]
+    frame_files = sorted(work_abs.glob("f_*.png"))
+    proc = subprocess.run(cmd, cwd=str(work_abs), capture_output=True,
+                          text=True, errors="replace")
+    if proc.returncode != 0:
+        err = (proc.stderr or "")
+        raise RuntimeError(
+            f"ffmpeg 재조립 실패(code {proc.returncode})\n"
+            f"CWD: {work_abs}\nFRAMES: {len(frame_files)} (first={frame_files[0].name if frame_files else 'NONE'})\n"
+            f"CMD: {' '.join(cmd)}\n"
+            f"STDERR(full):\n{err}"
+        )
 
     import shutil
     shutil.rmtree(work, ignore_errors=True)

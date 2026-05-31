@@ -1,0 +1,267 @@
+"use client";
+
+import { useState } from "react";
+import { CaptionStyle, styleToCss } from "./CaptionEditor";
+import { FONTS } from "./fonts";
+
+// 자막 한 줄 — 시간(start/end) + 텍스트 + (줄별)스타일 override.
+// style=null 이면 기본 스타일(default) 사용.
+export type CaptionLineData = {
+  text: string;
+  start: number;
+  end: number;
+  style: CaptionStyle | null;
+};
+
+function fmt(t: number) {
+  const s = Math.max(0, t);
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(1).padStart(4, "0");
+  return `${m}:${sec}`;
+}
+
+export default function CaptionTimeline({
+  lines,
+  onChange,
+  defaultStyle,
+  onGenerate,
+  generating,
+  hasScript,
+}: {
+  lines: CaptionLineData[];
+  onChange: (lines: CaptionLineData[]) => void;
+  defaultStyle: CaptionStyle;
+  onGenerate: () => void;
+  generating: boolean;
+  hasScript: boolean;
+}) {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+
+  function patch(i: number, p: Partial<CaptionLineData>) {
+    onChange(lines.map((l, idx) => (idx === i ? { ...l, ...p } : l)));
+  }
+
+  function addLine() {
+    const last = lines[lines.length - 1];
+    const start = last ? last.end : 0;
+    onChange([...lines, { text: "새 자막", start, end: start + 2, style: null }]);
+  }
+
+  function delLine(i: number) {
+    onChange(lines.filter((_, idx) => idx !== i));
+    if (editingIdx === i) setEditingIdx(null);
+  }
+
+  // 줄별 스타일 override 시작 = 기본스타일 복사본을 그 줄에 부여
+  function enableLineStyle(i: number) {
+    patch(i, { style: { ...(lines[i].style || defaultStyle) } });
+    setEditingIdx(i);
+  }
+  function resetLineStyle(i: number) {
+    patch(i, { style: null });
+    if (editingIdx === i) setEditingIdx(null);
+  }
+  function setLineStyle<K extends keyof CaptionStyle>(i: number, k: K, v: CaptionStyle[K]) {
+    const base = lines[i].style || defaultStyle;
+    patch(i, { style: { ...base, [k]: v } });
+  }
+
+  return (
+    <div className="glass rounded-[28px] p-7 sm:p-8">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-bold text-[var(--ink)]">자막 타임라인 편집기</div>
+          <div className="text-xs text-[var(--ink-soft)]">
+            대본을 자동 자막으로 만든 뒤 줄마다 시간·내용·스타일을 직접 조정하세요.
+          </div>
+        </div>
+        <button
+          onClick={onGenerate}
+          disabled={!hasScript || generating}
+          className="btn-grad rounded-full px-5 py-2.5 text-xs font-bold transition disabled:opacity-40"
+          title={hasScript ? "" : "먼저 대본을 입력하세요"}
+        >
+          {generating ? "자막 생성 중..." : lines.length ? "자막 다시 생성" : "자동 자막 생성"}
+        </button>
+      </div>
+
+      {lines.length === 0 ? (
+        <p className="rounded-2xl bg-white/40 px-4 py-8 text-center text-xs text-[var(--ink-soft)] backdrop-blur">
+          아직 자막이 없습니다. <b>자동 자막 생성</b>을 누르면 대본이 타임코드에 맞춰
+          줄 단위로 분할됩니다. 이후 각 줄을 수정할 수 있어요.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {lines.map((ln, i) => {
+            const eff = ln.style || defaultStyle;
+            const hasOverride = ln.style != null;
+            return (
+              <div
+                key={i}
+                className="rounded-2xl border border-white/50 bg-white/55 p-3 backdrop-blur"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* 시간 조정 */}
+                  <div className="flex items-center gap-1 rounded-full bg-white/70 px-2 py-1 text-xs font-semibold text-[var(--ink-soft)]">
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      value={ln.start}
+                      onChange={(e) => patch(i, { start: +e.target.value })}
+                      className="w-14 rounded bg-transparent text-right outline-none"
+                      aria-label="시작 시간(초)"
+                    />
+                    <span className="opacity-50">→</span>
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      value={ln.end}
+                      onChange={(e) => patch(i, { end: +e.target.value })}
+                      className="w-14 rounded bg-transparent outline-none"
+                      aria-label="끝 시간(초)"
+                    />
+                    <span className="ml-1 rounded-full bg-[var(--c-violet)]/40 px-1.5 text-[10px] text-[var(--ink)]">
+                      {Math.max(0, ln.end - ln.start).toFixed(1)}s
+                    </span>
+                  </div>
+
+                  {/* 텍스트 내용 수정 */}
+                  <input
+                    value={ln.text}
+                    onChange={(e) => patch(i, { text: e.target.value })}
+                    className="min-w-0 flex-1 rounded-xl border border-white/50 bg-white/80 px-3 py-1.5 text-sm text-[var(--ink)] outline-none focus:bg-white"
+                    placeholder="자막 내용"
+                  />
+
+                  {/* 줄별 스타일 토글 */}
+                  {hasOverride ? (
+                    <button
+                      onClick={() => (editingIdx === i ? setEditingIdx(null) : setEditingIdx(i))}
+                      className="rounded-full bg-[var(--accent-deep)] px-3 py-1.5 text-xs font-bold text-white"
+                      title="이 줄 전용 스타일 (펼치기/접기)"
+                    >
+                      스타일 {editingIdx === i ? "▴" : "▾"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => enableLineStyle(i)}
+                      className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] hover:bg-white/90"
+                      title="이 줄만 다른 스타일 적용"
+                    >
+                      + 스타일
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => delLine(i)}
+                    className="rounded-full px-2 py-1.5 text-xs text-[var(--ink-soft)] hover:bg-rose-100/70 hover:text-rose-500"
+                    title="줄 삭제"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* 줄 미리보기(효과 적용) */}
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[10px] text-[var(--ink-soft)]">미리보기</span>
+                  <div className="flex-1 overflow-hidden rounded-lg" style={{ background: "#6a7180" }}>
+                    <div className="px-3 py-1.5 text-center">
+                      <span style={{ ...styleToCss(eff), fontSize: Math.min(20, eff.size / 3) }}>
+                        {ln.text || "미리보기"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 줄별 스타일 인라인 편집 */}
+                {hasOverride && editingIdx === i && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-white/50 p-3 sm:grid-cols-4">
+                    <label className="col-span-2 text-xs font-bold text-[var(--ink-soft)] sm:col-span-4">
+                      이 줄 전용 스타일
+                      <button
+                        onClick={() => resetLineStyle(i)}
+                        className="ml-2 rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-[var(--ink-soft)] hover:bg-white/90"
+                      >
+                        기본 스타일로 되돌리기
+                      </button>
+                    </label>
+                    <div className="col-span-2">
+                      <div className="mb-1 text-[11px] text-[var(--ink-soft)]">폰트</div>
+                      <select
+                        value={eff.font}
+                        onChange={(e) => setLineStyle(i, "font", e.target.value)}
+                        className="w-full rounded-lg border border-white/50 bg-white/80 px-2 py-1 text-xs"
+                        style={{ fontFamily: eff.font }}
+                      >
+                        {FONTS.map((f) => (
+                          <option key={f.css} value={f.css} style={{ fontFamily: f.css }}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-[11px] text-[var(--ink-soft)]">크기 {eff.size}</div>
+                      <input
+                        type="range"
+                        min={16}
+                        max={120}
+                        value={eff.size}
+                        onChange={(e) => setLineStyle(i, "size", +e.target.value)}
+                        className="w-full accent-[var(--accent-deep)]"
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1 text-[11px] text-[var(--ink-soft)]">글자색</div>
+                      <input
+                        type="color"
+                        value={eff.color}
+                        onChange={(e) => setLineStyle(i, "color", e.target.value)}
+                        className="h-7 w-full cursor-pointer rounded border border-white/60"
+                      />
+                    </div>
+                    <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-4">
+                      <Toggle on={eff.bold} onClick={() => setLineStyle(i, "bold", !eff.bold)} label="굵게" />
+                      <Toggle on={eff.italic} onClick={() => setLineStyle(i, "italic", !eff.italic)} label="기울임" />
+                      <Toggle on={eff.outline} onClick={() => setLineStyle(i, "outline", !eff.outline)} label="외곽선" />
+                      <Toggle on={eff.box} onClick={() => setLineStyle(i, "box", !eff.box)} label="박스" />
+                      {eff.box && (
+                        <input
+                          type="color"
+                          value={eff.boxColor}
+                          onChange={(e) => setLineStyle(i, "boxColor", e.target.value)}
+                          className="h-7 w-9 cursor-pointer rounded border border-white/60"
+                          title="박스 색"
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          <button
+            onClick={addLine}
+            className="mt-1 rounded-2xl border border-dashed border-[var(--accent)]/50 bg-white/30 py-2.5 text-xs font-bold text-[var(--accent-deep)] transition hover:bg-white/60"
+          >
+            + 줄 추가
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${on ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
+    >
+      {label}
+    </button>
+  );
+}
