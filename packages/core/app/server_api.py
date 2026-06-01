@@ -84,6 +84,15 @@ class CaptionPreviewReq(BaseModel):
     caption_style: dict | None = None
 
 
+class ProductScriptReq(BaseModel):
+    product_url: str = ""              # 제품 상세페이지 URL(스토어/올영 자동크롤, 쿠팡 전용프로필)
+    product_image: str = ""            # 캡처 1장 base64(하위호환) — URL 차단 폴백
+    product_images: list[str] = []     # 캡처 여러 장 base64(data URL 또는 순수 b64)
+    manual_points: str = ""            # 직접 적은 소구포인트(선택)
+    video_content: str = ""            # 영상에서 뽑은 내용/현재 대본(있으면 결합)
+    combine: bool = True               # True면 영상내용+소구포인트 결합 대본까지 생성
+
+
 @app.post("/analyze")
 def analyze(req: AnalyzeReq):
     jid = _new_job()
@@ -157,6 +166,59 @@ def captions_preview(req: CaptionPreviewReq):
         return {"lines": lines_to_payload(lines, style), "duration": total}
     except Exception as e:
         raise HTTPException(500, f"caption preview failed: {str(e)[:300]}") from e
+
+
+@app.post("/script/product")
+def script_product(req: ProductScriptReq):
+    """제품 상세페이지(URL/캡처이미지/수동) → 소구포인트 추출 + 영상내용 결합 대본.
+
+    우선순위: manual_points > product_image > product_url.
+    어느 입력도 없으면 400. 크롤 차단(쿠팡 등) 시 error에 사유 담아 반환.
+    """
+    from app.pipeline.product_scrape import extract_selling_points
+    from app.pipeline.refine import product_script
+
+    raw_imgs = list(req.product_images or [])
+    if req.product_image:
+        raw_imgs.append(req.product_image)
+    images = [b for b in (_decode_image_b64(s) for s in raw_imgs) if b]
+    if not (req.product_url.strip() or images or req.manual_points.strip()):
+        raise HTTPException(400, "product_url·product_images·manual_points 중 하나가 필요합니다.")
+
+    try:
+        sp = extract_selling_points(
+            url=req.product_url or None,
+            images=images or None,
+            manual=req.manual_points or None,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"소구포인트 추출 실패: {str(e)[:300]}") from e
+
+    points = sp.get("points", "")
+    if not points and sp.get("error"):
+        # 크롤 차단 등 — 포인트 못 뽑음. 사유 그대로 전달(웹이 폴백 안내).
+        return {"selling_points": "", "script": "", "source": sp.get("source", ""),
+                "site": sp.get("site", ""), "error": sp["error"]}
+
+    script = ""
+    if req.combine:
+        script = product_script(req.video_content, points)
+    return {"selling_points": points, "script": script,
+            "source": sp.get("source", ""), "site": sp.get("site", ""), "error": ""}
+
+
+def _decode_image_b64(s: str) -> bytes | None:
+    """data URL 또는 순수 base64 → bytes."""
+    import base64
+    s = (s or "").strip()
+    if not s:
+        return None
+    if s.startswith("data:"):
+        s = s.split(",", 1)[-1]
+    try:
+        return base64.b64decode(s)
+    except Exception:
+        return None
 
 
 @app.get("/jobs/{jid}")
@@ -292,7 +354,8 @@ def _render_worker(jid: str, req: RenderReq):
             video_path=base,
             audio_path=dub,
             out_path=job_dir / "output.mp4",
-            cta_text=CTA_TEXT.get(req.cta),
+            # 사전정의 key면 맵 텍스트, 아니면 커스텀 문구 그대로(웹 +버튼 추가분)
+            cta_text=CTA_TEXT.get(req.cta, req.cta) or None,
             replace_audio=bool(dub),
         )
 

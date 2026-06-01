@@ -38,6 +38,8 @@ class CaptionStyle:
     box: bool = False               # 박스(BorderStyle=3) on/off
     box_color: str = "000000"       # 박스 배경색
     box_opacity: float = 0.5        # 박스 불투명도(0~1)
+    box_pad: int = 6                # 박스 글자~테두리 여백 px (ASS Outline로 매핑)
+    # NOTE: boxRadius(둥근 모서리)는 libass가 지원 안 해 burn-in 불가 → 웹 프리뷰 전용.
 
 
 @dataclass
@@ -76,6 +78,9 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         box=bool(d.get("box", b.box)),
         box_color=hx(d.get("boxColor"), b.box_color),
         box_opacity=float(d.get("boxOpacity", b.box_opacity)),
+        # 웹은 좌우/상하 여백 따로 보냄 → ASS는 단일 Outline값이라 평균으로 매핑.
+        box_pad=int(round((int(d.get("boxPadX", b.box_pad)) +
+                           int(d.get("boxPadY", b.box_pad))) / 2)),
     )
 
 
@@ -136,6 +141,8 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "box": st.box,
         "boxColor": "#" + st.box_color,
         "boxOpacity": st.box_opacity,
+        "boxPadX": st.box_pad,
+        "boxPadY": st.box_pad,
     }
 
 
@@ -288,6 +295,7 @@ def _style_sig(st) -> tuple:
         getattr(st, "box", False),
         getattr(st, "box_color", "000000"),
         round(float(getattr(st, "box_opacity", 0.5)), 3),
+        getattr(st, "box_pad", 6),
     )
 
 
@@ -302,7 +310,11 @@ def _style_row(name: str, st, margin_v: int) -> str:
     border_style = 3 if box else 1
     bold = -1 if getattr(st, "bold", True) else 0
     italic = -1 if getattr(st, "italic", False) else 0
-    outline_w = getattr(st, "outline_width", 3) if getattr(st, "outline", True) else 0
+    # BorderStyle=3(박스)일 때 Outline 필드 = 박스 여백(px). 일반(=1)이면 글자 외곽선 두께.
+    if box:
+        outline_w = getattr(st, "box_pad", 6)
+    else:
+        outline_w = getattr(st, "outline_width", 3) if getattr(st, "outline", True) else 0
     shadow = getattr(st, "shadow", 2)
     font = getattr(st, "font", "Pretendard")
     size = getattr(st, "size", 64)

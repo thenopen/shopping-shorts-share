@@ -54,5 +54,17 @@ workdir_analyze/
 *_out.log
 *_err.log
 _dev.log
+_devout.log
+_deverr.log
 packages/web/_dev.log
 packages/core/_server_*.log
+
+# 디버그용 임시 스크린샷/측정 스크립트 (런타임 산출물)
+_*.png
+**/_*.png
+_*test*.py
+**/_*test*.py
+_*_shot.png
+
+# 외부 도구 클론
+chrome-devtools-mcp/

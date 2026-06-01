@@ -25,6 +25,7 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
@@ -35,7 +36,7 @@ export default function RootLayout({
         {/* 자막 폰트 — Tailwind와 분리해 직접 로드 (순서충돌 회피) */}
         <link rel="stylesheet" href="/fonts.css" />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body suppressHydrationWarning className="min-h-full flex flex-col">{children}</body>
     </html>
   );
 }

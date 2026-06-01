@@ -567,10 +567,21 @@
 
 body {
   color: var(--foreground);
-  font-family: "Pretendard", system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  /* 전체 UI 기본 = 조선굴림체 */
+  font-family: "ChosunGu", system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   /* 바깥 배경은 흰색(요청) — 그라데이션은 안쪽 카드에만 */
   background: #ffffff;
   min-height: 100vh;
+}
+
+/* 강조 텍스트 = 온글잎 데몽고딕. Bold(굵게)는 해제 — 폰트 자체 두께만 사용.
+   자막 미리보기/편집기는 인라인 fontFamily를 쓰므로 영향 없음(UI 텍스트만). */
+b, strong, .font-bold, .font-semibold, .font-extrabold, .font-black,
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Paperlogy3", "ChosunGu", system-ui, sans-serif;
+  font-weight: bold;
+  font-size: 1.06em;
+  line-height: 1.35;  /* 세로 여유 — 작은 버튼/라벨서 위아래 잘림 방지 */
 }
 
 /* 글래스 카드 — 파스텔 그라데이션을 카드 안쪽에 적용 + 큰 라운드 + 부드러운 그림자 */
@@ -607,3 +618,24 @@ body {
 /* 스크롤바 (보이스 리스트) */
 .thin-scroll::-webkit-scrollbar { width: 6px; }
 .thin-scroll::-webkit-scrollbar-thumb { background: rgba(122, 140, 255, 0.4); border-radius: 9999px; }
+
+/* 움직이는 그라데이션(shimmer) — tovideo .btn-gradient 스타일. 색이 왕복하며 흐른다 */
+@keyframes shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.grad-anim {
+  background-image: linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82);
+  background-size: 300% 300%;
+  animation: shimmer 3s ease-out infinite alternate;
+  color: #fff;
+  box-shadow: 0 12px 28px -10px rgba(122, 92, 255, 0.6);
+}
+
+/* 제목/배지 뒤 그라데이션 박스 — 같은 shimmer지만 연하게(글자색 유지 가독성) */
+.grad-box {
+  background-image: linear-gradient(120deg, var(--c-blue), var(--c-violet), var(--c-pink), var(--c-violet), var(--c-blue));
+  background-size: 300% 300%;
+  animation: shimmer 6s ease-out infinite alternate;
+}

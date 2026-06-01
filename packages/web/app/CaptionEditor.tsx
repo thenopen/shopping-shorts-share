@@ -21,6 +21,9 @@ export type CaptionStyle = {
   box: boolean;
   boxColor: string;
   boxOpacity: number;
+  boxPadX: number;
+  boxPadY: number;
+  boxRadius: number;
 };
 
 export const DEFAULT_STYLE: CaptionStyle = {
@@ -41,6 +44,9 @@ export const DEFAULT_STYLE: CaptionStyle = {
   box: false,
   boxColor: "#000000",
   boxOpacity: 0.5,
+  boxPadX: 16,
+  boxPadY: 6,
+  boxRadius: 8,
 };
 
 const STORAGE_KEY = "caption_templates";
@@ -82,8 +88,8 @@ export function styleToCss(s: CaptionStyle): CSSProperties {
     textShadow: shadows.length ? shadows.join(", ") : undefined,
     WebkitTextStroke: s.outline ? `0.5px ${s.outlineColor}` : undefined,
     background: s.box ? hexToRgba(s.boxColor, s.boxOpacity) : undefined,
-    padding: s.box ? "6px 16px" : undefined,
-    borderRadius: s.box ? 8 : undefined,
+    padding: s.box ? `${s.boxPadY ?? 6}px ${s.boxPadX ?? 16}px` : undefined,
+    borderRadius: s.box ? (s.boxRadius ?? 8) : undefined,
     lineHeight: 1.3,
     display: "inline-block",
   };
@@ -216,7 +222,7 @@ export default function CaptionEditor({
         </Row>
 
         <Row label="스타일">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5 sm:flex-nowrap">
             <Toggle on={value.bold} onClick={() => set("bold", !value.bold)} label="굵게" />
             <Toggle on={value.italic} onClick={() => set("italic", !value.italic)} label="기울임" />
             <Toggle on={value.outline} onClick={() => set("outline", !value.outline)} label="외곽선" />
@@ -270,6 +276,15 @@ export default function CaptionEditor({
             </Row>
             <Row label={`박스 투명도 ${Math.round(value.boxOpacity * 100)}%`}>
               <input type="range" min={0} max={1} step={0.05} value={value.boxOpacity} onChange={(e) => set("boxOpacity", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+            </Row>
+            <Row label={`박스 좌우 여백 ${value.boxPadX}px`}>
+              <input type="range" min={0} max={48} value={value.boxPadX} onChange={(e) => set("boxPadX", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+            </Row>
+            <Row label={`박스 상하 여백 ${value.boxPadY}px`}>
+              <input type="range" min={0} max={48} value={value.boxPadY} onChange={(e) => set("boxPadY", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+            </Row>
+            <Row label={`박스 둥글기 ${value.boxRadius}px`}>
+              <input type="range" min={0} max={40} value={value.boxRadius} onChange={(e) => set("boxRadius", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
             </Row>
           </>
         )}
@@ -370,7 +385,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
   return (
-    <button onClick={onClick} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${on ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}>
+    <button onClick={onClick} className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold transition ${on ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}>
       {label}
     </button>
   );
