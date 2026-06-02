@@ -108,6 +108,7 @@ export default function Home() {
   // textarea focus 시점 대본(blur 때 비교해 변경됐으면 1버전으로 기록).
   const lastSnapshotRef = useRef("");
   const [rate, setRate] = useState(1.0);
+  const [renderSeq, setRenderSeq] = useState(0); // 재렌더 시 결과영상 캐시버스터 카운터
 
   // 제품 소구포인트: 상세페이지 URL / 캡처이미지 여러 장(파일·Ctrl+V) → 대본 결합
   const [productUrl, setProductUrl] = useState("");
@@ -201,6 +202,7 @@ export default function Home() {
     });
   }
   const [playing, setPlaying] = useState<string | null>(null);
+  const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
   const [job, setJob] = useState<JobState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -357,6 +359,7 @@ export default function Home() {
 
   async function startRender() {
     if (!job?.id || busy) return;
+    setRenderSeq((n) => n + 1); // 결과 영상 캐시버스터 — 재렌더 시 브라우저가 새 영상 받게
     setBusy(true);
     try {
       const r = await fetch(`${apiBase()}/render`, {
@@ -379,19 +382,29 @@ export default function Home() {
   }
 
   function toggleVoice(nick: string) {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    if (playing === nick) {
+    const el = audioRef.current;
+    if (!el) return;
+    if (playing === nick) {       // 같은 보이스 다시 누르면 정지
+      el.pause();
       setPlaying(null);
       return;
     }
-    const audio = new Audio(`/voices/${encodeURIComponent(nick)}.mp3`);
-    audioRef.current = audio;
-    audio.onended = () => setPlaying(null);
-    audio.play().catch(() => setPlaying(null));
+    // iOS/인앱브라우저: play()는 사용자 제스처 안에서 동기 호출돼야 한다.
+    // load() 호출하면 진행중 play()가 AbortError로 취소됨 → src만 바꾸고 play().
+    const src = `${window.location.origin}/voices/${encodeURIComponent(nick)}.mp3`;
+    if (!el.src.endsWith(encodeURIComponent(nick) + ".mp3")) el.src = src;
+    el.currentTime = 0;
+    setLoadingVoice(nick);       // 클릭 즉시 로딩 표시
     setPlaying(nick);
+    el.play()
+      .then(() => setLoadingVoice(null))
+      .catch((err: unknown) => {
+        const name = err instanceof Error ? err.name : "";
+        if (name === "AbortError") return; // 다른 보이스로 빠르게 전환 시 정상 — 무시
+        setLoadingVoice(null);
+        setPlaying(null);
+        alert(`미리듣기 재생 실패: ${err instanceof Error ? err.message : String(err)}`);
+      });
   }
 
   async function pasteFromClipboard() {
@@ -400,21 +413,23 @@ export default function Home() {
     } catch {}
   }
 
-  const previewUrl = job?.output ? `${apiBase()}${job.output}` : job?.preview ? `${apiBase()}${job.preview}` : null;
+  const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
 
   return (
     <div className="min-h-screen text-[var(--ink)]">
+      {/* 보이스 미리듣기용 단일 오디오 엘리먼트(iOS 인앱브라우저 호환) */}
+      <audio ref={audioRef} onEnded={() => setPlaying(null)} preload="auto" className="hidden" />
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 pt-7 pb-2 sm:px-6">
         <div className="flex items-center gap-4">
           {/* S 박스: 제목+설명 2줄 높이에 맞춘 정사각형(고정). 커진 만큼 옆 텍스트는 gap으로 우측에 */}
           <div className="flex h-14 w-14 flex-none items-center justify-center rounded-2xl grad-anim text-2xl font-black">S</div>
-          <div className="flex flex-col justify-center leading-tight">
-            <div className="inline-flex w-fit items-center gap-2 rounded-xl grad-box px-3 py-1">
-              <h1 className="text-xl font-extrabold tracking-tight text-[var(--ink)]">쇼핑 쇼츠 메이커</h1>
-              <span className="rounded-full bg-white/60 px-2 py-0.5 text-[11px] font-bold text-[var(--accent-deep)]">BETA</span>
+          <div className="flex min-w-0 flex-col justify-center leading-tight">
+            <div className="flex w-full items-center justify-between gap-2 rounded-xl grad-box px-3 py-1">
+              <h1 className="whitespace-nowrap text-lg font-extrabold tracking-tight text-[var(--ink)]">쇼핑 쇼츠 메이커</h1>
+              <span className="shrink-0 rounded-full bg-white/60 px-2 py-0.5 text-[11px] font-bold text-[var(--accent-deep)]">BETA</span>
             </div>
-            <p className="mt-1 text-xs text-[var(--ink-soft)]">유튜브·인스타·틱톡·도우인 링크를 한국어 쇼츠로</p>
+            <p className="mt-1 whitespace-nowrap text-xs text-[var(--ink-soft)]">유튜브·인스타·틱톡·도우인 링크를 한국어 쇼츠로</p>
           </div>
         </div>
       </header>
@@ -467,12 +482,13 @@ export default function Home() {
             </div>
 
             {/* 캡처 업로드(여러 장) — 파일 선택 또는 Ctrl+V 붙여넣기. 쿠팡 등 차단 사이트 폴백 */}
-            <div className="mt-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <label className="cursor-pointer rounded-full bg-white/70 px-4 py-2 text-xs font-semibold text-[var(--ink)] backdrop-blur transition hover:bg-white/90">
-                  📷 캡쳐 이미지 올리기 (여러 장 가능)
-                  <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImageFiles(e.target.files); e.target.value = ""; }} />
-                </label>
+            <div className="mt-2.5">
+              {/* 캡쳐 버튼: 모바일선 위 '소구포인트→대본' 버튼과 같은 full-width */}
+              <label className="flex w-full cursor-pointer items-center justify-center whitespace-nowrap rounded-full bg-white/70 px-7 py-3 text-sm font-bold text-[var(--ink)] backdrop-blur transition hover:bg-white/90 md:w-auto md:justify-start md:py-2 md:text-[13px] md:font-semibold">
+                📷 캡쳐 이미지 올리기
+                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImageFiles(e.target.files); e.target.value = ""; }} />
+              </label>
+              <div className="mt-2 flex flex-wrap items-center gap-2.5">
                 <span className="text-[13px] text-[var(--ink-soft)]">또는 캡쳐 후 이 영역에서 <kbd className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px]">Ctrl+V</kbd> 붙여넣기</span>
                 {productImages.length > 0 && (
                   <button onClick={() => setProductImages([])} className="text-xs font-semibold text-rose-500 hover:underline">전체 제거</button>
@@ -573,7 +589,9 @@ export default function Home() {
                     className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs text-[var(--accent-deep)] shadow transition hover:bg-[var(--c-lilac)]"
                     aria-label={`${v.name} 미리듣기`}
                   >
-                    {playing === v.name ? "■" : "▶"}
+                    {loadingVoice === v.name ? (
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
+                    ) : playing === v.name ? "■" : "▶"}
                   </button>
                 </div>
               ))}
@@ -684,12 +702,12 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm font-bold text-emerald-600">✅ 영상 완성</div>
               <div className="flex flex-wrap gap-2">
-                <a href={`${apiBase()}${job.output}`} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
+                <a href={previewUrl ?? `${apiBase()}${job.output}`} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
                   다운로드
                 </a>
                 <button
                   onClick={async () => {
-                    const link = `${apiBase()}${job!.output}`;
+                    const link = previewUrl ?? `${apiBase()}${job!.output}`;
                     // 모바일 공유시트(가능하면) — 아니면 클립보드 복사
                     const navAny = navigator as Navigator & { share?: (d: { title?: string; url?: string }) => Promise<void> };
                     try {
@@ -705,7 +723,7 @@ export default function Home() {
               </div>
             </div>
             {/* iOS는 download가 무시됨 — 아래 영상 길게 눌러 "비디오 저장"으로도 받을 수 있음 */}
-            <video src={`${apiBase()}${job.output}`} controls playsInline className="mx-auto max-h-[460px] rounded-2xl bg-black/80" style={{ aspectRatio: "9/16" }} />
+            <video src={previewUrl ?? `${apiBase()}${job.output}`} controls playsInline className="mx-auto max-h-[460px] rounded-2xl bg-black/80" style={{ aspectRatio: "9/16" }} />
             <p className="text-center text-[11px] text-[var(--ink-soft)]">아이폰은 위 영상을 길게 눌러 &quot;비디오 저장&quot;으로도 받을 수 있어요.</p>
           </section>
         )}

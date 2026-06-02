@@ -40,6 +40,7 @@ class CaptionStyle:
     box_opacity: float = 0.5        # 박스 불투명도(0~1)
     box_pad: int = 6                # 박스 글자~테두리 여백 px (ASS Outline로 매핑)
     # NOTE: boxRadius(둥근 모서리)는 libass가 지원 안 해 burn-in 불가 → 웹 프리뷰 전용.
+    pos_v: str = "bottom"           # 자막 세로 위치: top/middle/bottom (ASS Alignment)
 
 
 @dataclass
@@ -81,6 +82,7 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         # 웹은 좌우/상하 여백 따로 보냄 → ASS는 단일 Outline값이라 평균으로 매핑.
         box_pad=int(round((int(d.get("boxPadX", b.box_pad)) +
                            int(d.get("boxPadY", b.box_pad))) / 2)),
+        pos_v=str(d.get("posV", b.pos_v)),
     )
 
 
@@ -143,6 +145,7 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "boxOpacity": st.box_opacity,
         "boxPadX": st.box_pad,
         "boxPadY": st.box_pad,
+        "posV": st.pos_v,
     }
 
 
@@ -296,6 +299,7 @@ def _style_sig(st) -> tuple:
         getattr(st, "box_color", "000000"),
         round(float(getattr(st, "box_opacity", 0.5)), 3),
         getattr(st, "box_pad", 6),
+        getattr(st, "pos_v", "bottom"),
     )
 
 
@@ -318,9 +322,17 @@ def _style_row(name: str, st, margin_v: int) -> str:
     shadow = getattr(st, "shadow", 2)
     font = getattr(st, "font", "Pretendard")
     size = getattr(st, "size", 64)
+    # 세로 위치 → ASS Alignment(8=상단중앙,5=중앙,2=하단중앙) + 그에 맞는 MarginV.
+    pos_v = getattr(st, "pos_v", "bottom")
+    if pos_v == "top":
+        align, mv = 8, 210
+    elif pos_v == "middle":
+        align, mv = 5, 0
+    else:
+        align, mv = 2, margin_v
     return (
         f"Style: {name},{font},{size},{primary},{primary},{outline_c},{back},"
-        f"{bold},{italic},0,0,100,100,0,0,{border_style},{outline_w},{shadow},2,60,60,{margin_v},1"
+        f"{bold},{italic},0,0,100,100,0,0,{border_style},{outline_w},{shadow},{align},60,60,{mv},1"
     )
 
 

@@ -24,6 +24,7 @@ export type CaptionStyle = {
   boxPadX: number;
   boxPadY: number;
   boxRadius: number;
+  posV: "top" | "middle" | "bottom";  // 자막 세로 위치
 };
 
 export const DEFAULT_STYLE: CaptionStyle = {
@@ -47,6 +48,7 @@ export const DEFAULT_STYLE: CaptionStyle = {
   boxPadX: 16,
   boxPadY: 6,
   boxRadius: 8,
+  posV: "bottom",
 };
 
 const STORAGE_KEY = "caption_templates";
@@ -102,7 +104,7 @@ export default function CaptionEditor({
   value: CaptionStyle;
   onChange: (s: CaptionStyle) => void;
 }) {
-  const [text, setText] = useState("Text를 입력하세요.");
+  const [text, setText] = useState("");
   const [templates, setTemplates] = useState<Record<string, CaptionStyle>>({});
   const [tplName, setTplName] = useState("");
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -156,7 +158,7 @@ export default function CaptionEditor({
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="문구 입력"
+        placeholder="Text를 입력하세요."
         className="mb-4 w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-2.5 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
       />
 

@@ -226,7 +226,18 @@ export default function CaptionTimeline({
                       <Toggle on={eff.bold} onClick={() => setLineStyle(i, "bold", !eff.bold)} label="굵게" />
                       <Toggle on={eff.italic} onClick={() => setLineStyle(i, "italic", !eff.italic)} label="기울임" />
                       <Toggle on={eff.outline} onClick={() => setLineStyle(i, "outline", !eff.outline)} label="외곽선" />
+                      <Toggle on={eff.shadow} onClick={() => setLineStyle(i, "shadow", !eff.shadow)} label="그림자" />
+                      <Toggle on={eff.glow} onClick={() => setLineStyle(i, "glow", !eff.glow)} label="글로우" />
                       <Toggle on={eff.box} onClick={() => setLineStyle(i, "box", !eff.box)} label="박스" />
+                      {eff.glow && (
+                        <input
+                          type="color"
+                          value={eff.glowColor}
+                          onChange={(e) => setLineStyle(i, "glowColor", e.target.value)}
+                          className="h-7 w-9 cursor-pointer rounded border border-white/60"
+                          title="글로우 색"
+                        />
+                      )}
                       {eff.box && (
                         <input
                           type="color"
@@ -236,6 +247,13 @@ export default function CaptionTimeline({
                           title="박스 색"
                         />
                       )}
+                    </div>
+                    {/* 자막 세로 위치 */}
+                    <div className="col-span-2 flex items-center gap-1.5 sm:col-span-4">
+                      <span className="text-xs font-semibold text-[var(--ink-soft)]">위치</span>
+                      {([["top", "위"], ["middle", "중간"], ["bottom", "아래"]] as const).map(([v, lbl]) => (
+                        <Toggle key={v} on={(eff.posV ?? "bottom") === v} onClick={() => setLineStyle(i, "posV", v)} label={lbl} />
+                      ))}
                     </div>
                   </div>
                 )}
