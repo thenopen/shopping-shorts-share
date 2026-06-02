@@ -69,6 +69,9 @@ export default function Home() {
   // CTA 문구 목록(기본3 + 사용자 추가 통합. 기본도 삭제 가능). localStorage 저장.
   const [ctaList, setCtaList] = useState<string[]>(DEFAULT_CTAS);
   const [cta, setCta] = useState(DEFAULT_CTAS[1]); // 선택된 CTA 문구(텍스트)
+  const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
+  const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
+  const [ctaPos, setCtaPos] = useState(0.88);      // CTA 세로 위치(0~1)
 
   useEffect(() => {
     try {
@@ -114,13 +117,13 @@ export default function Home() {
 
   // 현재 대본 + 선택 voice로 TTS 생성해 들어보기. voice 바꿔 다시 누르면 새로 생성.
   async function previewTts() {
-    if (!job?.id || !script.trim() || ttsBusy) return;
+    if (!script.trim() || ttsBusy) return;  // 분석 전이어도 대본만 있으면 들어보기 가능
     setTtsBusy(true);
     try {
       const r = await fetch(`${apiBase()}/tts/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job.id, script, voice, speaking_rate: rate }),
+        body: JSON.stringify({ job_id: job?.id ?? "", script, voice, speaking_rate: rate }),
       });
       const d = await r.json();
       if (d.audio) {
@@ -395,6 +398,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           job_id: job.id, script, voice, speaking_rate: rate, cta,
+          cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
           captions: captionsOn,
           caption_style: captionStyle,
           // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
@@ -627,7 +631,7 @@ export default function Home() {
             {/* 선택한 보이스 + 현재 대본으로 전체 음성 미리듣기 — 맘에 안 들면 보이스 바꿔 다시 */}
             <button
               onClick={previewTts}
-              disabled={!job?.id || !script.trim() || ttsBusy}
+              disabled={!script.trim() || ttsBusy}
               className="mt-3 w-full rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
             >
               {ttsBusy ? "음성 생성 중..." : `🔊 '${voice}' 목소리로 대본 들어보기`}
@@ -636,20 +640,37 @@ export default function Home() {
           </div>
 
           <div className="mt-7">
-            <Field label="CTA">
+            <div className="rounded-2xl border border-white/50 bg-white/40 p-3.5 backdrop-blur">
+              {/* CTA 넣기/빼기 체크박스 */}
+              <label className="mb-2 flex cursor-pointer items-center gap-2 px-1 text-xs font-bold text-[var(--ink-soft)]">
+                <input type="checkbox" checked={ctaOn} onChange={(e) => setCtaOn(e.target.checked)} className="h-4 w-4 accent-[var(--accent-deep)]" />
+                CTA 자막 넣기
+              </label>
               <div className="flex items-center gap-1.5">
-                <select value={cta} onChange={(e) => setCta(e.target.value)} className="h-12 min-w-0 flex-1 truncate rounded-xl border border-white/50 bg-white/70 px-3 text-[13px] text-[var(--ink)] outline-none" style={{ fontFamily: "ChosunGu, system-ui, sans-serif", lineHeight: "normal" }}>
+                <select value={cta} onChange={(e) => setCta(e.target.value)} disabled={!ctaOn} className="h-12 min-w-0 flex-1 truncate rounded-xl border border-white/50 bg-white/70 px-3 text-[13px] text-[var(--ink)] outline-none disabled:opacity-40" style={{ fontFamily: "ChosunGu, system-ui, sans-serif", lineHeight: "normal" }}>
                   {ctaList.length === 0 && <option value="">(CTA 없음)</option>}
                   {ctaList.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
-                <button onClick={addCustomCta} title="CTA 문구 추가" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/70 text-lg font-bold text-[var(--accent-deep)] transition hover:bg-white/90">+</button>
+                <button onClick={addCustomCta} disabled={!ctaOn} title="CTA 문구 추가" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/70 text-lg font-bold text-[var(--accent-deep)] transition hover:bg-white/90 disabled:opacity-40">+</button>
                 {cta && ctaList.includes(cta) && (
-                  <button onClick={() => deleteCta(cta)} title="선택한 문구 삭제" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100/70 text-sm font-bold text-rose-600 transition hover:bg-rose-200/70">×</button>
+                  <button onClick={() => deleteCta(cta)} disabled={!ctaOn} title="선택한 문구 삭제" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100/70 text-sm font-bold text-rose-600 transition hover:bg-rose-200/70 disabled:opacity-40">×</button>
                 )}
               </div>
-            </Field>
+              {ctaOn && (
+                <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <label className="px-1 text-xs font-bold text-[var(--ink-soft)]">
+                    글자 크기 {ctaSize}px
+                    <input type="range" min={24} max={120} value={ctaSize} onChange={(e) => setCtaSize(+e.target.value)} className="mt-1 w-full accent-[var(--accent-deep)]" />
+                  </label>
+                  <label className="px-1 text-xs font-bold text-[var(--ink-soft)]">
+                    세로 위치 {Math.round(ctaPos * 100)}%
+                    <input type="range" min={0} max={100} value={Math.round(ctaPos * 100)} onChange={(e) => setCtaPos(+e.target.value / 100)} className="mt-1 w-full accent-[var(--accent-deep)]" />
+                  </label>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">

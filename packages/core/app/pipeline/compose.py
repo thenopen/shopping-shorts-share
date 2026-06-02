@@ -31,11 +31,13 @@ def compose(
     out_path: Path,
     cta_text: str | None = None,
     replace_audio: bool = True,
+    cta_size: int = 56,
+    cta_pos: float = 0.88,
 ) -> Path:
     """영상 + (선택)더빙오디오 + (선택)CTA자막 → 9:16 mp4.
 
     replace_audio=True: 원본 음성을 더빙으로 교체.
-    cta_text: 화면 하단 고정 CTA 문구.
+    cta_text: CTA 문구. cta_size: 글자 크기(px). cta_pos: 세로 위치(0=맨위~1=맨아래).
     """
     video_path, out_path = Path(video_path), Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,9 +50,13 @@ def compose(
     if cta_text:
         txt = _escape_drawtext(cta_text)
         font = _ff_path(DEFAULT_FONT)
+        sz = max(12, int(cta_size))
+        bw = max(2, sz // 14)
+        # cta_pos: 0=맨위~1=맨아래. 글자높이 고려해 화면 안에 들어오게 클램프.
+        pos = min(0.98, max(0.02, float(cta_pos)))
         vf += (
-            f",drawtext=fontfile='{font}':text='{txt}':fontcolor=white:fontsize=56:"
-            f"borderw=4:bordercolor=black:x=(w-text_w)/2:y=h-220"
+            f",drawtext=fontfile='{font}':text='{txt}':fontcolor=white:fontsize={sz}:"
+            f"borderw={bw}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)*{pos}"
         )
 
     cmd = [FFMPEG, "-y", "-i", str(video_path)]

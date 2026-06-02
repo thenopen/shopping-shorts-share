@@ -71,6 +71,9 @@ class RenderReq(BaseModel):
     voice: str = "소담"
     speaking_rate: float = 1.0
     cta: str = "profile"
+    cta_on: bool = True              # CTA 자막 넣기/빼기(체크박스)
+    cta_size: int = 56               # CTA 글자 크기(px)
+    cta_pos: float = 0.88            # CTA 세로 위치(0=위~1=아래)
     captions: bool = True            # TTS 대본 자동자막 on/off
     caption_style: dict | None = None  # 웹 CaptionStyle (font/size/color/...) — 기본 스타일
     caption_lines: list | None = None  # 타임라인 편집기서 수정한 줄들(있으면 자동생성 대신 이걸 burn)
@@ -175,21 +178,22 @@ def tts_preview(req: CaptionPreviewReq):
     voice 바꿔 다시 호출하면 새로 생성 → 들어보고 맘에 드는 보이스 고를 수 있음.
     파일명에 voice 넣어 브라우저 캐시가 옛 음성 재생하는 것 방지.
     """
-    if req.job_id not in JOBS:
-        raise HTTPException(404, "job not found")
     if not req.script.strip():
         raise HTTPException(400, "script is empty")
     try:
         from app.pipeline.tts import synthesize_by_nickname
         import re
-        job_dir = WORKDIR / req.job_id
+        # 서버 재기동으로 JOBS(메모리)가 비어도, 또는 분석 전이라도 미리듣기는 되게:
+        # job_id 폴더가 있으면 쓰고, 없으면 '_ttspreview' 공용 폴더에 생성.
+        jid = req.job_id if (req.job_id and (WORKDIR / req.job_id).exists()) else "_ttspreview"
+        job_dir = WORKDIR / jid
         job_dir.mkdir(parents=True, exist_ok=True)
         safe_voice = re.sub(r"[^0-9A-Za-z가-힣]", "", req.voice) or "voice"
         fname = f"preview_{safe_voice}.mp3"
         _dub, _stamps = synthesize_by_nickname(
             req.script, job_dir / fname, nickname=req.voice, speaking_rate=req.speaking_rate,
         )
-        return {"audio": f"/file/{req.job_id}/{fname}", "duration": _probe_dur(_dub)}
+        return {"audio": f"/file/{jid}/{fname}", "duration": _probe_dur(_dub)}
     except Exception as e:
         raise HTTPException(500, f"tts preview failed: {str(e)[:300]}") from e
 
@@ -397,9 +401,11 @@ def _render_worker(jid: str, req: RenderReq):
             video_path=base,
             audio_path=dub,
             out_path=job_dir / "output.mp4",
-            # 사전정의 key면 맵 텍스트, 아니면 커스텀 문구 그대로(웹 +버튼 추가분)
-            cta_text=CTA_TEXT.get(req.cta, req.cta) or None,
+            # CTA 체크 켜졌을 때만. 사전정의 key면 맵 텍스트, 아니면 커스텀 문구 그대로.
+            cta_text=(CTA_TEXT.get(req.cta, req.cta) or None) if req.cta_on else None,
             replace_audio=bool(dub),
+            cta_size=req.cta_size,
+            cta_pos=req.cta_pos,
         )
 
         # 자막 burn-in: 편집된 줄(caption_lines) 있으면 그걸로, 없으면 TTS 자동생성
