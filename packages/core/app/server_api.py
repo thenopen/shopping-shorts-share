@@ -168,6 +168,32 @@ def captions_preview(req: CaptionPreviewReq):
         raise HTTPException(500, f"caption preview failed: {str(e)[:300]}") from e
 
 
+@app.post("/tts/preview")
+def tts_preview(req: CaptionPreviewReq):
+    """대본 + 선택 voice → TTS mp3 생성, 재생용 URL 반환(영상 렌더 안 함).
+
+    voice 바꿔 다시 호출하면 새로 생성 → 들어보고 맘에 드는 보이스 고를 수 있음.
+    파일명에 voice 넣어 브라우저 캐시가 옛 음성 재생하는 것 방지.
+    """
+    if req.job_id not in JOBS:
+        raise HTTPException(404, "job not found")
+    if not req.script.strip():
+        raise HTTPException(400, "script is empty")
+    try:
+        from app.pipeline.tts import synthesize_by_nickname
+        import re
+        job_dir = WORKDIR / req.job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        safe_voice = re.sub(r"[^0-9A-Za-z가-힣]", "", req.voice) or "voice"
+        fname = f"preview_{safe_voice}.mp3"
+        _dub, _stamps = synthesize_by_nickname(
+            req.script, job_dir / fname, nickname=req.voice, speaking_rate=req.speaking_rate,
+        )
+        return {"audio": f"/file/{req.job_id}/{fname}", "duration": _probe_dur(_dub)}
+    except Exception as e:
+        raise HTTPException(500, f"tts preview failed: {str(e)[:300]}") from e
+
+
 @app.post("/script/product")
 def script_product(req: ProductScriptReq):
     """제품 상세페이지(URL/캡처이미지/수동) → 소구포인트 추출 + 영상내용 결합 대본.
@@ -264,9 +290,12 @@ def _analyze_worker(jid: str, raw_url: str):
         job["meta"]["source"] = str(source)
 
         job.update(status="removing_subtitle", stage="자막·워터마크 제거", progress=40)
-        # 화면 전체 OCR로 자막+워터마크 글자 모두 탐지(하단제한 해제)
+        # 화면 전체 OCR로 자막+워터마크 글자 모두 탐지(언어 무관, 하단제한 해제).
+        # require_center=True: 가로로 긴 중앙정렬 자막 형태만 → 상품 패키지/배경 글자 과제거 방지.
+        # interval 0.25s: 짧게 뜨는 자막·라벨도 놓치지 않게.
         try:
-            segments = detect_segments(source, interval_sec=0.5, full_frame=True)
+            segments = detect_segments(source, interval_sec=0.25, full_frame=True,
+                                       require_center=True, pad=14)
         except Exception as e:
             print(f"  [subtitle segment detection failed: {str(e)[:120]}]")
             segments = []

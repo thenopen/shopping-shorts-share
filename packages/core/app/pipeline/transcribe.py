@@ -10,7 +10,7 @@ from app.pipeline.translate import translate_zh_ko
 
 def transcribe_to_korean(
     media_path: Path,
-    model_size: str = "small",
+    model_size: str = "large-v3",
     keep_segments: bool = True,
     provider: str | None = None,
 ) -> dict:
@@ -29,8 +29,25 @@ def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool) ->
     if not media_path.exists():
         raise FileNotFoundError(f"Media file not found: {media_path}")
 
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(str(media_path), language="zh")
+    # GPU 있으면 cuda+float16(정확·빠름), 없으면 cpu+int8 폴백.
+    try:
+        import torch
+        use_cuda = torch.cuda.is_available()
+    except Exception:
+        use_cuda = False
+    if use_cuda:
+        try:
+            model = WhisperModel(model_size, device="cuda", compute_type="float16")
+        except Exception as e:
+            print(f"  [whisper cuda init 실패, cpu 폴백: {str(e)[:100]}]")
+            model = WhisperModel("small", device="cpu", compute_type="int8")
+    else:
+        model = WhisperModel("small", device="cpu", compute_type="int8")
+    # beam_size↑·vad_filter로 무음구간 환청('0,,입자' 류) 억제 → 정확도 개선.
+    segments, _info = model.transcribe(
+        str(media_path), language="zh", beam_size=5,
+        vad_filter=True, vad_parameters={"min_silence_duration_ms": 500},
+    )
 
     seg_list = []
     zh_parts = []

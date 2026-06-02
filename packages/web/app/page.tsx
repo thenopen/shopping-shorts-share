@@ -109,6 +109,34 @@ export default function Home() {
   const lastSnapshotRef = useRef("");
   const [rate, setRate] = useState(1.0);
   const [renderSeq, setRenderSeq] = useState(0); // 재렌더 시 결과영상 캐시버스터 카운터
+  const [ttsBusy, setTtsBusy] = useState(false);
+  const [ttsUrl, setTtsUrl] = useState("");      // 대본 전체 TTS 미리듣기 mp3
+
+  // 현재 대본 + 선택 voice로 TTS 생성해 들어보기. voice 바꿔 다시 누르면 새로 생성.
+  async function previewTts() {
+    if (!job?.id || !script.trim() || ttsBusy) return;
+    setTtsBusy(true);
+    try {
+      const r = await fetch(`${apiBase()}/tts/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, script, voice, speaking_rate: rate }),
+      });
+      const d = await r.json();
+      if (d.audio) {
+        const u = `${apiBase()}${d.audio}?t=${renderSeq}-${voice}`;
+        setTtsUrl(u);
+        const el = audioRef.current;
+        if (el) { el.pause(); el.src = u; el.currentTime = 0; el.play().catch(() => {}); }
+      } else {
+        alert("음성 생성 실패.");
+      }
+    } catch {
+      alert("음성 생성 실패. 서버 상태를 확인하세요.");
+    } finally {
+      setTtsBusy(false);
+    }
+  }
 
   // 제품 소구포인트: 상세페이지 URL / 캡처이미지 여러 장(파일·Ctrl+V) → 대본 결합
   const [productUrl, setProductUrl] = useState("");
@@ -596,6 +624,15 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            {/* 선택한 보이스 + 현재 대본으로 전체 음성 미리듣기 — 맘에 안 들면 보이스 바꿔 다시 */}
+            <button
+              onClick={previewTts}
+              disabled={!job?.id || !script.trim() || ttsBusy}
+              className="mt-3 w-full rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
+            >
+              {ttsBusy ? "음성 생성 중..." : `🔊 '${voice}' 목소리로 대본 들어보기`}
+            </button>
+            {ttsUrl && <p className="mt-1.5 text-center text-[11px] text-[var(--ink-soft)]">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>}
           </div>
 
           <div className="mt-7">

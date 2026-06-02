@@ -86,7 +86,7 @@ def _to_xywh(box):
     return int(x), int(y), int(w), int(h)
 
 
-def _stroke_mask_in_box(frame, x, y, w, h, dilate=3):
+def _stroke_mask_in_box(frame, x, y, w, h, dilate=6):
     """박스 안에서 '글자 획'만 마스킹(박스 전체 X).
 
     자막/워터마크 글자는 보통 흰색(밝음)+검은 외곽선. 박스영역을 grayscale로
@@ -102,12 +102,18 @@ def _stroke_mask_in_box(frame, x, y, w, h, dilate=3):
         return None
     roi = frame[y0:y1, x0:x1]
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    # 밝은 글자(흰자막) + 어두운 외곽선/그림자 둘 다 잡기
-    bright = gray >= 200
-    dark = gray <= 55
+    # 밝은 글자(흰자막) + 어두운 외곽선/그림자. 밴드를 넓혀(185/70) anti-alias 가장자리까지.
+    bright = gray >= 185
+    dark = gray <= 70
     m = np.zeros(gray.shape, dtype=np.uint8)
     m[bright | dark] = 255
-    # 획을 살짝 굵게(외곽선까지 확실히 덮어 잔상 제거)
+    # 중간톤(반투명·anti-alias) 글자 엣지 = 고대비 경계 → morphology gradient로 추가 포착.
+    grad = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT,
+                            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    m[grad >= 40] = 255
+    # 글자 내부 구멍 메우고(잔상 방지) 획을 굵게 — 외곽선·번짐까지 확실히 덮음.
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE,
+                         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
     if dilate > 0:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate, dilate))
         m = cv2.dilate(m, k, iterations=1)

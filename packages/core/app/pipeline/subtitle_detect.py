@@ -50,10 +50,19 @@ def detect_segments(
         ok, frame = cap.read()
         if ok:
             crop = frame if full_frame else frame[y_off:, :]
-            for bbox, text, conf in reader.readtext(crop):
-                # 자막제거는 글자 위치만 필요(텍스트 정확도 불필요). easyocr이 흰자막에
-                # conf≈0을 주므로 conf 필터하면 자막 다 놓침 → conf_min=0, 중국어 글자 유무로만 판정.
-                if conf < conf_min or not _has_chinese(text):
+            # 자막제거는 글자 '위치'만 필요(내용 무관) → recall 우선 파라미터.
+            # text_threshold/low_text 낮춰 흰색·저대비 글자도 검출, mag_ratio로 작은 라벨 업스케일.
+            ocr_results = reader.readtext(
+                crop, detail=1, paragraph=False,
+                text_threshold=0.4, low_text=0.3, link_threshold=0.3,
+                mag_ratio=1.5, min_size=8,
+            )
+            for bbox, text, conf in ocr_results:
+                # 중국어뿐 아니라 화면에 박힌 모든 자막을 제거 대상으로(언어 무관).
+                # easyocr이 흰자막에 conf≈0 주므로 conf 필터는 안 함. 텍스트 박스가 잡히면 후보.
+                # 과제거(상품 패키지/배경 글자)는 아래 지오메트리(require_center)·시간지속으로 거른다.
+                txt = (text or "").strip()
+                if not txt:
                     continue
                 xs = [p[0] for p in bbox]
                 ys = [p[1] + y_off for p in bbox]
