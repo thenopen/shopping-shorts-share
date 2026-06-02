@@ -19,3 +19,10 @@ opencv-python==4.10.0.84
 easyocr==1.7.2
 faster-whisper==1.1.0
 deep-translator==1.11.4
+
+# ProPainter(비디오 자막제거, 시간축 복원) — torch 건드리지 말 것!
+#   pip install --no-deps timm addict matplotlib
+#   repo는 propainter_inpaint.ensure_propainter()가 자동 clone+패치(.gitignore됨)
+timm==1.0.27
+addict==2.4.0
+matplotlib==3.10.9

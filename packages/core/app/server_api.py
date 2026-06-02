@@ -317,8 +317,22 @@ def _analyze_worker(jid: str, raw_url: str):
                 # inpaint 40~90% 구간 매핑
                 job.update(progress=40 + int(frac * 50),
                            stage=f"자막·워터마크 제거 ({int(frac*100)}%)")
-            nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
-                                      fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+            nosub = None
+            # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
+            # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
+            if segments and os.environ.get("PROPAINTER", "1") != "0":
+                try:
+                    from app.pipeline.propainter_inpaint import inpaint_with_propainter
+                    job.update(stage="자막 제거 (AI 배경복원)", progress=45)
+                    nosub = inpaint_with_propainter(
+                        source, job_dir / "nosub.mp4", segments, progress_cb=_ip_prog)
+                    print("  [ProPainter 자막제거 성공]")
+                except Exception as pe:
+                    print(f"  [ProPainter 실패, LaMa 폴백: {str(pe)[:200]}]")
+                    nosub = None
+            if nosub is None:
+                nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
+                                          fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
         else:
             nosub = remove_subtitle(source, job_dir / "nosub.mp4", use_ocr=False)
 

@@ -68,3 +68,5 @@ _*_shot.png
 
 # 외부 도구 클론
 chrome-devtools-mcp/
+# ProPainter vendored repo(303MB, 가중치 191MB) — clone+자동패치로 재현(propainter_inpaint.ensure_propainter)
+packages/core/app/pipeline/ProPainter/
