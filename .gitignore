@@ -46,6 +46,7 @@ desktop.ini
 # IDE / 로컬 도구 설정
 .vscode/
 .claude/
+.mcp.json
 
 # 분석용 임시 이미지
 workdir_analyze/
