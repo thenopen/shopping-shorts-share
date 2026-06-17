@@ -82,6 +82,16 @@ py -3.12 -m venv .venv
 - `playwright-stealth>=2.0.0` — 제품 상세페이지 크롤(`product_scrape.py`)의 `Stealth` 클래스 API(2.x)
 - `simple-lama-inpainting` — 주석으로 표기(위 2-5처럼 `--no-deps` 별도 설치)
 
+### ProPainter 저장소 (자막제거 고급 엔진 — 선택, 자동 clone)
+
+> **왜 별도 안내:** ProPainter는 requirements의 `timm`/`addict`/`matplotlib`만 pip로 깔리고, **저장소 본체는 코드에 없습니다**(`.gitignore` 대상). 그래서 설치 단계에 안 보이지만 사실상 요구사항입니다.
+
+- **첫 자막제거 실행 시** `ensure_propainter()`가 GitHub에서 **자동 clone(~303MB) + 가중치(~191MB)** 다운로드 → 첫 분석이 느릴 수 있음
+- `.gitignore`라 **프로젝트 clone엔 안 따라옴** → 머신마다 따로 확보됨
+- ⚠️ **전제조건: `git`이 서버 PATH에 있어야** 자동 clone이 성공합니다. 없으면 clone 실패 → **LaMa로 폴백**(엔진은 동작하나 ProPainter 품질은 못 씀)
+- 아예 끄려면 `$env:PROPAINTER="0"` (항상 LaMa)
+- 이미 받았는지 확인: `packages\core\app\pipeline\ProPainter\inference_propainter.py` 존재 여부
+
 ---
 
 ## 3. 설치 검증
@@ -154,6 +164,7 @@ Invoke-RestMethod http://127.0.0.1:8000/     # → ok=True
 | `torch.cuda.is_available()` = False | NVIDIA 드라이버 최신화. cu128은 비교적 최신 드라이버 필요 |
 | pip이 torch를 CPU판으로 바꾸려 함 | 해당 설치에 `--no-deps` 추가 |
 | ProPainter OOM | 정상(8GB 한계) — 자동으로 LaMa 폴백됨. 끄려면 `$env:PROPAINTER="0"` |
+| ProPainter가 안 돌고 항상 LaMa | 저장소 미clone 또는 `git`이 PATH에 없어 자동 clone 실패. `git`을 PATH에 추가하거나 ProPainter 폴더 수동 확보 (위 §2 참고) |
 | 서버가 떴는데 분석이 실패 | `:8000` LISTEN 프로세스가 **venv python**인지 확인 (글로벌이면 GPU 라이브러리 못 찾음) |
 
 ### 프로세스 종료 시 주의

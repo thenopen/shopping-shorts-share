@@ -149,6 +149,7 @@ workdir/<job_id>/output.mp4  →  GET /file/{job}/{name} 로 서빙 → 브라�
 | **GitHub 저장소 접근** | 소스 클론/푸시 | repo: `ShiningShuri/shopping-shorts-maker` (Private) · **[미정 → 서면문의 #1](docs/OPEN_INQUIRIES.md)** |
 | **Node.js** | `web`(Next.js) 개발/빌드 | **프론트엔드 작업 시작할 때** 설치 (`winget install OpenJS.NodeJS`). 백엔드 개발만이면 불필요 |
 | **Tailscale** | 로컬 앱을 폰·태블릿에서 **원격 테스트** | **개발/소규모 베타 전용** — 공개 SaaS 배포 수단 아님. 데스크톱 우선이면 현재 불필요 |
+| **ProPainter** (자막제거 고급·자동) | 자막제거 품질↑(시간축 복원). 없으면 **LaMa 자동 폴백**(엔진은 동작) | 첫 자막제거 시 **자동 clone(~303MB)+가중치(~191MB)** · `.gitignore`라 머신마다 확보 · ⚠️ **`git`이 PATH에 있어야 clone 성공** · `PROPAINTER=0`으로 off. 상세 → [SETUP §2](docs/SETUP.md) |
 
 ---
 
