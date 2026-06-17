@@ -38,12 +38,11 @@ const DEFAULT_CTAS = [
 ];
 const CTA_STORAGE_KEY = "custom_ctas";
 
-const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "8000";
-
 function apiBase() {
   if (process.env.NEXT_PUBLIC_API_BASE) return process.env.NEXT_PUBLIC_API_BASE;
   if (typeof window === "undefined") return "http://127.0.0.1:8000";
-  return `${window.location.protocol}//${window.location.hostname}:${API_PORT}`;
+  // 같은 출처("") → next.config rewrites가 8000으로 프록시 (터널/LAN/Tailscale 포트 하나로 통일)
+  return "";
 }
 
 type JobState = {
