@@ -74,6 +74,7 @@ def _new_job() -> str:
 
 class AnalyzeReq(BaseModel):
     url: str
+    subtitle_backend: str = "local"   # 자막제거 ProPainter 백엔드: local(개발) | modal(클라우드)
 
 
 class TranscribeReq(BaseModel):
@@ -82,11 +83,6 @@ class TranscribeReq(BaseModel):
 
 class RefineReq(BaseModel):
     script: str
-
-
-class AgentRefineReq(BaseModel):
-    script: str
-    mode: str = "shopping_shorts"
 
 
 class RenderReq(BaseModel):
@@ -112,6 +108,12 @@ class CaptionPreviewReq(BaseModel):
     caption_style: dict | None = None
 
 
+class CaptionEditReq(BaseModel):
+    lines: list = []                  # 현재 자막 줄 [{text,start,end,style}]
+    direction: str = "natural"        # shorter|longer|natural|impact|friendly|concise
+    caption_style: dict | None = None
+
+
 class ProductScriptReq(BaseModel):
     product_url: str = ""              # 제품 상세페이지 URL(스토어/올영 자동크롤, 쿠팡 전용프로필)
     product_image: str = ""            # 캡처 1장 base64(하위호환) — URL 차단 폴백
@@ -124,7 +126,8 @@ class ProductScriptReq(BaseModel):
 @app.post("/analyze")
 def analyze(req: AnalyzeReq):
     jid = _new_job()
-    threading.Thread(target=_analyze_worker, args=(jid, req.url), daemon=True).start()
+    threading.Thread(target=_analyze_worker, args=(jid, req.url, req.subtitle_backend),
+                     daemon=True).start()
     return {"job_id": jid}
 
 
@@ -143,18 +146,6 @@ def refine(req: RefineReq):
     if not available():
         raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
     return {"script": refine_script(req.script)}
-
-
-@app.post("/agent/refine")
-def agent_refine(req: AgentRefineReq):
-    from app.pipeline.refine import available, antigravity_refine
-
-    if not available():
-        raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
-    try:
-        return antigravity_refine(req.script, mode=req.mode)
-    except RuntimeError as e:
-        raise HTTPException(502, str(e)) from e
 
 
 @app.post("/render")
@@ -314,7 +305,7 @@ def root():
     return {"ok": True, "service": "쇼핏 쇼츠 메이커 API"}
 
 
-def _analyze_worker(jid: str, raw_url: str):
+def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
     job = JOBS[jid]
     try:
         from app.pipeline.download import download_video
@@ -376,9 +367,10 @@ def _analyze_worker(jid: str, raw_url: str):
                         from app.pipeline.propainter_inpaint import inpaint_with_propainter
                         job.update(stage="자막 제거 (AI 배경복원)", progress=45)
                         nosub = inpaint_with_propainter(
-                            source, job_dir / "nosub.mp4", segments, progress_cb=_ip_prog)
-                        engine = "propainter"
-                        print("  [ProPainter 자막제거 성공]")
+                            source, job_dir / "nosub.mp4", segments,
+                            backend=subtitle_backend, progress_cb=_ip_prog)
+                        engine = f"propainter_{subtitle_backend}"
+                        print(f"  [ProPainter({subtitle_backend}) 자막제거 성공]")
                     except Exception as pe:
                         engine_note = str(pe)[:200]
                         print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")

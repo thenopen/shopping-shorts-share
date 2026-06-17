@@ -78,6 +78,7 @@ export default function Home() {
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [captionsOn, setCaptionsOn] = useState(true);
   const [faceCutOn, setFaceCutOn] = useState(false);  // 얼굴 전체샷 컷 제거(opt-in)
+  const [subtitleBackend, setSubtitleBackend] = useState<"local" | "modal">("local"); // 자막제거 GPU 위치(개발 토글, 기본 로컬)
   // 타임라인 편집기서 만든/수정한 자막 줄들. 비어있으면 render때 서버가 자동생성.
   const [captionLines, setCaptionLines] = useState<CaptionLineData[]>([]);
   const [capBusy, setCapBusy] = useState(false);
@@ -246,8 +247,6 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [refineBusy, setRefineBusy] = useState(false);
-  const [agentBusy, setAgentBusy] = useState(false);
-  const [agentNotes, setAgentNotes] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loggedEngineRef = useRef<string | null>(null);  // 자막제거 엔진 콘솔 1회 기록용
@@ -325,7 +324,7 @@ export default function Home() {
     setJob(null);
     loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
     try {
-      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim() });
+      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim(), subtitle_backend: subtitleBackend });
       if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
       pollJob(job_id, ["analyzed", "error"]);
     } catch {
@@ -404,30 +403,6 @@ export default function Home() {
     }
   }
 
-  async function agentRefineScript() {
-    if (!script.trim() || agentBusy) return;
-    setAgentBusy(true);
-    setAgentNotes("");
-    try {
-      const r = await fetch(`${apiBase()}/agent/refine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script, mode: "shopping_shorts" }),
-      });
-      if (!r.ok) {
-        const msg = await r.text();
-        alert(`Antigravity 검수 실패: ${msg}`);
-      } else {
-        const data = await r.json();
-        if (data.script) commitScript(data.script);
-        if (data.notes) setAgentNotes(data.notes);
-      }
-    } catch {
-      alert("Antigravity 검수 실패.");
-    } finally {
-      setAgentBusy(false);
-    }
-  }
 
   async function startRender() {
     if (!job?.id || busy) return;
@@ -529,6 +504,25 @@ export default function Home() {
             >
               {busy && job?.status !== "done" ? "분석 중..." : "분석"}
             </button>
+          </div>
+
+          {/* 자막 제거 모델 선택 (개발용 토글) — 기본 로컬 GPU, 클라우드는 Modal 오프로드 */}
+          <div className="mt-3 flex items-center gap-2.5 text-[13px]">
+            <span className="font-semibold text-[var(--ink-soft)]">자막 제거 모델</span>
+            <div className="inline-flex rounded-full bg-white/55 p-1 backdrop-blur">
+              <button
+                onClick={() => setSubtitleBackend("local")}
+                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "local" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
+              >
+                로컬 GPU <span className="font-normal opacity-70">(개발)</span>
+              </button>
+              <button
+                onClick={() => setSubtitleBackend("modal")}
+                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "modal" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
+              >
+                클라우드 <span className="font-normal opacity-70">(Modal)</span>
+              </button>
+            </div>
           </div>
 
           {/* 제품 소구포인트 — 상세페이지 링크/캡처/수동 → 대본 결합 */}
@@ -732,9 +726,6 @@ export default function Home() {
                 <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
                   {refineBusy ? "가공 중..." : "AI로 가공"}
                 </button>
-                <button onClick={agentRefineScript} disabled={!script.trim() || agentBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-amber-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {agentBusy ? "검수 중..." : "Antigravity 검수"}
-                </button>
                 <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
                   ↶ 되돌리기
                 </button>
@@ -757,7 +748,6 @@ export default function Home() {
               placeholder="자동 대본 생성 버튼을 누르거나 직접 입력하세요."
               className="w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-3 text-sm leading-relaxed text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
             />
-            {agentNotes && <p className="mt-2 rounded-2xl bg-amber-100/60 px-3 py-2 text-xs font-medium text-amber-700 backdrop-blur">{agentNotes}</p>}
           </div>
 
           <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
