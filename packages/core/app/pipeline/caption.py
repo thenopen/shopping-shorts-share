@@ -46,6 +46,8 @@ class CaptionStyle:
     box_pad: int = 6                # 박스 글자~테두리 여백 px (ASS Outline로 매핑)
     # NOTE: boxRadius(둥근 모서리)는 libass가 지원 안 해 burn-in 불가 → 웹 프리뷰 전용.
     pos_v: str = "bottom"           # 자막 세로 위치: top/middle/bottom (ASS Alignment)
+    emphasis: bool = True           # 가격·혜택 등 핵심 단어 자동 강조(인라인 색/크기 팝)
+    emphasis_color: str = "FFE600"  # 강조 단어 색 (hex)
 
 
 @dataclass
@@ -93,6 +95,8 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         box_pad=int(round((int(d.get("boxPadX", b.box_pad)) +
                            int(d.get("boxPadY", b.box_pad))) / 2)),
         pos_v=str(d.get("posV", b.pos_v)),
+        emphasis=bool(d.get("emphasis", b.emphasis)),
+        emphasis_color=hx(d.get("emphasisColor"), b.emphasis_color),
     )
 
 
@@ -161,16 +165,108 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "boxPadX": st.box_pad,
         "boxPadY": st.box_pad,
         "posV": st.pos_v,
+        "emphasis": st.emphasis,
+        "emphasisColor": "#" + st.emphasis_color,
     }
+
+
+import re as _re
+
+# 문장 끝(하드 브레이크) / 약한 끊음(소프트) 부호
+_SENT_END = ("。", "！", "？", ".", "!", "?", "…")
+_SOFT_END = ("，", ",", "、", "·", ";", ":")
+
+# 핵심 강조 키워드(쇼핑 숏츠) — 가격/숫자 패턴은 아래 정규식이 따로 잡음.
+_EMPH_KEYWORDS = [
+    "무료배송", "무료", "최저가", "최저", "최대", "역대급", "초특가", "특가",
+    "반값", "할인", "세일", "증정", "사은품", "한정", "단독", "오늘만",
+    "마지막", "품절임박", "품절", "1+1", "원플원", "공짜", "득템", "꿀템",
+]
+# 숫자(가격/수량/퍼센트/단위) + 키워드 → 강조 대상
+_EMPH_RE = _re.compile(
+    r"(\d[\d,]*(?:\.\d+)?\s*(?:%|％|원|만원|천원|개|배|초|분|시간|일|주|개월|년|ml|g|kg|cm|호)?)"
+    r"|(" + "|".join(_re.escape(k) for k in _EMPH_KEYWORDS) + r")"
+)
+
+
+def _vis_len(s: str) -> int:
+    """공백 제외 표시 글자수(자막 길이 기준 — 한글 음절/숫자/영문 카운트)."""
+    return len((s or "").replace(" ", ""))
+
+
+def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
+                       min_chars: int = 6) -> list[str]:
+    """한국어 텍스트를 6~10자(목표 8) 의미단위 줄로 분할.
+
+    띄어쓰기 어절(=내용어+조사/어미, 자연스러운 의미단위)을 글자수 예산으로 묶는다.
+    - 한 어절이 max_chars를 넘으면 그 어절 자체를 강제 분할(아주 긴 합성어 대비).
+    - 문장부호(。！？.…)에서 우선 끊음(min_chars 이상이면).
+    - 누적이 ideal 도달하면 어절 경계에서 끊음 → 대부분 6~10자 단일 줄.
+    """
+    text = _re.sub(r"\s+", " ", (text or "").replace("\n", " ")).strip()
+    if not text:
+        return []
+    # 어절 토큰화 + 너무 긴 어절 강제 분할
+    words: list[str] = []
+    for w in text.split(" "):
+        while _vis_len(w) > max_chars:
+            words.append(w[:max_chars])
+            w = w[max_chars:]
+        if w:
+            words.append(w)
+
+    lines: list[str] = []
+    cur = ""
+    for w in words:
+        cand = (cur + " " + w) if cur else w
+        if cur and _vis_len(cand) > max_chars:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = cand
+        tail = cur.rstrip()
+        if tail and tail[-1] in _SENT_END and _vis_len(cur) >= min_chars:
+            lines.append(cur)
+            cur = ""
+            continue
+        if _vis_len(cur) >= ideal:
+            lines.append(cur)
+            cur = ""
+    if cur:
+        # 마지막 잔여가 너무 짧으면(<min) 직전 줄에 합쳐 너무 짧은 자막 방지
+        if lines and _vis_len(cur) < min_chars and _vis_len(lines[-1] + " " + cur) <= max_chars + 2:
+            lines[-1] = lines[-1] + " " + cur
+        else:
+            lines.append(cur)
+    return [ln.strip() for ln in lines if ln.strip()]
+
+
+def _ass_emphasis(text: str, style) -> str:
+    """라인 텍스트의 핵심 단어(가격/혜택)를 ASS 인라인 태그로 강조.
+
+    매칭 구간을 {\\1c색\\fscx112\\fscy112\\b1}...{\\r} 로 감싸 색팝+살짝 키움.
+    \\r은 해당 줄의 Style로 리셋. style.emphasis=False면 원문 그대로.
+    """
+    if not getattr(style, "emphasis", True) or not text:
+        return text
+    col = _ass_c(getattr(style, "emphasis_color", "FFE600"))
+
+    def repl(m):
+        seg = m.group(0)
+        return f"{{\\1c{col}\\fscx112\\fscy112\\b1}}{seg}{{\\r}}"
+
+    return _EMPH_RE.sub(repl, text)
 
 
 def build_lines_from_tts(
     timestamps: list,
     default_style: CaptionStyle,
-    max_chars: int = 13,
+    max_chars: int = 10,
     max_dur: float = 2.2,
     total_dur: float | None = None,
     full_text: str | None = None,
+    ideal_chars: int = 8,
+    min_chars: int = 6,
 ) -> list:
     """TTS 타임스탬프 → CaptionLine 리스트(타임코드 맞춤, 적당한 길이로 분할).
 
@@ -196,14 +292,12 @@ def build_lines_from_tts(
         nonlocal cur_words, cur_start, cur_end
         text = joined_text()
         if text and cur_start is not None:
-            lines.append(CaptionLine(text=_wrap(text, max_chars),
+            lines.append(CaptionLine(text=text,
                                      start=round(cur_start, 2),
                                      end=round(cur_end, 2), style=default_style))
         cur_words = []
         cur_start = None
 
-    BREAK = ("。", "！", "？", ".", "!", "?", "…")
-    SOFT = ("，", ",", "、")
     for ts in timestamps:
         w = ts.get("text", "")
         off = float(ts.get("offset", 0.0))
@@ -212,12 +306,12 @@ def build_lines_from_tts(
             cur_start = off
         cur_words.append(w)
         cur_end = off + dur
-        joined = joined_text()
-        clean = joined.rstrip()
-        hard_break = any(clean.endswith(b) for b in BREAK)
-        soft_break = any(clean.endswith(b) for b in SOFT)
-        too_long = len(joined) >= max_chars or (cur_end - cur_start) >= max_dur
-        if hard_break or (too_long and (soft_break or len(joined) >= max_chars)):
+        clean = joined_text().rstrip()
+        vis = _vis_len(clean)
+        hard_break = bool(clean) and clean[-1] in _SENT_END
+        dur_over = (cur_end - cur_start) >= max_dur
+        # 문장부호서 우선 끊고(최소길이 충족 시), 목표 글자수(6~10중 8) 도달/최대시간 초과 시 끊음.
+        if (hard_break and vis >= min_chars) or vis >= ideal_chars or dur_over:
             flush()
     flush()
     # 자막은 다음 줄 시작 전까지 보이게(틈 메움) — 끊김 방지
@@ -240,32 +334,20 @@ def _wrap(text: str, max_chars: int) -> str:
 
 
 def _lines_uniform(text: str, total: float, style: CaptionStyle,
-                   max_chars: int = 18, max_dur: float = 2.6) -> list:
-    """타임스탬프 없을 때: 전체 텍스트를 글자수 비례로 균등분할."""
+                   max_chars: int = 10, max_dur: float = 2.6) -> list:
+    """타임스탬프 없을 때: 한국어 어절기반 6~10자 분할 후 글자수 비례로 시간 배분."""
     text = (text or "").strip()
     if not text or total <= 0:
         return []
-    import re
-    # 문장부호 기준 청크 후 max_chars로 재분할
-    raw = re.split(r"(?<=[.!?。！？…])\s*", text)
-    chunks: list[str] = []
-    for seg in raw:
-        seg = seg.strip()
-        while len(seg) > max_chars:
-            cut = seg.rfind(" ", 0, max_chars)
-            cut = cut if cut > 0 else max_chars
-            chunks.append(seg[:cut].strip())
-            seg = seg[cut:].strip()
-        if seg:
-            chunks.append(seg)
+    chunks = split_korean_lines(text, ideal=8, max_chars=max_chars, min_chars=6)
     if not chunks:
         return []
-    total_chars = sum(len(c) for c in chunks) or 1
+    total_chars = sum(_vis_len(c) for c in chunks) or 1
     lines: list[CaptionLine] = []
     t = 0.0
     for c in chunks:
-        share = len(c) / total_chars
-        dur = min(max_dur, max(0.8, total * share))
+        share = _vis_len(c) / total_chars
+        dur = min(max_dur, max(0.7, total * share))
         lines.append(CaptionLine(text=c, start=round(t, 2),
                                  end=round(t + dur, 2), style=style))
         t += dur
@@ -330,6 +412,8 @@ def _style_sig(st) -> tuple:
         round(float(getattr(st, "box_opacity", 0.5)), 3),
         getattr(st, "box_pad", 6),
         getattr(st, "pos_v", "bottom"),
+        getattr(st, "emphasis", True),
+        getattr(st, "emphasis_color", "FFE600"),
     )
 
 
@@ -432,7 +516,9 @@ Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
                     f"\\1c{_ass_c(st.shadow_color)}\\blur{sb}}}")
             dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{stag}{text}")
         # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
-        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{text}")
+        # 핵심 단어(가격/혜택)는 인라인 태그로 색팝 강조(emphasis on일 때).
+        main_text = _ass_emphasis(text, st)
+        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{main_text}")
     out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
     return out_ass
 
