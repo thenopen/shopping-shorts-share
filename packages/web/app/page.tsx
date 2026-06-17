@@ -82,6 +82,8 @@ export default function Home() {
   // 타임라인 편집기서 만든/수정한 자막 줄들. 비어있으면 render때 서버가 자동생성.
   const [captionLines, setCaptionLines] = useState<CaptionLineData[]>([]);
   const [capBusy, setCapBusy] = useState(false);
+  const [capEditBusy, setCapEditBusy] = useState(false);            // AI 자막 다듬기 진행중
+  const [capEditPrev, setCapEditPrev] = useState<CaptionLineData[] | null>(null); // 다듬기 직전(되돌리기용)
   // CTA 문구 목록(기본3 + 사용자 추가 통합. 기본도 삭제 가능). localStorage 저장.
   const [ctaList, setCtaList] = useState<string[]>(DEFAULT_CTAS);
   const [cta, setCta] = useState(DEFAULT_CTAS[1]); // 선택된 CTA 문구(텍스트)
@@ -374,11 +376,46 @@ export default function Home() {
         style: l.style ?? null,
       }));
       setCaptionLines(lines);
+      setCapEditPrev(null);
     } catch {
       alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
       setCapBusy(false);
     }
+  }
+
+  // AI/규칙 기반 자막 다듬기 — 방향(shorter/longer/natural/impact/friendly/concise)을
+  // 서버 /captions/edit로 보내 변환된 줄로 교체. 직전 상태는 되돌리기용으로 보관.
+  async function editCaptions(direction: string) {
+    if (!captionLines.length || capEditBusy) return;
+    setCapEditBusy(true);
+    const prev = captionLines;
+    try {
+      const d = await postJSON<{ lines: CaptionLineData[] }>("/captions/edit", {
+        lines: captionLines,
+        direction,
+        caption_style: captionStyle,
+      });
+      const next: CaptionLineData[] = (d.lines || []).map((l: CaptionLineData) => ({
+        text: l.text,
+        start: l.start,
+        end: l.end,
+        style: l.style ?? null,
+      }));
+      if (!next.length) { alert("다듬기 결과가 비었습니다."); return; }
+      setCapEditPrev(prev);
+      setCaptionLines(next);
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "자막 다듬기 실패.");
+    } finally {
+      setCapEditBusy(false);
+    }
+  }
+
+  function undoCaptionEdit() {
+    if (!capEditPrev) return;
+    setCaptionLines(capEditPrev);
+    setCapEditPrev(null);
   }
 
   async function refineScript() {
@@ -794,6 +831,10 @@ export default function Home() {
               onGenerate={genCaptions}
               generating={capBusy}
               hasScript={!!job?.id && !!script.trim()}
+              onAiEdit={editCaptions}
+              aiEditBusy={capEditBusy}
+              onUndoEdit={undoCaptionEdit}
+              canUndoEdit={!!capEditPrev}
             />
           </div>
         </div>

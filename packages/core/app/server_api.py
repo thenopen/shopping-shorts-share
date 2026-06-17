@@ -192,6 +192,69 @@ def captions_preview(req: CaptionPreviewReq):
         raise HTTPException(500, f"caption preview failed: {str(e)[:300]}") from e
 
 
+@app.post("/captions/edit")
+def captions_edit(req: CaptionEditReq):
+    """현재 자막 줄들을 '수정 방향'대로 변환해 새 줄들 반환(타임코드 유지, 재렌더 안 함).
+
+    방향:
+      shorter/longer  — 더 짧게/길게 재분할(결정형, 즉시·무료)
+      natural/impact/friendly/concise — Gemini로 의미 재작성 후 재분할
+    시간은 원본 전체 구간[첫줄 start ~ 끝줄 end]을 글자수 비례로 재배분.
+    """
+    from app.pipeline.caption import (
+        split_korean_lines, style_from_dict, lines_to_payload, CaptionLine,
+    )
+
+    src = [ln for ln in (req.lines or []) if (ln.get("text") or "").strip()]
+    if not src:
+        raise HTTPException(400, "no caption lines to edit")
+
+    text = " ".join((ln.get("text") or "").replace("\n", " ").strip() for ln in src).strip()
+    try:
+        t0 = min(float(ln.get("start", 0.0)) for ln in src)
+        t1 = max(float(ln.get("end", 0.0)) for ln in src)
+    except (TypeError, ValueError):
+        t0, t1 = 0.0, 0.0
+    if t1 <= t0:
+        t1 = t0 + max(1.0, len(src) * 1.5)
+    span = t1 - t0
+
+    d = (req.direction or "natural").lower()
+    AI_DIRS = ("natural", "impact", "friendly", "concise")
+    try:
+        if d in AI_DIRS:
+            from app.pipeline.refine import rewrite_caption_text, available
+            if not available():
+                raise HTTPException(400, "AI 다듬기는 Gemini 키가 필요합니다(auth/gemini_key.txt).")
+            text = rewrite_caption_text(text, d)
+            chunks = split_korean_lines(text, ideal=8, max_chars=10, min_chars=6)
+        elif d == "shorter":
+            chunks = split_korean_lines(text, ideal=6, max_chars=8, min_chars=4)
+        elif d == "longer":
+            chunks = split_korean_lines(text, ideal=11, max_chars=14, min_chars=8)
+        else:
+            chunks = split_korean_lines(text, ideal=8, max_chars=10, min_chars=6)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"caption edit failed: {str(e)[:300]}") from e
+
+    if not chunks:
+        raise HTTPException(500, "edit produced no lines")
+
+    style = style_from_dict(req.caption_style)
+    total_chars = sum(len(c.replace(" ", "")) for c in chunks) or 1
+    out: list = []
+    t = t0
+    for c in chunks:
+        seg = span * (len(c.replace(" ", "")) / total_chars)
+        out.append(CaptionLine(text=c, start=round(t, 2), end=round(t + seg, 2), style=style))
+        t += seg
+    if out:
+        out[-1].end = round(t1, 2)
+    return {"lines": lines_to_payload(out, style)}
+
+
 @app.post("/tts/preview")
 def tts_preview(req: CaptionPreviewReq):
     """대본 + 선택 voice → TTS mp3 생성, 재생용 URL 반환(영상 렌더 안 함).

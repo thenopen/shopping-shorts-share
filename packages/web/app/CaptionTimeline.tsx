@@ -1,8 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { CaptionStyle, styleToCss } from "./CaptionEditor";
+import { CaptionStyle, styleToCss, emphasizeNodes } from "./CaptionEditor";
 import { FONTS } from "./fonts";
+
+// AI 자막 다듬기 방향. ai=false는 결정형(즉시·무료), ai=true는 Gemini 재작성.
+const EDIT_DIRECTIONS: { key: string; label: string; ai: boolean; hint: string }[] = [
+  { key: "shorter", label: "더 짧게", ai: false, hint: "규칙으로 즉시 더 짧게 재분할" },
+  { key: "longer", label: "더 길게", ai: false, hint: "규칙으로 즉시 더 길게 재분할" },
+  { key: "natural", label: "자연스럽게", ai: true, hint: "AI가 번역투를 자연스러운 구어체로" },
+  { key: "impact", label: "임팩트", ai: true, hint: "AI가 짧고 강한 후킹 문장으로" },
+  { key: "friendly", label: "친근하게", ai: true, hint: "AI가 친근한 구어체 톤으로" },
+  { key: "concise", label: "핵심만", ai: true, hint: "AI가 핵심만 압축" },
+];
 
 // 자막 한 줄 — 시간(start/end) + 텍스트 + (줄별)스타일 override.
 // style=null 이면 기본 스타일(default) 사용.
@@ -27,6 +37,10 @@ export default function CaptionTimeline({
   onGenerate,
   generating,
   hasScript,
+  onAiEdit,
+  aiEditBusy,
+  onUndoEdit,
+  canUndoEdit,
 }: {
   lines: CaptionLineData[];
   onChange: (lines: CaptionLineData[]) => void;
@@ -34,6 +48,10 @@ export default function CaptionTimeline({
   onGenerate: () => void;
   generating: boolean;
   hasScript: boolean;
+  onAiEdit?: (direction: string) => void;
+  aiEditBusy?: boolean;
+  onUndoEdit?: () => void;
+  canUndoEdit?: boolean;
 }) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
 
@@ -72,7 +90,7 @@ export default function CaptionTimeline({
         <div>
           <div className="text-sm font-bold text-[var(--ink)]">자막 타임라인 편집기</div>
           <div className="text-xs text-[var(--ink-soft)]">
-            대본을 자동 자막으로 만든 뒤 줄마다 시간·내용·스타일을 직접 조정하세요.
+            ① <b>자동 자막 생성</b>으로 6~10자 의미단위 자막을 만들고 → ② 아래 <b>AI 다듬기</b>로 방향만 고르거나 → ③ 줄별로 직접 손보세요.
           </div>
         </div>
         <button
@@ -84,6 +102,42 @@ export default function CaptionTimeline({
           {generating ? "자막 생성 중..." : lines.length ? "자막 다시 생성" : "자동 자막 생성"}
         </button>
       </div>
+
+      {lines.length > 0 && onAiEdit && (
+        <div className="mb-4 rounded-2xl border border-[var(--accent)]/30 bg-white/45 p-3 backdrop-blur">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-bold text-[var(--ink-soft)]">AI 다듬기 · 방향 선택</span>
+            {canUndoEdit && onUndoEdit && (
+              <button
+                onClick={onUndoEdit}
+                disabled={aiEditBusy}
+                className="rounded-full bg-white/70 px-3 py-1 text-[11px] font-bold text-[var(--ink-soft)] transition hover:bg-white/90 disabled:opacity-40"
+                title="직전 자막으로 되돌리기"
+              >
+                ↶ 직전으로
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {EDIT_DIRECTIONS.map((d) => (
+              <button
+                key={d.key}
+                onClick={() => onAiEdit(d.key)}
+                disabled={aiEditBusy}
+                title={d.hint}
+                className={`rounded-full px-3 py-1.5 text-xs font-bold transition disabled:opacity-40 ${
+                  d.ai ? "bg-[var(--accent-deep)]/10 text-[var(--accent-deep)] hover:bg-[var(--accent-deep)]/20" : "bg-white/70 text-[var(--ink-soft)] hover:bg-white/90"
+                }`}
+              >
+                {d.ai ? "✨ " : ""}{d.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 text-[11px] text-[var(--ink-soft)]">
+            {aiEditBusy ? "자막 다듬는 중…" : "✨ = AI가 문장을 다시 씀(Gemini) · 나머지는 즉시 재분할. 시간/구간은 유지됩니다."}
+          </div>
+        </div>
+      )}
 
       {lines.length === 0 ? (
         <p className="rounded-2xl bg-white/40 px-4 py-8 text-center text-xs text-[var(--ink-soft)] backdrop-blur">
@@ -163,15 +217,13 @@ export default function CaptionTimeline({
                   </button>
                 </div>
 
-                {/* 줄 미리보기(효과 적용) */}
+                {/* 줄 미리보기(효과 적용 — 실제 영상 자막과 동일 룩) */}
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-[10px] text-[var(--ink-soft)]">미리보기</span>
-                  <div className="flex-1 overflow-hidden rounded-lg" style={{ background: "#6a7180" }}>
-                    <div className="px-3 py-1.5 text-center">
-                      <span style={{ ...styleToCss(eff), fontSize: Math.min(20, eff.size / 3) }}>
-                        {ln.text || "미리보기"}
-                      </span>
-                    </div>
+                  <div className="flex flex-1 items-center justify-center overflow-hidden rounded-lg py-3" style={{ background: "#3a3f4a" }}>
+                    <span style={{ ...styleToCss(eff), fontSize: Math.min(40, Math.max(22, eff.size / 1.7)) }}>
+                      {ln.text ? emphasizeNodes(ln.text, eff) : "미리보기"}
+                    </span>
                   </div>
                 </div>
 

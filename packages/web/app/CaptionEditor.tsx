@@ -25,6 +25,8 @@ export type CaptionStyle = {
   boxPadY: number;
   boxRadius: number;
   posV: "top" | "middle" | "bottom";  // 자막 세로 위치
+  emphasis: boolean;        // 가격·혜택 등 핵심 단어 자동 강조(색팝)
+  emphasisColor: string;    // 강조 단어 색
 };
 
 export const DEFAULT_STYLE: CaptionStyle = {
@@ -49,9 +51,44 @@ export const DEFAULT_STYLE: CaptionStyle = {
   boxPadY: 6,
   boxRadius: 8,
   posV: "bottom",
+  emphasis: true,
+  emphasisColor: "#ffe600",
 };
 
 const STORAGE_KEY = "caption_templates";
+
+// 핵심 강조 키워드(가격/숫자는 정규식이 따로 잡음) — 백엔드 caption.py와 동일 셋.
+const EMPH_KEYWORDS = [
+  "무료배송", "무료", "최저가", "최저", "최대", "역대급", "초특가", "특가",
+  "반값", "할인", "세일", "증정", "사은품", "한정", "단독", "오늘만",
+  "마지막", "품절임박", "품절", "1+1", "원플원", "공짜", "득템", "꿀템",
+];
+const EMPH_RE = new RegExp(
+  "(\\d[\\d,]*(?:\\.\\d+)?\\s*(?:%|％|원|만원|천원|개|배|초|분|시간|일|주|개월|년|ml|g|kg|cm|호)?)" +
+    "|(" + EMPH_KEYWORDS.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")",
+  "g"
+);
+
+// 자막 텍스트의 핵심 단어를 강조색으로 칠한 React 노드(웹 미리보기용 — 최종 영상과 동일 룩).
+export function emphasizeNodes(text: string, s: CaptionStyle): React.ReactNode {
+  if (!s.emphasis || !text) return text;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  EMPH_RE.lastIndex = 0;
+  while ((m = EMPH_RE.exec(text)) !== null) {
+    if (!m[0]) { EMPH_RE.lastIndex++; continue; }
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(
+      <span key={`${m.index}-${m[0]}`} style={{ color: s.emphasisColor, fontWeight: 900, fontSize: "1.12em" }}>
+        {m[0]}
+      </span>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
 
 function hexToRgba(hex: string, a: number) {
   const h = hex.replace("#", "");
@@ -169,7 +206,7 @@ export default function CaptionEditor({
           backgroundPosition: "0 0, 0 0, 12px 12px",
         }}
       >
-        <span style={styleToCss(value)}>{text || "미리보기"}</span>
+        <span style={styleToCss(value)}>{text ? emphasizeNodes(text, value) : "미리보기"}</span>
       </div>
       {/* 배경 토글 — 투명(기본) + 영상톤별로 자막 가독성 확인 */}
       <div className="mb-5 flex gap-2">
@@ -226,6 +263,7 @@ export default function CaptionEditor({
             <Toggle on={value.shadow} onClick={() => set("shadow", !value.shadow)} label="그림자" />
             <Toggle on={value.glow} onClick={() => set("glow", !value.glow)} label="글로우" />
             <Toggle on={value.box} onClick={() => set("box", !value.box)} label="박스" />
+            <Toggle on={value.emphasis} onClick={() => set("emphasis", !value.emphasis)} label="핵심강조" />
           </div>
         </Row>
 
@@ -264,6 +302,12 @@ export default function CaptionEditor({
               <input type="range" min={2} max={30} value={value.glowSize} onChange={(e) => set("glowSize", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
             </Row>
           </>
+        )}
+
+        {value.emphasis && (
+          <Row label="핵심강조 색 (가격·할인·혜택 자동)">
+            <ColorInput value={value.emphasisColor} onChange={(v) => set("emphasisColor", v)} />
+          </Row>
         )}
 
         {value.box && (
@@ -355,7 +399,7 @@ export default function CaptionEditor({
             <div className="mb-1 text-base font-bold text-[var(--ink)]">템플릿 저장</div>
             <p className="mb-4 text-xs text-[var(--ink-soft)]">현재 자막 스타일을 이름 붙여 저장합니다.</p>
             <div className="mb-4 flex items-center justify-center rounded-xl p-4" style={{ background: "#6a7180" }}>
-              <span style={styleToCss(value)}>{text || "미리보기"}</span>
+              <span style={styleToCss(value)}>{text ? emphasizeNodes(text, value) : "미리보기"}</span>
             </div>
             <input
               autoFocus
