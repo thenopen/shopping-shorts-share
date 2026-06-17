@@ -73,7 +73,8 @@ scripts/      ← 서버 실행용 PowerShell 스크립트
      │  HTTP (분석 / 대본 / TTS / 렌더 요청)
      ▼
 [web · Next.js  :3000]      ← scripts/start-web.ps1
-     │  fetch → window.location.hostname : 8000   (web이 core에 직접 호출)
+     │  fetch (same-origin, :3000) — 브라우저는 한 포트만 사용
+     │  ↳ next.config rewrites가 /analyze·/jobs·/file·/render… 를 core(:8000)로 프록시
      ▼
 [core · FastAPI :8000]      ← scripts/start-core.ps1 → app/_run_server.py (단일 프로세스)
      │  요청마다 백그라운드 워커(threading) 실행
@@ -83,8 +84,10 @@ scripts/      ← 서버 실행용 PowerShell 스크립트
 workdir/<job_id>/output.mp4  →  GET /file/{job}/{name} 로 서빙 → 브라우저서 재생·다운로드
 ```
 
+> 🔌 **단일 포트 (2026-06-17, e7338e6 통합):** 브라우저는 **:3000 한 포트만** 쓰고, 백엔드(:8000)는 Next.js가 서버사이드로 프록시합니다(`apiBase`=same-origin `""`, [next.config.ts](packages/web/next.config.ts)의 `rewrites`). → 터널/LAN/Tailscale에서 **포트 하나만** 열면 됩니다. (core는 여전히 :8000에 떠 있어 로컬 디버그 시 직접 접근 가능)
+
 - 현재는 이 전부가 **한 PC에서 로컬로** 돕니다 (웹 프론트 + 로컬 파이썬 백엔드 = 2-tier).
-- **데스크톱 앱이 되면:** Tauri 셸이 `web`의 화면을 WebView로 띄우고, `core`를 `core.exe` **사이드카**로 실행 → WebView가 `127.0.0.1:8000`에 붙습니다. **즉 위 흐름에 "껍데기"만 씌우는 것** — IPC를 새로 짤 필요가 없습니다.
+- **데스크톱 앱이 되면:** Tauri 셸이 `web`의 화면을 WebView로 띄우고, `core`를 `core.exe` **사이드카**로 실행 → 같은 same-origin/프록시 방식으로 core에 연결. **즉 위 흐름에 "껍데기"만 씌우는 것** — IPC를 새로 짤 필요가 없습니다.
 
 ### 2-3. 변환 파이프라인 — 핵심 9단계
 
