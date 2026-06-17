@@ -322,6 +322,8 @@ def _analyze_worker(jid: str, raw_url: str):
                 job.update(progress=40 + int(frac * 50),
                            stage=f"자막·워터마크 제거 ({int(frac*100)}%)")
             nosub = None
+            engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
+            engine_note = ""       # 폴백 사유 등
             # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
             # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
             if segments and os.environ.get("PROPAINTER", "1") != "0":
@@ -330,15 +332,22 @@ def _analyze_worker(jid: str, raw_url: str):
                     job.update(stage="자막 제거 (AI 배경복원)", progress=45)
                     nosub = inpaint_with_propainter(
                         source, job_dir / "nosub.mp4", segments, progress_cb=_ip_prog)
+                    engine = "propainter"
                     print("  [ProPainter 자막제거 성공]")
                 except Exception as pe:
-                    print(f"  [ProPainter 실패, LaMa 폴백: {str(pe)[:200]}]")
+                    engine_note = str(pe)[:200]
+                    print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
                     nosub = None
             if nosub is None:
                 nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
                                           fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+                engine = "lama_fallback" if engine_note else "lama"
+            job["subtitle_engine"] = engine
+            if engine_note:
+                job["subtitle_engine_note"] = engine_note
         else:
             nosub = remove_subtitle(source, job_dir / "nosub.mp4", use_ocr=False)
+            job["subtitle_engine"] = "none"
 
         job["preview"] = f"/file/{jid}/nosub.mp4"
         job.update(status="analyzed", stage="분석 완료", progress=100)
