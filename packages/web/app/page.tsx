@@ -56,6 +56,8 @@ type JobState = {
   output: string | null;
   has_speech: boolean | null;
   error: string | null;
+  subtitle_engine?: string | null;       // "propainter" | "lama" | "lama_fallback" | "none"
+  subtitle_engine_note?: string | null;  // 폴백 사유 등
 };
 
 export default function Home() {
@@ -243,6 +245,7 @@ export default function Home() {
   const [agentNotes, setAgentNotes] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loggedEngineRef = useRef<string | null>(null);  // 자막제거 엔진 콘솔 1회 기록용
 
   function stopPoll() {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -256,6 +259,20 @@ export default function Home() {
         const r = await fetch(`${apiBase()}/jobs/${id}`);
         const j: JobState = await r.json();
         setJob(j);
+        // 자막제거에 실제로 쓰인 엔진을 브라우저 콘솔에 1회 기록.
+        if (j.subtitle_engine && loggedEngineRef.current !== j.subtitle_engine) {
+          loggedEngineRef.current = j.subtitle_engine;
+          const label: Record<string, string> = {
+            propainter: "ProPainter (시간축 복원)",
+            lama: "LaMa (프레임 인페인팅)",
+            lama_fallback: "LaMa (ProPainter 실패 → 폴백)",
+            none: "고정박스 제거 (자막 미감지)",
+          };
+          console.log(
+            `[자막제거 엔진] ${label[j.subtitle_engine] ?? j.subtitle_engine}` +
+              (j.subtitle_engine_note ? ` | 사유: ${j.subtitle_engine_note}` : "")
+          );
+        }
         // 서버 대본은 사용자가 아직 안 건드렸을 때만 채움(타이핑 덮어쓰기 방지).
         if (j.script && !scriptDirtyRef.current) {
           setScript(j.script);
@@ -275,6 +292,7 @@ export default function Home() {
     if (!url.trim() || busy) return;
     setBusy(true);
     setJob(null);
+    loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
     try {
       const r = await fetch(`${apiBase()}/analyze`, {
         method: "POST",
