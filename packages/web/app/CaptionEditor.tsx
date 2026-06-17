@@ -67,34 +67,29 @@ export function styleToCss(s: CaptionStyle): CSSProperties {
   if (s.glow) {
     for (let i = 0; i < 3; i++) shadows.push(`0 0 ${s.glowSize}px ${s.glowColor}`);
   }
-  if (s.outline) {
-    const w = s.outlineWidth;
-    [
-      [-w, -w],
-      [w, -w],
-      [-w, w],
-      [w, w],
-      [0, -w],
-      [0, w],
-      [-w, 0],
-      [w, 0],
-    ].forEach(([x, y]) => shadows.push(`${x}px ${y}px 0 ${s.outlineColor}`));
-  }
 
-  return {
+  const css: CSSProperties = {
     fontFamily: s.font,
     fontSize: s.size,
     color: s.color,
     fontWeight: s.bold ? 800 : 400,
     fontStyle: s.italic ? "italic" : "normal",
     textShadow: shadows.length ? shadows.join(", ") : undefined,
-    WebkitTextStroke: s.outline ? `0.5px ${s.outlineColor}` : undefined,
     background: s.box ? hexToRgba(s.boxColor, s.boxOpacity) : undefined,
     padding: s.box ? `${s.boxPadY ?? 6}px ${s.boxPadX ?? 16}px` : undefined,
     borderRadius: s.box ? (s.boxRadius ?? 8) : undefined,
     lineHeight: 1.3,
     display: "inline-block",
   };
+
+  // 외곽선: stroke를 글자 fill '아래'에 깔아 깨끗한 바깥선으로 (8방향 그림자 떡짐 방지)
+  if (s.outline && s.outlineWidth > 0) {
+    css.WebkitTextStrokeWidth = `${s.outlineWidth * 2}px`;
+    css.WebkitTextStrokeColor = s.outlineColor;
+    css.paintOrder = "stroke fill";
+  }
+
+  return css;
 }
 
 export default function CaptionEditor({

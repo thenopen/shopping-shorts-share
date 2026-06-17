@@ -71,9 +71,13 @@ def compose(
     elif audio_path and not replace_audio:
         cmd += ["-map", "0:v:0", "-map", "1:a:0"]
 
+    if audio_path:
+        # 깨끗한 리샘플(48kHz) — 샘플레이트 불일치/지직 방지
+        cmd += ["-af", "aresample=async=1:first_pts=0:osr=48000"]
+
     cmd += [
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-pix_fmt", "yuv420p",
         str(out_path),
     ]

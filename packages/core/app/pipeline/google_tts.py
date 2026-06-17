@@ -30,7 +30,12 @@ def synthesize(text: str, out_path: Path, nickname: str = "소담", speaking_rat
     client = _client()
     synthesis_input = tts.SynthesisInput(text=text)
     voice = tts.VoiceSelectionParams(language_code="ko-KR", name=voice_name)
-    audio_config = tts.AudioConfig(audio_encoding=tts.AudioEncoding.MP3, speaking_rate=speaking_rate)
+    # LINEAR16(무손실 WAV) + 44.1kHz → MP3 32kbps 저음질 지직 제거. compose에서 aac로 재인코딩됨.
+    audio_config = tts.AudioConfig(
+        audio_encoding=tts.AudioEncoding.LINEAR16,
+        sample_rate_hertz=44100,
+        speaking_rate=speaking_rate,
+    )
     resp = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
     out_path.write_bytes(resp.audio_content)
     return out_path
