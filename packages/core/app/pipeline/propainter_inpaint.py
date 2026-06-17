@@ -75,12 +75,105 @@ def _extract_frames(video_path: Path, frames_dir: Path) -> tuple[int, int, float
     return W, H, fps
 
 
-def inpaint_with_propainter(video_path, out_path, segments, fps: float = 30.0,
-                            resize_ratio: float = 0.5, subvideo_length: int = 40,
-                            progress_cb=None) -> Path:
-    """ProPainter로 자막 제거. 성공 시 out_path 반환, 실패 시 예외(호출측 LaMa 폴백)."""
+def _union_bbox(masks_dir, W, H, pad=24):
+    """모든 마스크 프레임의 전경(255) 합집합 bbox(+pad, 짝수 스냅). 없으면 None."""
+    x0, y0, x1, y1 = W, H, 0, 0
+    found = False
+    for mp_ in sorted(Path(masks_dir).glob("*.png")):
+        m = cv2.imread(str(mp_), cv2.IMREAD_GRAYSCALE)
+        ys, xs = np.where(m > 0)
+        if xs.size == 0:
+            continue
+        found = True
+        x0, x1 = min(x0, int(xs.min())), max(x1, int(xs.max()) + 1)
+        y0, y1 = min(y0, int(ys.min())), max(y1, int(ys.max()) + 1)
+    if not found:
+        return None
+    x0, y0 = max(0, x0 - pad), max(0, y0 - pad)
+    x1, y1 = min(W, x1 + pad), min(H, y1 + pad)
+    if (x1 - x0) % 2:
+        x1 = x1 + 1 if x1 < W else x1 - 1
+    if (y1 - y0) % 2:
+        y1 = y1 + 1 if y1 < H else y1 - 1
+    return (x0, y0, x1, y1)
+
+
+def _run_propainter_local(frames_dir, masks_dir, result_dir, resize_ratio,
+                          subvideo_length, neighbor_length, mask_dilation):
+    """로컬 GPU(개발용): vendored ProPainter subprocess. 결과 프레임 경로 리스트 반환."""
     if not ensure_propainter():
         raise RuntimeError("ProPainter 셋업 실패(clone/패치)")
+    env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    cmd = [
+        sys.executable, "inference_propainter.py",
+        "-i", str(Path(frames_dir).resolve()),
+        "-m", str(Path(masks_dir).resolve()),
+        "-o", str(Path(result_dir).resolve()),
+        "--fp16",
+        "--resize_ratio", str(resize_ratio),
+        "--subvideo_length", str(subvideo_length),
+        "--neighbor_length", str(neighbor_length),
+        "--save_frames",
+        "--mask_dilation", str(mask_dilation),
+    ]
+    r = subprocess.run(cmd, cwd=str(_PP_DIR), env=env, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", timeout=3600)
+    if r.returncode != 0:
+        raise RuntimeError(f"ProPainter 실패(code {r.returncode}): {(r.stderr or '')[-800:]}")
+    frames = _find_result_frames(Path(result_dir))
+    if not frames:
+        raise RuntimeError("ProPainter 출력 프레임을 찾지 못함")
+    return frames
+
+
+def _run_propainter_modal(frames_dir, masks_dir, result_dir, resize_ratio,
+                          subvideo_length, neighbor_length, mask_dilation):
+    """클라우드 GPU(SaaS): 배포된 Modal run_propainter 호출. 결과 프레임 경로 리스트 반환.
+
+    사전에 `modal deploy infra/modal_propainter.py` 필요(배포된 함수 lookup).
+    """
+    import io
+    import tarfile
+    try:
+        import modal
+    except ImportError as e:
+        raise RuntimeError("PROPAINTER_BACKEND=modal 인데 modal 미설치 (pip install modal)") from e
+
+    def _tar(d):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as t:
+            for p in sorted(Path(d).glob("*.png")):
+                t.add(str(p), arcname=p.name)
+        return buf.getvalue()
+
+    fn = modal.Function.from_name("shorts-propainter", "run_propainter")
+    res = fn.remote(_tar(frames_dir), _tar(masks_dir), resize_ratio=resize_ratio,
+                    subvideo_length=subvideo_length, neighbor_length=neighbor_length,
+                    mask_dilation=mask_dilation)
+    Path(result_dir).mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(res["result_tar"]), mode="r:*") as t:
+        t.extractall(str(result_dir))
+    return sorted(Path(result_dir).glob("*.png"))
+
+
+def inpaint_with_propainter(video_path, out_path, segments, fps: float = 30.0,
+                            resize_ratio: float = 1.0, subvideo_length: int = 80,
+                            neighbor_length: int = 10, mask_mode: str = "stroke",
+                            crop: bool = True, mask_dilation: int = 4,
+                            backend: str | None = None, progress_cb=None) -> Path:
+    """ProPainter로 자막 제거. 성공 시 out_path 반환, 실패 시 예외(호출측 LaMa 폴백).
+
+    백엔드: backend 인자 > 환경변수 PROPAINTER_BACKEND > "local"(개발용 로컬 GPU).
+            "modal"이면 클라우드 GPU(SaaS). crop=True면 자막 영역만 잘라 처리 →
+            VRAM↓(로컬 8GB도 가능)·속도↑·참조↑로 품질↑.
+    """
+    backend = (backend or os.environ.get("PROPAINTER_BACKEND") or "local").lower()
+    # 코드 수정 없이 튜닝(로컬 8GB OOM 대응 / 프로덕션 조정): 환경변수 오버라이드.
+    resize_ratio = float(os.environ.get("PROPAINTER_RESIZE", resize_ratio))
+    subvideo_length = int(os.environ.get("PROPAINTER_SUBVIDEO", subvideo_length))
+    neighbor_length = int(os.environ.get("PROPAINTER_NEIGHBOR", neighbor_length))
     video_path, out_path = Path(video_path), Path(out_path)
     # ProPainter(vendored) 내부 cv2.imread는 한글/유니코드 경로를 못 읽음(Windows).
     # 작업 폴더를 ASCII-only 임시경로에 둬서 우회.
@@ -95,40 +188,68 @@ def inpaint_with_propainter(video_path, out_path, segments, fps: float = 30.0,
         W, H, real_fps = _extract_frames(video_path, frames_dir)
         fps = real_fps or fps
         # fps 보정해 마스크 타이밍 정확히
-        n = _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps)
+        n = _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps,
+                                  mask_mode=mask_mode)
         if n == 0:
             raise RuntimeError("자막 마스크가 비어 ProPainter 건너뜀")
 
-        env = dict(os.environ)
-        env["PYTHONIOENCODING"] = "utf-8"
-        cmd = [
-            sys.executable, "inference_propainter.py",
-            "-i", str(frames_dir.resolve()),
-            "-m", str(masks_dir.resolve()),
-            "-o", str(result_dir.resolve()),
-            "--fp16",
-            "--resize_ratio", str(resize_ratio),
-            "--subvideo_length", str(subvideo_length),
-            "--save_frames",
-            "--mask_dilation", "4",
-        ]
-        r = subprocess.run(cmd, cwd=str(_PP_DIR), env=env, capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=3600)
-        if r.returncode != 0:
-            raise RuntimeError(f"ProPainter 실패(code {r.returncode}): {(r.stderr or '')[-800:]}")
+        # 크롭: 자막 영역(마스크 합집합+여백)만 ProPainter에 → VRAM/처리량↓, 품질·속도↑.
+        send_frames, send_masks, crop_box = frames_dir, masks_dir, None
+        if crop:
+            crop_box = _union_bbox(masks_dir, W, H, pad=24)
+            if crop_box:
+                cx0, cy0, cx1, cy1 = crop_box
+                cf, cm = work / "cframes", work / "cmasks"
+                cf.mkdir(parents=True, exist_ok=True)
+                cm.mkdir(parents=True, exist_ok=True)
+                for fp in sorted(frames_dir.glob("*.png")):
+                    cv2.imwrite(str(cf / fp.name), cv2.imread(str(fp))[cy0:cy1, cx0:cx1])
+                for mp_ in sorted(masks_dir.glob("*.png")):
+                    g = cv2.imread(str(mp_), cv2.IMREAD_GRAYSCALE)
+                    cv2.imwrite(str(cm / mp_.name), g[cy0:cy1, cx0:cx1])
+                send_frames, send_masks = cf, cm
 
-        # 결과 프레임 폴더 찾기(results/<name>/frames 또는 *_results)
-        pp_frames = _find_result_frames(result_dir)
-        if not pp_frames:
-            raise RuntimeError("ProPainter 출력 프레임을 찾지 못함")
+        runner = _run_propainter_modal if backend == "modal" else _run_propainter_local
+        pp_crop = runner(send_frames, send_masks, result_dir, resize_ratio,
+                         subvideo_length, neighbor_length, mask_dilation)
 
+        # 크롭 결과를 원본 전체 프레임에 다시 끼워넣어 풀사이즈 pp 프레임 복원.
+        pp_dir = work / "ppfull"
+        pp_dir.mkdir(parents=True, exist_ok=True)
+        orig_files = sorted(frames_dir.glob("*.png"))
+        for i, of in enumerate(orig_files):
+            full = cv2.imread(str(of))
+            if i < len(pp_crop):
+                patch = cv2.imread(str(pp_crop[i]))
+                if crop_box:
+                    cx0, cy0, cx1, cy1 = crop_box
+                    if patch.shape[1] != cx1 - cx0 or patch.shape[0] != cy1 - cy0:
+                        patch = cv2.resize(patch, (cx1 - cx0, cy1 - cy0),
+                                           interpolation=cv2.INTER_LANCZOS4)
+                    full[cy0:cy1, cx0:cx1] = patch
+                else:
+                    full = patch if patch.shape[:2] == (H, W) else \
+                        cv2.resize(patch, (W, H), interpolation=cv2.INTER_LANCZOS4)
+            cv2.imwrite(str(pp_dir / of.name), full)
+
+        pp_frames = sorted(pp_dir.glob("*.png"))
         _composite_and_encode(frames_dir, masks_dir, pp_frames, video_path, out_path, fps, W, H)
         return out_path
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps) -> int:
+def _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps,
+                          mask_mode="stroke", box_pad=6,
+                          stroke_dilate=6, bright_thresh=190, dark_thresh=90) -> int:
+    """프레임별 자막 마스크 PNG 생성.
+
+    mask_mode="stroke": 박스 안 글자 획만(주변 보존). ProPainter용으로 외곽선을 더
+                        잡도록 기본값을 완화(dark≤90/bright≥190, dilate 6).
+    mask_mode="box"   : 박스 전체(+box_pad 여백) 채움. 큰 마스크여도 ProPainter는
+                        안 뭉개나 움직이는 피사체 위에선 재구성 번짐 가능.
+    stroke_dilate/bright_thresh/dark_thresh: stroke 모드 마스크 민감도 튜닝.
+    """
     masks_dir.mkdir(parents=True, exist_ok=True)
     frame_files = sorted(frames_dir.glob("*.png"))
     n_with_mask = 0
@@ -140,7 +261,15 @@ def _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps) -> int:
         for seg in segments:
             if seg["start"] - 0.3 <= t <= seg["end"] + 0.3:
                 x, y, w, h = _to_xywh(seg["box"])
-                res = _stroke_mask_in_box(frame, x, y, w, h)
+                if mask_mode == "box":
+                    x0, y0 = max(0, x - box_pad), max(0, y - box_pad)
+                    x1, y1 = min(W, x + w + box_pad), min(H, y + h + box_pad)
+                    if x1 > x0 and y1 > y0:
+                        mask[y0:y1, x0:x1] = 255
+                        any_box = True
+                    continue
+                res = _stroke_mask_in_box(frame, x, y, w, h, dilate=stroke_dilate,
+                                          bright_thresh=bright_thresh, dark_thresh=dark_thresh)
                 if res:
                     x0, y0, m = res
                     sub = mask[y0:y0 + m.shape[0], x0:x0 + m.shape[1]]

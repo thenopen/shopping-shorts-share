@@ -21,25 +21,45 @@ from app.douyin_auth import STATE_PATH
 VIDEO_URL_RE = re.compile(r"(douyinvod\.com|aweme\.snssdk|\.mp4|/video/tos/)", re.I)
 
 
-def _has_video_track(data: bytes) -> bool:
-    """바이트 앞부분으로 video 트랙 유무 확인 (임시파일 ffprobe)."""
-    import subprocess, tempfile, os
+def _probe_tracks(data: bytes) -> str:
+    """바이트를 ffprobe(json)로 검사해 트랙 요약 문자열 반환.
+    예: 'video:h264 + audio:aac' / 'audio:aac (영상無)' / '스트림없음/파싱불가'.
+
+    주의: ffprobe의 `-of csv`는 필드를 요청순이 아니라 내부순서(codec_name,codec_type)로
+    출력해 위치 파싱이 깨진다. 순서에 무관한 json으로 파싱한다.
+    """
+    import subprocess, tempfile, os, json
     from app.config import FFPROBE
     tf = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
     try:
         tf.write(data)
         tf.close()
         out = subprocess.run(
-            [FFPROBE, "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=codec_type", "-of", "csv=p=0", tf.name],
+            [FFPROBE, "-v", "error", "-show_entries", "stream=codec_type,codec_name",
+             "-of", "json", tf.name],
             capture_output=True, text=True)
-        return "video" in out.stdout
+        try:
+            streams = (json.loads(out.stdout or "{}") or {}).get("streams", [])
+        except Exception:
+            streams = []
+        if not streams:
+            return "스트림없음/파싱불가"
+        vids = [s.get("codec_name", "?") for s in streams if s.get("codec_type") == "video"]
+        auds = [s.get("codec_name", "?") for s in streams if s.get("codec_type") == "audio"]
+        parts = []
+        if vids:
+            parts.append("video:" + "/".join(vids))
+        if auds:
+            parts.append("audio:" + "/".join(auds))
+        summary = " + ".join(parts) if parts else "스트림없음/파싱불가"
+        return summary if vids else summary + " (영상無)"
     finally:
         os.unlink(tf.name)
 
 
-def _pick_best_video(api, candidates):
-    """후보 중 video 트랙 있는 가장 큰 mp4의 URL 반환."""
+def _pick_best_video(api, candidates, diag=None):
+    """후보 중 video 트랙 있는 가장 큰 mp4의 URL 반환.
+    diag(list)가 주어지면 후보별 검사결과를 사람이 읽을 수 있게 append(웹 콘솔 진단용)."""
     # 중복 제거 + 큰 것 우선
     seen, uniq = set(), []
     for u, ct, clen in candidates:
@@ -50,20 +70,40 @@ def _pick_best_video(api, candidates):
     uniq.sort(key=lambda x: x[2], reverse=True)
 
     for u, ct, clen in uniq:
+        short = (u[:70] + "…") if len(u) > 70 else u
+        if u.startswith("blob:"):
+            if diag is not None:
+                diag.append(f"[blob] MSE blob URL — 직접 다운로드 불가 · ct={ct} · {short}")
+            continue
         try:
             r = api.get(u)
             if not r.ok:
+                if diag is not None:
+                    diag.append(f"[HTTP {r.status}] ct={ct} len={clen} · {short}")
                 continue
             body = r.body()
-            if _has_video_track(body):
-                return u
-        except Exception:
+            tracks = _probe_tracks(body)
+            has_v = "video:" in tracks
+            has_a = "audio:" in tracks
+            tag = "VIDEO✓" if has_v else ("audio" if has_a else "트랙없음(fMP4조각?)")
+            if diag is not None:
+                diag.append(f"[{tag}] {tracks} · ct={ct} bytes={len(body)} · {short}")
+            if has_v:
+                return u  # 큰 것부터 순회 → 첫 video 후보가 최선
+        except Exception as e:
+            if diag is not None:
+                diag.append(f"[예외] {str(e)[:60]} · {short}")
             continue
     return None
 
 
-def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Path:
-    """공유텍스트/URL → 도우인 영상 mp4 다운로드. 반환: 저장경로."""
+def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000,
+                    diag: list | None = None) -> Path:
+    """공유텍스트/URL → 도우인 영상 mp4 다운로드. 반환: 저장경로.
+
+    diag(list)가 주어지면 캡처된 미디어 후보/트랙 진단을 append한다(웹 F12 콘솔용).
+    실패해도 이미 append된 항목은 호출측 job에 남아 콘솔에 표시됨.
+    """
     from playwright.sync_api import sync_playwright
 
     url = extract_url(share_text) or share_text
@@ -94,6 +134,7 @@ def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Pa
 
         page.on("response", on_response)
 
+        src = None
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             page.wait_for_timeout(6000)
@@ -107,6 +148,14 @@ def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Pa
             page.wait_for_timeout(3000)
         except Exception as e:
             print(f"[douyin_dl] page error: {str(e)[:120]}")
+            if diag is not None:
+                diag.append(f"[페이지 오류] {str(e)[:120]}")
+
+        if diag is not None:
+            src_kind = "없음"
+            if src:
+                src_kind = "blob(MSE)" if str(src).startswith("blob:") else "http"
+            diag.append(f"캡처 후보 {len(candidates)}개 · <video>src={src_kind}")
 
         if not candidates:
             browser.close()
@@ -114,7 +163,7 @@ def download_douyin(share_text: str, job_id: str, timeout_ms: int = 30000) -> Pa
 
         # 후보 중 실제 video 트랙이 있는 가장 큰 mp4 선택
         api = context.request
-        best = _pick_best_video(api, candidates)
+        best = _pick_best_video(api, candidates, diag=diag)
         if not best:
             browser.close()
             raise RuntimeError("video 트랙 있는 미디어를 못 찾음 (오디오만 잡힘)")

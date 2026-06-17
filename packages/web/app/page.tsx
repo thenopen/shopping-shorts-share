@@ -45,6 +45,19 @@ function apiBase() {
   return "";
 }
 
+async function postJSON<T = any>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${apiBase()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => "");
+    throw new Error(msg || `요청 실패 (HTTP ${r.status})`);
+  }
+  return r.json();
+}
+
 type JobState = {
   id: string;
   status: string;
@@ -55,6 +68,9 @@ type JobState = {
   output: string | null;
   has_speech: boolean | null;
   error: string | null;
+  subtitle_engine?: string | null;       // "propainter" | "lama" | "lama_fallback" | "none"
+  subtitle_engine_note?: string | null;  // 폴백 사유 등
+  douyin_diag?: string[] | null;         // 도우인 다운로드 미디어 후보/트랙 진단(F12 콘솔용)
 };
 
 export default function Home() {
@@ -62,9 +78,13 @@ export default function Home() {
   const [voice, setVoice] = useState("소담");
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [captionsOn, setCaptionsOn] = useState(true);
+  const [faceCutOn, setFaceCutOn] = useState(false);  // 얼굴 전체샷 컷 제거(opt-in)
+  const [subtitleBackend, setSubtitleBackend] = useState<"local" | "modal">("local"); // 자막제거 GPU 위치(개발 토글, 기본 로컬)
   // 타임라인 편집기서 만든/수정한 자막 줄들. 비어있으면 render때 서버가 자동생성.
   const [captionLines, setCaptionLines] = useState<CaptionLineData[]>([]);
   const [capBusy, setCapBusy] = useState(false);
+  const [capEditBusy, setCapEditBusy] = useState(false);            // AI 자막 다듬기 진행중
+  const [capEditPrev, setCapEditPrev] = useState<CaptionLineData[] | null>(null); // 다듬기 직전(되돌리기용)
   // CTA 문구 목록(기본3 + 사용자 추가 통합. 기본도 삭제 가능). localStorage 저장.
   const [ctaList, setCtaList] = useState<string[]>(DEFAULT_CTAS);
   const [cta, setCta] = useState(DEFAULT_CTAS[1]); // 선택된 CTA 문구(텍스트)
@@ -85,6 +105,8 @@ export default function Home() {
       }
     } catch {}
   }, []);
+  // 언마운트 시 폴링 인터벌 정리(메모리 누수/유령 폴링 방지).
+  useEffect(() => stopPoll, []);
   function persistCtas(list: string[]) {
     setCtaList(list);
     try { localStorage.setItem(CTA_STORAGE_KEY, JSON.stringify(list)); } catch {}
@@ -119,12 +141,7 @@ export default function Home() {
     if (!script.trim() || ttsBusy) return;  // 분석 전이어도 대본만 있으면 들어보기 가능
     setTtsBusy(true);
     try {
-      const r = await fetch(`${apiBase()}/tts/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job?.id ?? "", script, voice, speaking_rate: rate }),
-      });
-      const d = await r.json();
+      const d = await postJSON<{ audio?: string }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate });
       if (d.audio) {
         const u = `${apiBase()}${d.audio}?t=${renderSeq}-${voice}`;
         setTtsUrl(u);
@@ -177,17 +194,12 @@ export default function Home() {
     setProductBusy(true);
     setProductErr("");
     try {
-      const r = await fetch(`${apiBase()}/script/product`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_url: productUrl.trim(),
-          product_images: productImages,
-          video_content: script, // 현재 대본/영상내용과 결합
-          combine: true,
-        }),
+      const d = await postJSON<any>("/script/product", {
+        product_url: productUrl.trim(),
+        product_images: productImages,
+        video_content: script, // 현재 대본/영상내용과 결합
+        combine: true,
       });
-      const d = await r.json();
       if (d.error) {
         setProductErr(d.error);
         if (d.selling_points) setSellingPoints(d.selling_points);
@@ -195,8 +207,8 @@ export default function Home() {
         setSellingPoints(d.selling_points || "");
         if (d.script) commitScript(d.script);
       }
-    } catch {
-      setProductErr("대본 생성 실패. 서버 상태를 확인하세요.");
+    } catch (e) {
+      setProductErr(e instanceof Error && e.message ? e.message : "대본 생성 실패. 서버 상태를 확인하세요.");
     } finally {
       setProductBusy(false);
     }
@@ -238,10 +250,10 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [refineBusy, setRefineBusy] = useState(false);
-  const [agentBusy, setAgentBusy] = useState(false);
-  const [agentNotes, setAgentNotes] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loggedEngineRef = useRef<string | null>(null);  // 자막제거 엔진 콘솔 1회 기록용
+  const loggedDouyinRef = useRef(false);                // 도우인 다운로드 진단 콘솔 1회 기록용
 
   function stopPoll() {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -249,12 +261,56 @@ export default function Home() {
   }
 
   function pollJob(id: string, stopStatuses: string[], done?: (j: JobState) => void) {
+    if (!id) {
+      stopPoll();
+      setBusy(false); setScriptBusy(false);
+      alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요.");
+      return;
+    }
     stopPoll();
+    let fails = 0;
     pollRef.current = setInterval(async () => {
       try {
         const r = await fetch(`${apiBase()}/jobs/${id}`);
+        if (!r.ok) {
+          if (r.status === 404) {
+            stopPoll();
+            setBusy(false); setScriptBusy(false);
+            alert("작업을 찾을 수 없습니다. 서버가 재시작되었을 수 있습니다.");
+            return;
+          }
+          throw new Error(`HTTP ${r.status}`);
+        }
+        fails = 0;
         const j: JobState = await r.json();
         setJob(j);
+        // 자막제거에 실제로 쓰인 엔진을 브라우저 콘솔에 1회 기록.
+        if (j.subtitle_engine && loggedEngineRef.current !== j.subtitle_engine) {
+          loggedEngineRef.current = j.subtitle_engine;
+          const label: Record<string, string> = {
+            propainter: "ProPainter (시간축 복원)",
+            lama: "LaMa (프레임 인페인팅)",
+            lama_fallback: "LaMa (ProPainter 실패 → 폴백)",
+            none: "고정박스 제거 (자막 미감지)",
+          };
+          console.log(
+            `[자막제거 엔진] ${label[j.subtitle_engine] ?? j.subtitle_engine}` +
+              (j.subtitle_engine_note ? ` | 사유: ${j.subtitle_engine_note}` : "")
+          );
+        }
+        // 도우인 다운로드 미디어 후보/트랙 진단을 브라우저 콘솔에 1회 기록.
+        // diag는 다운로드 중 점진적으로 쌓이므로(요약 → 후보별 ffprobe 결과 순),
+        // 다운로드 단계가 끝난 뒤(status가 downloading/queued를 벗어남) 찍어야 전체가 나옴.
+        if (
+          j.douyin_diag && j.douyin_diag.length &&
+          j.status !== "queued" && j.status !== "downloading" &&
+          !loggedDouyinRef.current
+        ) {
+          loggedDouyinRef.current = true;
+          console.log(
+            "[Douyin 다운로드 진단] 캡처된 미디어 후보 ↓\n" + j.douyin_diag.join("\n")
+          );
+        }
         // 서버 대본은 사용자가 아직 안 건드렸을 때만 채움(타이핑 덮어쓰기 방지).
         if (j.script && !scriptDirtyRef.current) {
           setScript(j.script);
@@ -266,7 +322,16 @@ export default function Home() {
           setScriptBusy(false);
           done?.(j);
         }
-      } catch {}
+      } catch {
+        // 일시적 네트워크 오류는 관용 — 연속 실패가 누적되면 폴링 중단.
+        fails += 1;
+        if (fails >= 5) {
+          stopPoll();
+          setBusy(false);
+          setScriptBusy(false);
+          alert("서버 연결이 끊겼습니다.");
+        }
+      }
     }, 1200);
   }
 
@@ -274,13 +339,11 @@ export default function Home() {
     if (!url.trim() || busy) return;
     setBusy(true);
     setJob(null);
+    loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
+    loggedDouyinRef.current = false;  // 새 분석 → 도우인 진단 다시 찍히게
     try {
-      const r = await fetch(`${apiBase()}/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
-      });
-      const { job_id } = await r.json();
+      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim(), subtitle_backend: subtitleBackend });
+      if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
       pollJob(job_id, ["analyzed", "error"]);
     } catch {
       setBusy(false);
@@ -292,11 +355,7 @@ export default function Home() {
     if (!job?.id || scriptBusy) return;
     setScriptBusy(true);
     try {
-      await fetch(`${apiBase()}/transcribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job.id }),
-      });
+      await postJSON("/transcribe", { job_id: job.id });
       pollJob(job.id, ["transcribed", "error"]);
     } catch {
       setScriptBusy(false);
@@ -333,11 +392,46 @@ export default function Home() {
         style: l.style ?? null,
       }));
       setCaptionLines(lines);
+      setCapEditPrev(null);
     } catch {
       alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
       setCapBusy(false);
     }
+  }
+
+  // AI/규칙 기반 자막 다듬기 — 방향(shorter/longer/natural/impact/friendly/concise)을
+  // 서버 /captions/edit로 보내 변환된 줄로 교체. 직전 상태는 되돌리기용으로 보관.
+  async function editCaptions(direction: string) {
+    if (!captionLines.length || capEditBusy) return;
+    setCapEditBusy(true);
+    const prev = captionLines;
+    try {
+      const d = await postJSON<{ lines: CaptionLineData[] }>("/captions/edit", {
+        lines: captionLines,
+        direction,
+        caption_style: captionStyle,
+      });
+      const next: CaptionLineData[] = (d.lines || []).map((l: CaptionLineData) => ({
+        text: l.text,
+        start: l.start,
+        end: l.end,
+        style: l.style ?? null,
+      }));
+      if (!next.length) { alert("다듬기 결과가 비었습니다."); return; }
+      setCapEditPrev(prev);
+      setCaptionLines(next);
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "자막 다듬기 실패.");
+    } finally {
+      setCapEditBusy(false);
+    }
+  }
+
+  function undoCaptionEdit() {
+    if (!capEditPrev) return;
+    setCaptionLines(capEditPrev);
+    setCapEditPrev(null);
   }
 
   async function refineScript() {
@@ -362,49 +456,22 @@ export default function Home() {
     }
   }
 
-  async function agentRefineScript() {
-    if (!script.trim() || agentBusy) return;
-    setAgentBusy(true);
-    setAgentNotes("");
-    try {
-      const r = await fetch(`${apiBase()}/agent/refine`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script, mode: "shopping_shorts" }),
-      });
-      if (!r.ok) {
-        const msg = await r.text();
-        alert(`Antigravity 검수 실패: ${msg}`);
-      } else {
-        const data = await r.json();
-        if (data.script) commitScript(data.script);
-        if (data.notes) setAgentNotes(data.notes);
-      }
-    } catch {
-      alert("Antigravity 검수 실패.");
-    } finally {
-      setAgentBusy(false);
-    }
-  }
 
   async function startRender() {
     if (!job?.id || busy) return;
     setRenderSeq((n) => n + 1); // 결과 영상 캐시버스터 — 재렌더 시 브라우저가 새 영상 받게
     setBusy(true);
     try {
-      const r = await fetch(`${apiBase()}/render`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: job.id, script, voice, speaking_rate: rate, cta,
-          cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
-          captions: captionsOn,
-          caption_style: captionStyle,
-          // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
-          caption_lines: captionLines.length ? captionLines : null,
-        }),
+      const { job_id } = await postJSON<{ job_id?: string }>("/render", {
+        job_id: job.id, script, voice, speaking_rate: rate, cta,
+        cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
+        captions: captionsOn,
+        caption_style: captionStyle,
+        // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
+        caption_lines: captionLines.length ? captionLines : null,
+        face_cut: faceCutOn,
       });
-      const { job_id } = await r.json();
+      if (!job_id) { setBusy(false); alert("렌더 작업 ID를 받지 못했습니다."); return; }
       pollJob(job_id, ["done", "error"]);
     } catch {
       setBusy(false);
@@ -445,6 +512,8 @@ export default function Home() {
   }
 
   const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
+  // 상대경로 → 절대경로(외부 기기/공유시 동작). 다운로드·공유 링크에만 적용.
+  const absUrl = (rel: string) => (typeof window !== "undefined" ? new URL(rel, window.location.origin).href : rel);
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
 
   return (
@@ -488,6 +557,25 @@ export default function Home() {
             >
               {busy && job?.status !== "done" ? "분석 중..." : "분석"}
             </button>
+          </div>
+
+          {/* 자막 제거 모델 선택 (개발용 토글) — 기본 로컬 GPU, 클라우드는 Modal 오프로드 */}
+          <div className="mt-3 flex items-center gap-2.5 text-[13px]">
+            <span className="font-semibold text-[var(--ink-soft)]">자막 제거 모델</span>
+            <div className="inline-flex rounded-full bg-white/55 p-1 backdrop-blur">
+              <button
+                onClick={() => setSubtitleBackend("local")}
+                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "local" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
+              >
+                로컬 GPU <span className="font-normal opacity-70">(개발)</span>
+              </button>
+              <button
+                onClick={() => setSubtitleBackend("modal")}
+                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "modal" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
+              >
+                클라우드 <span className="font-normal opacity-70">(Modal)</span>
+              </button>
+            </div>
           </div>
 
           {/* 제품 소구포인트 — 상세페이지 링크/캡처/수동 → 대본 결합 */}
@@ -691,9 +779,6 @@ export default function Home() {
                 <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
                   {refineBusy ? "가공 중..." : "AI로 가공"}
                 </button>
-                <button onClick={agentRefineScript} disabled={!script.trim() || agentBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-amber-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {agentBusy ? "검수 중..." : "Antigravity 검수"}
-                </button>
                 <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
                   ↶ 되돌리기
                 </button>
@@ -716,7 +801,6 @@ export default function Home() {
               placeholder="자동 대본 생성 버튼을 누르거나 직접 입력하세요."
               className="w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-3 text-sm leading-relaxed text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
             />
-            {agentNotes && <p className="mt-2 rounded-2xl bg-amber-100/60 px-3 py-2 text-xs font-medium text-amber-700 backdrop-blur">{agentNotes}</p>}
           </div>
 
           <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
@@ -728,6 +812,19 @@ export default function Home() {
         </section>
 
         <div className="mt-8">
+          <div className="mb-4 flex items-center justify-between rounded-3xl glass px-6 py-4">
+            <div>
+              <div className="text-sm font-bold text-[var(--ink)]">얼굴샷 컷 제거</div>
+              <div className="text-xs text-[var(--ink-soft)]">인물 얼굴이 크게 잡힌 구간을 자동으로 잘라내고 제품샷 위주로 이어붙입니다. (남길 분량이 너무 짧으면 자동으로 컷을 생략합니다.)</div>
+            </div>
+            <button
+              onClick={() => setFaceCutOn((v) => !v)}
+              className={`relative h-7 w-12 flex-none rounded-full transition-colors ${faceCutOn ? "btn-grad" : "bg-white/60"}`}
+              aria-label="얼굴샷 컷 제거 토글"
+            >
+              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${faceCutOn ? "left-[22px]" : "left-0.5"}`} />
+            </button>
+          </div>
           <div className="mb-8 flex items-center justify-between rounded-3xl glass px-6 py-4">
             <div>
               <div className="text-sm font-bold text-[var(--ink)]">자동 자막</div>
@@ -750,6 +847,10 @@ export default function Home() {
               onGenerate={genCaptions}
               generating={capBusy}
               hasScript={!!job?.id && !!script.trim()}
+              onAiEdit={editCaptions}
+              aiEditBusy={capEditBusy}
+              onUndoEdit={undoCaptionEdit}
+              canUndoEdit={!!capEditPrev}
             />
           </div>
         </div>
@@ -759,12 +860,12 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm font-bold text-emerald-600">✅ 영상 완성</div>
               <div className="flex flex-wrap gap-2">
-                <a href={previewUrl ?? `${apiBase()}${job.output}`} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
+                <a href={absUrl(previewUrl ?? `${apiBase()}${job.output}`)} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
                   다운로드
                 </a>
                 <button
                   onClick={async () => {
-                    const link = previewUrl ?? `${apiBase()}${job!.output}`;
+                    const link = absUrl(previewUrl ?? `${apiBase()}${job!.output}`);
                     // 모바일 공유시트(가능하면) — 아니면 클립보드 복사
                     const navAny = navigator as Navigator & { share?: (d: { title?: string; url?: string }) => Promise<void> };
                     try {

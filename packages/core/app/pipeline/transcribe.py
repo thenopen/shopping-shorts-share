@@ -7,6 +7,36 @@ from pathlib import Path
 
 from app.pipeline.translate import translate_zh_ko
 
+# (model_size, device, compute_type) → WhisperModel. 매 호출 재로드 방지(로드 수초·VRAM 절약).
+# GPU_SEM(server_api)으로 GPU 작업이 직렬화되므로 캐시된 모델 동시접근 경쟁 없음.
+_WHISPER_CACHE: dict = {}
+
+
+def _load_whisper(model_size: str, device: str, compute_type: str):
+    key = (model_size, device, compute_type)
+    m = _WHISPER_CACHE.get(key)
+    if m is None:
+        from faster_whisper import WhisperModel
+        m = WhisperModel(model_size, device=device, compute_type=compute_type)
+        _WHISPER_CACHE[key] = m
+    return m
+
+
+def load_whisper_auto(model_size: str = "large-v3"):
+    """GPU 가능하면 cuda+float16, 아니면 cpu+int8. 캐시 재사용. transcribe·align 공용."""
+    try:
+        import torch
+        use_cuda = torch.cuda.is_available()
+    except Exception:
+        use_cuda = False
+    if use_cuda:
+        try:
+            return _load_whisper(model_size, "cuda", "float16")
+        except Exception as e:
+            print(f"  [whisper cuda init 실패, cpu 폴백: {str(e)[:100]}]")
+            return _load_whisper("small", "cpu", "int8")
+    return _load_whisper("small", "cpu", "int8")
+
 
 def transcribe_to_korean(
     media_path: Path,
@@ -23,26 +53,12 @@ def transcribe_to_korean(
 
 
 def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool) -> dict:
-    from faster_whisper import WhisperModel
-
     media_path = Path(media_path)
     if not media_path.exists():
         raise FileNotFoundError(f"Media file not found: {media_path}")
 
-    # GPU 있으면 cuda+float16(정확·빠름), 없으면 cpu+int8 폴백.
-    try:
-        import torch
-        use_cuda = torch.cuda.is_available()
-    except Exception:
-        use_cuda = False
-    if use_cuda:
-        try:
-            model = WhisperModel(model_size, device="cuda", compute_type="float16")
-        except Exception as e:
-            print(f"  [whisper cuda init 실패, cpu 폴백: {str(e)[:100]}]")
-            model = WhisperModel("small", device="cpu", compute_type="int8")
-    else:
-        model = WhisperModel("small", device="cpu", compute_type="int8")
+    # GPU 있으면 cuda+float16(정확·빠름), 없으면 cpu+int8 폴백. 모델은 캐시 재사용.
+    model = load_whisper_auto(model_size)
     # beam_size↑·vad_filter로 무음구간 환청('0,,입자' 류) 억제 → 정확도 개선.
     segments, _info = model.transcribe(
         str(media_path), language="zh", beam_size=5,

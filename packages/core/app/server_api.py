@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import threading
+import time
 import uuid
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +27,14 @@ app.add_middleware(
 
 JOBS: dict[str, dict] = {}
 
+# GPU 작업(자막 인페인트·whisper STT/정렬) 직렬화 — 동시 실행 시 8GB VRAM OOM 방지.
+# HTTP 응답은 워커 스레드가 즉시 반환하고, GPU 구간만 이 세마포어로 한 번에 하나씩.
+GPU_SEM = threading.Semaphore(1)
+
+# 메모리(JOBS)·디스크(workdir) 무한 증가 방지용 TTL. 영속화는 아니며 정리만.
+_DONE_TTL = 6 * 3600       # 완료/오류 job: 6시간 후 정리
+_HARD_TTL = 24 * 3600      # 모든 job: 24시간 후 강제 정리(작업중 보호 상한)
+
 CTA_TEXT = {
     "comment": "제품 정보는 고정 댓글에서 확인하세요!",
     "profile": "구매처는 프로필 링크에 있어요.",
@@ -31,7 +42,19 @@ CTA_TEXT = {
 }
 
 
+def _prune_jobs() -> None:
+    """오래된 job을 JOBS·workdir에서 정리. _new_job마다 기회주의적 호출."""
+    now = time.time()
+    for jid in list(JOBS.keys()):
+        j = JOBS.get(jid) or {}
+        age = now - j.get("created", now)
+        if (j.get("status") in ("done", "error") and age > _DONE_TTL) or age > _HARD_TTL:
+            JOBS.pop(jid, None)
+            shutil.rmtree(WORKDIR / jid, ignore_errors=True)
+
+
 def _new_job() -> str:
+    _prune_jobs()
     jid = uuid.uuid4().hex[:8]
     JOBS[jid] = {
         "id": jid,
@@ -43,6 +66,7 @@ def _new_job() -> str:
         "output": None,
         "error": None,
         "has_speech": None,
+        "created": time.time(),
         "meta": {},
     }
     return jid
@@ -50,6 +74,7 @@ def _new_job() -> str:
 
 class AnalyzeReq(BaseModel):
     url: str
+    subtitle_backend: str = "local"   # 자막제거 ProPainter 백엔드: local(개발) | modal(클라우드)
 
 
 class TranscribeReq(BaseModel):
@@ -58,11 +83,6 @@ class TranscribeReq(BaseModel):
 
 class RefineReq(BaseModel):
     script: str
-
-
-class AgentRefineReq(BaseModel):
-    script: str
-    mode: str = "shopping_shorts"
 
 
 class RenderReq(BaseModel):
@@ -77,6 +97,7 @@ class RenderReq(BaseModel):
     captions: bool = True            # TTS 대본 자동자막 on/off
     caption_style: dict | None = None  # 웹 CaptionStyle (font/size/color/...) — 기본 스타일
     caption_lines: list | None = None  # 타임라인 편집기서 수정한 줄들(있으면 자동생성 대신 이걸 burn)
+    face_cut: bool = False           # 얼굴 전체샷 구간 자동 컷 제거(opt-in, 기본 off)
 
 
 class CaptionPreviewReq(BaseModel):
@@ -84,6 +105,12 @@ class CaptionPreviewReq(BaseModel):
     script: str = ""
     voice: str = "소담"
     speaking_rate: float = 1.0
+    caption_style: dict | None = None
+
+
+class CaptionEditReq(BaseModel):
+    lines: list = []                  # 현재 자막 줄 [{text,start,end,style}]
+    direction: str = "natural"        # shorter|longer|natural|impact|friendly|concise
     caption_style: dict | None = None
 
 
@@ -99,7 +126,8 @@ class ProductScriptReq(BaseModel):
 @app.post("/analyze")
 def analyze(req: AnalyzeReq):
     jid = _new_job()
-    threading.Thread(target=_analyze_worker, args=(jid, req.url), daemon=True).start()
+    threading.Thread(target=_analyze_worker, args=(jid, req.url, req.subtitle_backend),
+                     daemon=True).start()
     return {"job_id": jid}
 
 
@@ -118,18 +146,6 @@ def refine(req: RefineReq):
     if not available():
         raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
     return {"script": refine_script(req.script)}
-
-
-@app.post("/agent/refine")
-def agent_refine(req: AgentRefineReq):
-    from app.pipeline.refine import available, antigravity_refine
-
-    if not available():
-        raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
-    try:
-        return antigravity_refine(req.script, mode=req.mode)
-    except RuntimeError as e:
-        raise HTTPException(502, str(e)) from e
 
 
 @app.post("/render")
@@ -163,12 +179,80 @@ def captions_preview(req: CaptionPreviewReq):
         _dub, stamps = synthesize_by_nickname(
             req.script, dub, nickname=req.voice, speaking_rate=req.speaking_rate,
         )
+        # 프리뷰도 렌더와 동일하게: 타임스탬프 없으면 whisper 재정렬(싱크 일치).
+        if not stamps and _dub:
+            from app.pipeline.align import word_timestamps
+            with GPU_SEM:
+                stamps = word_timestamps(_dub, language="ko")
         style = style_from_dict(req.caption_style)
         total = _probe_dur(_dub)
         lines = build_lines_from_tts(stamps, style, total_dur=total, full_text=req.script)
         return {"lines": lines_to_payload(lines, style), "duration": total}
     except Exception as e:
         raise HTTPException(500, f"caption preview failed: {str(e)[:300]}") from e
+
+
+@app.post("/captions/edit")
+def captions_edit(req: CaptionEditReq):
+    """현재 자막 줄들을 '수정 방향'대로 변환해 새 줄들 반환(타임코드 유지, 재렌더 안 함).
+
+    방향:
+      shorter/longer  — 더 짧게/길게 재분할(결정형, 즉시·무료)
+      natural/impact/friendly/concise — Gemini로 의미 재작성 후 재분할
+    시간은 원본 전체 구간[첫줄 start ~ 끝줄 end]을 글자수 비례로 재배분.
+    """
+    from app.pipeline.caption import (
+        split_korean_lines, style_from_dict, lines_to_payload, CaptionLine,
+    )
+
+    src = [ln for ln in (req.lines or []) if (ln.get("text") or "").strip()]
+    if not src:
+        raise HTTPException(400, "no caption lines to edit")
+
+    text = " ".join((ln.get("text") or "").replace("\n", " ").strip() for ln in src).strip()
+    try:
+        t0 = min(float(ln.get("start", 0.0)) for ln in src)
+        t1 = max(float(ln.get("end", 0.0)) for ln in src)
+    except (TypeError, ValueError):
+        t0, t1 = 0.0, 0.0
+    if t1 <= t0:
+        t1 = t0 + max(1.0, len(src) * 1.5)
+    span = t1 - t0
+
+    d = (req.direction or "natural").lower()
+    AI_DIRS = ("natural", "impact", "friendly", "concise")
+    try:
+        if d in AI_DIRS:
+            from app.pipeline.refine import rewrite_caption_text, available
+            if not available():
+                raise HTTPException(400, "AI 다듬기는 Gemini 키가 필요합니다(auth/gemini_key.txt).")
+            text = rewrite_caption_text(text, d)
+            chunks = split_korean_lines(text, ideal=8, max_chars=10, min_chars=6)
+        elif d == "shorter":
+            chunks = split_korean_lines(text, ideal=6, max_chars=8, min_chars=4)
+        elif d == "longer":
+            chunks = split_korean_lines(text, ideal=11, max_chars=14, min_chars=8)
+        else:
+            chunks = split_korean_lines(text, ideal=8, max_chars=10, min_chars=6)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"caption edit failed: {str(e)[:300]}") from e
+
+    if not chunks:
+        raise HTTPException(500, "edit produced no lines")
+
+    style = style_from_dict(req.caption_style)
+    total_chars = sum(len(c.replace(" ", "")) for c in chunks) or 1
+    out: list = []
+    t = t0
+    for c in chunks:
+        seg = span * (len(c.replace(" ", "")) / total_chars)
+        out.append(CaptionLine(text=c, start=round(t, 2), end=round(t + seg, 2), style=style))
+        t += seg
+    if out:
+        out[-1].end = round(t1, 2)
+    return {"lines": lines_to_payload(out, style)}
 
 
 @app.post("/tts/preview")
@@ -258,9 +342,22 @@ def get_job(jid: str):
     return JOBS[jid]
 
 
+_SAFE_SEG = re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+
 @app.get("/file/{jid}/{name}")
 def get_file(jid: str, name: str):
-    f = WORKDIR / jid / name
+    # Path traversal 가드: 세그먼트 화이트리스트 + workdir 밖 탈출 차단.
+    if not (_SAFE_SEG.match(jid) and _SAFE_SEG.match(name)) or ".." in jid or ".." in name:
+        raise HTTPException(403, "invalid path")
+    base = WORKDIR.resolve()
+    f = (base / jid / name).resolve()
+    try:
+        inside = f.is_relative_to(base)
+    except AttributeError:  # py<3.9 안전망(런타임은 3.12)
+        inside = str(f).startswith(str(base))
+    if not inside:
+        raise HTTPException(403, "forbidden")
     if not f.exists():
         raise HTTPException(404, "file not found")
     return FileResponse(str(f))
@@ -271,7 +368,7 @@ def root():
     return {"ok": True, "service": "쇼핏 쇼츠 메이커 API"}
 
 
-def _analyze_worker(jid: str, raw_url: str):
+def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
     job = JOBS[jid]
     try:
         from app.pipeline.download import download_video
@@ -288,7 +385,11 @@ def _analyze_worker(jid: str, raw_url: str):
 
         job.update(status="downloading", stage="영상 다운로드", progress=10, error=None)
         if "douyin" in url:
-            source = download_douyin(url, jid)
+            # diag 리스트를 먼저 job에 걸어두면 다운로드가 실패(raise)해도
+            # 그때까지 수집된 후보/트랙 진단이 job에 남아 웹 F12 콘솔에 표시됨.
+            douyin_diag: list = []
+            job["douyin_diag"] = douyin_diag
+            source = download_douyin(url, jid, diag=douyin_diag)
         else:
             source = download_video(url, jid)
         job["meta"]["source"] = str(source)
@@ -322,23 +423,35 @@ def _analyze_worker(jid: str, raw_url: str):
                 job.update(progress=40 + int(frac * 50),
                            stage=f"자막·워터마크 제거 ({int(frac*100)}%)")
             nosub = None
-            # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
-            # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
-            if segments and os.environ.get("PROPAINTER", "1") != "0":
-                try:
-                    from app.pipeline.propainter_inpaint import inpaint_with_propainter
-                    job.update(stage="자막 제거 (AI 배경복원)", progress=45)
-                    nosub = inpaint_with_propainter(
-                        source, job_dir / "nosub.mp4", segments, progress_cb=_ip_prog)
-                    print("  [ProPainter 자막제거 성공]")
-                except Exception as pe:
-                    print(f"  [ProPainter 실패, LaMa 폴백: {str(pe)[:200]}]")
-                    nosub = None
-            if nosub is None:
-                nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
-                                          fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+            engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
+            engine_note = ""       # 폴백 사유 등
+            # GPU 인페인트는 한 번에 하나만(동시 작업 시 8GB VRAM OOM 방지).
+            with GPU_SEM:
+                # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
+                # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
+                if segments and os.environ.get("PROPAINTER", "1") != "0":
+                    try:
+                        from app.pipeline.propainter_inpaint import inpaint_with_propainter
+                        job.update(stage="자막 제거 (AI 배경복원)", progress=45)
+                        nosub = inpaint_with_propainter(
+                            source, job_dir / "nosub.mp4", segments,
+                            backend=subtitle_backend, progress_cb=_ip_prog)
+                        engine = f"propainter_{subtitle_backend}"
+                        print(f"  [ProPainter({subtitle_backend}) 자막제거 성공]")
+                    except Exception as pe:
+                        engine_note = str(pe)[:200]
+                        print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
+                        nosub = None
+                if nosub is None:
+                    nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
+                                              fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+                    engine = "lama_fallback" if engine_note else "lama"
+            job["subtitle_engine"] = engine
+            if engine_note:
+                job["subtitle_engine_note"] = engine_note
         else:
             nosub = remove_subtitle(source, job_dir / "nosub.mp4", use_ocr=False)
+            job["subtitle_engine"] = "none"
 
         job["preview"] = f"/file/{jid}/nosub.mp4"
         job.update(status="analyzed", stage="분석 완료", progress=100)
@@ -353,7 +466,8 @@ def _transcribe_worker(jid: str):
 
         src = _source_for_job(jid)
         job.update(status="transcribing", stage="중국어 음성 인식/번역", progress=30, error=None)
-        result = transcribe_to_korean(src, model_size="small")
+        with GPU_SEM:  # whisper STT GPU 직렬화
+            result = transcribe_to_korean(src, model_size="small")
         ko = (result.get("ko_text") or "").strip()
         job["script"] = ko
         job["has_speech"] = len(ko) >= 4
@@ -384,6 +498,12 @@ def _render_worker(jid: str, req: RenderReq):
         nosub = job_dir / "nosub.mp4"
         base = nosub if nosub.exists() else _source_for_job(jid)
 
+        # [4] 얼굴 전체샷 컷 제거(opt-in). 인물 클로즈업 구간을 빼고 제품샷 위주로 재연결.
+        if req.face_cut:
+            from app.pipeline.face_cut import cut_face_segments
+            job.update(status="face_cut", stage="얼굴샷 컷 제거", progress=30)
+            base = cut_face_segments(base, job_dir / "facecut.mp4")
+
         dub = None
         stamps: list = []
         if req.script.strip():
@@ -395,6 +515,12 @@ def _render_worker(jid: str, req: RenderReq):
                 nickname=req.voice,
                 speaking_rate=req.speaking_rate,
             )
+            # Google TTS는 단어 타임스탬프를 안 줌([]) → 더빙 음성을 whisper로 재정렬해
+            # 자막 싱크 정확도 확보(없으면 caption이 글자수 균등분할로 폴백).
+            if not stamps and dub:
+                from app.pipeline.align import word_timestamps
+                with GPU_SEM:
+                    stamps = word_timestamps(dub, language="ko")
 
         job.update(status="composing", stage="영상 합성", progress=70)
         out = compose(

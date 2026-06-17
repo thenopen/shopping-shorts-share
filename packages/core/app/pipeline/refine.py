@@ -9,7 +9,6 @@ from app.config import BACKEND_ROOT
 
 GEMINI_KEY_PATH = BACKEND_ROOT / "auth" / "gemini_key.txt"
 MODEL = os.environ.get("GEMINI_REFINE_MODEL", "gemini-2.5-flash-lite")
-ANTIGRAVITY_AGENT = os.environ.get("ANTIGRAVITY_AGENT", "antigravity-preview-05-2026")
 
 REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대본입니다.
 쇼핑 숏츠에 어울리게 자연스러운 한국어 구어체 대본으로 다듬어 주세요.
@@ -22,27 +21,6 @@ REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대�
 - 결과 대본만 출력
 
 원본 대본:
-{script}
-"""
-
-AGENT_PROMPT = """너는 한국 쇼핑 숏츠 대본 편집자다.
-아래 한국어 대본을 검수하고, 자연스러운 숏츠 내레이션으로 다시 작성해라.
-
-목표:
-- 중국어 번역투 제거
-- 도입 1문장에 관심 유도
-- 제품 장점은 담백하게 유지
-- 원문에 없는 제품 속성, 효능, 가격, 할인, 수량, 성능 추가 금지
-- 강압적 구매 표현 금지
-- 20~45초 내레이션 길이에 맞게 압축
-
-출력 형식:
-1) 최종대본:
-<대본>
-2) notes:
-<짧은 수정 요약>
-
-대본:
 {script}
 """
 
@@ -73,30 +51,6 @@ def refine_script(script: str) -> str:
     except Exception as e:
         print(f"  [Gemini refine failed, keeping original: {str(e)[:120]}]")
         return script
-
-
-def antigravity_refine(script: str, mode: str = "shopping_shorts") -> dict:
-    script = (script or "").strip()
-    if not script:
-        return {"script": "", "notes": ""}
-    key = _api_key()
-    if not key:
-        raise RuntimeError("Gemini API key not found")
-
-    try:
-        from google import genai
-
-        client = genai.Client(api_key=key)
-        interaction = client.interactions.create(
-            agent=ANTIGRAVITY_AGENT,
-            input=AGENT_PROMPT.format(script=script),
-            environment="remote",
-        )
-        text = (interaction.output_text or "").strip()
-        refined, notes = _parse_agent_output(text)
-        return {"script": _safe_refined_output(script, refined or text or script), "notes": notes}
-    except Exception as e:
-        raise RuntimeError(f"Antigravity refine failed: {str(e)[:240]}") from e
 
 
 PRODUCT_SCRIPT_PROMPT = """너는 한국 쇼핑 숏츠 대본 작가다.
@@ -149,6 +103,53 @@ def product_script(video_content: str, selling_points: str) -> str:
         return video_content
 
 
+CAPTION_DIRECTIONS = {
+    "natural": "어색한 번역투를 자연스러운 한국어 구어체로 다듬어라. 원래 의미는 유지.",
+    "impact": "짧고 강한 후킹 문장으로 바꿔라. 첫 문장은 강한 관심유도, 군더더기 제거.",
+    "friendly": "친근한 구어체 톤으로 바꿔라(과하지 않게, 반말 살짝).",
+    "concise": "핵심만 남기고 압축해라. 불필요한 수식어·중복 제거.",
+}
+
+CAPTION_REWRITE_PROMPT = """너는 한국 쇼핑 숏츠 자막 편집자다.
+아래 자막 텍스트를 다음 방향으로 다시 써라.
+방향: {instruction}
+
+규칙:
+- 원문에 없는 제품 속성·효능·가격·할인·수량·성능을 지어내지 마라.
+- 강압적 구매 표현("무조건 사라" 등) 금지.
+- 쇼츠 자막이라 한 줄은 짧게(8자 안팎). 줄바꿈으로 구분.
+- 오직 자막 문장만 출력(설명·머리말·마크다운·콘티 금지).
+
+자막:
+{text}
+"""
+
+
+def rewrite_caption_text(text: str, direction: str = "natural") -> str:
+    """현재 자막 텍스트를 방향(natural/impact/friendly/concise)대로 Gemini 재작성.
+
+    키 없거나 실패 시 원문 그대로 반환(폴백). 결과는 줄바꿈 구분 내레이션.
+    """
+    text = (text or "").strip()
+    if not text:
+        return ""
+    instr = CAPTION_DIRECTIONS.get(direction, CAPTION_DIRECTIONS["natural"])
+    key = _api_key()
+    if not key:
+        return text
+    try:
+        from google import genai
+
+        client = genai.Client(api_key=key)
+        prompt = CAPTION_REWRITE_PROMPT.format(instruction=instr, text=text)
+        res = client.models.generate_content(model=MODEL, contents=prompt)
+        out = _narration_only((res.text or "").strip())
+        return out or text
+    except Exception as e:
+        print(f"  [caption rewrite failed, keeping original: {str(e)[:120]}]")
+        return text
+
+
 def _narration_only(text: str) -> str:
     """콘티 지시·마크다운·머리말 제거 → 순수 내레이션 줄만 남김."""
     import re
@@ -168,19 +169,6 @@ def _narration_only(text: str) -> str:
         if s:
             keep.append(s)
     return "\n".join(keep)
-
-
-def _parse_agent_output(text: str) -> tuple[str, str]:
-    if "최종대본:" not in text:
-        return text.strip(), ""
-    body = text.split("최종대본:", 1)[1].strip()
-    if "notes:" in body:
-        script, notes = body.split("notes:", 1)
-        return script.strip(), notes.strip()
-    if "2)" in body:
-        script, notes = body.split("2)", 1)
-        return script.strip(), notes.strip()
-    return body.strip(), ""
 
 
 def _safe_refined_output(source: str, refined: str) -> str:
