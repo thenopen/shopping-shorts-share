@@ -385,7 +385,11 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
 
         job.update(status="downloading", stage="영상 다운로드", progress=10, error=None)
         if "douyin" in url:
-            source = download_douyin(url, jid)
+            # diag 리스트를 먼저 job에 걸어두면 다운로드가 실패(raise)해도
+            # 그때까지 수집된 후보/트랙 진단이 job에 남아 웹 F12 콘솔에 표시됨.
+            douyin_diag: list = []
+            job["douyin_diag"] = douyin_diag
+            source = download_douyin(url, jid, diag=douyin_diag)
         else:
             source = download_video(url, jid)
         job["meta"]["source"] = str(source)

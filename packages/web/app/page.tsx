@@ -70,6 +70,7 @@ type JobState = {
   error: string | null;
   subtitle_engine?: string | null;       // "propainter" | "lama" | "lama_fallback" | "none"
   subtitle_engine_note?: string | null;  // 폴백 사유 등
+  douyin_diag?: string[] | null;         // 도우인 다운로드 미디어 후보/트랙 진단(F12 콘솔용)
 };
 
 export default function Home() {
@@ -252,6 +253,7 @@ export default function Home() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loggedEngineRef = useRef<string | null>(null);  // 자막제거 엔진 콘솔 1회 기록용
+  const loggedDouyinRef = useRef(false);                // 도우인 다운로드 진단 콘솔 1회 기록용
 
   function stopPoll() {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -296,6 +298,19 @@ export default function Home() {
               (j.subtitle_engine_note ? ` | 사유: ${j.subtitle_engine_note}` : "")
           );
         }
+        // 도우인 다운로드 미디어 후보/트랙 진단을 브라우저 콘솔에 1회 기록.
+        // diag는 다운로드 중 점진적으로 쌓이므로(요약 → 후보별 ffprobe 결과 순),
+        // 다운로드 단계가 끝난 뒤(status가 downloading/queued를 벗어남) 찍어야 전체가 나옴.
+        if (
+          j.douyin_diag && j.douyin_diag.length &&
+          j.status !== "queued" && j.status !== "downloading" &&
+          !loggedDouyinRef.current
+        ) {
+          loggedDouyinRef.current = true;
+          console.log(
+            "[Douyin 다운로드 진단] 캡처된 미디어 후보 ↓\n" + j.douyin_diag.join("\n")
+          );
+        }
         // 서버 대본은 사용자가 아직 안 건드렸을 때만 채움(타이핑 덮어쓰기 방지).
         if (j.script && !scriptDirtyRef.current) {
           setScript(j.script);
@@ -325,6 +340,7 @@ export default function Home() {
     setBusy(true);
     setJob(null);
     loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
+    loggedDouyinRef.current = false;  // 새 분석 → 도우인 진단 다시 찍히게
     try {
       const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim(), subtitle_backend: subtitleBackend });
       if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
