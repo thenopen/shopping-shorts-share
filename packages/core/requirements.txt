@@ -7,6 +7,7 @@ python-multipart==0.0.20
 # Download/browser
 yt-dlp==2025.1.15
 playwright==1.57.0
+playwright-stealth>=2.0.0          # product_scrape.py: Stealth() 클래스 API(2.x 필요)
 
 # AI APIs
 google-genai>=1.0.0
@@ -19,6 +20,9 @@ opencv-python==4.10.0.84
 easyocr==1.7.2
 faster-whisper==1.1.0
 deep-translator==1.11.4
+
+# 자막제거 LaMa 인페인팅(subtitle_inpaint.py) — torch 의존이라 --no-deps로 설치(GPU torch 보존)
+#   pip install --no-deps simple-lama-inpainting
 
 # ProPainter(비디오 자막제거, 시간축 복원) — torch 건드리지 말 것!
 #   pip install --no-deps timm addict matplotlib
