@@ -77,7 +77,7 @@ def _extract_frames(video_path: Path, frames_dir: Path) -> tuple[int, int, float
 
 def inpaint_with_propainter(video_path, out_path, segments, fps: float = 30.0,
                             resize_ratio: float = 0.5, subvideo_length: int = 40,
-                            progress_cb=None) -> Path:
+                            neighbor_length: int = 10, progress_cb=None) -> Path:
     """ProPainter로 자막 제거. 성공 시 out_path 반환, 실패 시 예외(호출측 LaMa 폴백)."""
     if not ensure_propainter():
         raise RuntimeError("ProPainter 셋업 실패(clone/패치)")
@@ -109,6 +109,7 @@ def inpaint_with_propainter(video_path, out_path, segments, fps: float = 30.0,
             "--fp16",
             "--resize_ratio", str(resize_ratio),
             "--subvideo_length", str(subvideo_length),
+            "--neighbor_length", str(neighbor_length),
             "--save_frames",
             "--mask_dilation", "4",
         ]
@@ -128,7 +129,17 @@ def inpaint_with_propainter(video_path, out_path, segments, fps: float = 30.0,
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps) -> int:
+def _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps,
+                          mask_mode="stroke", box_pad=6,
+                          stroke_dilate=6, bright_thresh=190, dark_thresh=90) -> int:
+    """프레임별 자막 마스크 PNG 생성.
+
+    mask_mode="stroke": 박스 안 글자 획만(주변 보존). ProPainter용으로 외곽선을 더
+                        잡도록 기본값을 완화(dark≤90/bright≥190, dilate 6).
+    mask_mode="box"   : 박스 전체(+box_pad 여백) 채움. 큰 마스크여도 ProPainter는
+                        안 뭉개나 움직이는 피사체 위에선 재구성 번짐 가능.
+    stroke_dilate/bright_thresh/dark_thresh: stroke 모드 마스크 민감도 튜닝.
+    """
     masks_dir.mkdir(parents=True, exist_ok=True)
     frame_files = sorted(frames_dir.glob("*.png"))
     n_with_mask = 0
@@ -140,7 +151,15 @@ def _build_masks_with_fps(frames_dir, masks_dir, segments, W, H, fps) -> int:
         for seg in segments:
             if seg["start"] - 0.3 <= t <= seg["end"] + 0.3:
                 x, y, w, h = _to_xywh(seg["box"])
-                res = _stroke_mask_in_box(frame, x, y, w, h)
+                if mask_mode == "box":
+                    x0, y0 = max(0, x - box_pad), max(0, y - box_pad)
+                    x1, y1 = min(W, x + w + box_pad), min(H, y + h + box_pad)
+                    if x1 > x0 and y1 > y0:
+                        mask[y0:y1, x0:x1] = 255
+                        any_box = True
+                    continue
+                res = _stroke_mask_in_box(frame, x, y, w, h, dilate=stroke_dilate,
+                                          bright_thresh=bright_thresh, dark_thresh=dark_thresh)
                 if res:
                     x0, y0, m = res
                     sub = mask[y0:y0 + m.shape[0], x0:x0 + m.shape[1]]

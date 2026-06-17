@@ -32,6 +32,11 @@ class CaptionStyle:
     outline_color: str = "000000"   # 테두리색
     outline_width: int = 3
     shadow: int = 2                 # 그림자 깊이 (0=없음)
+    shadow_color: str = "000000"    # 그림자색 (ASS BackColour로 매핑)
+    shadow_blur: int = 0            # 그림자 흐림(px) — >0이면 메인 뒤 블러 레이어로 근사
+    glow: bool = False              # 글로우(빛번짐) on/off — 메인 뒤 블러 외곽 레이어
+    glow_color: str = "FFE600"      # 글로우색
+    glow_size: int = 0             # 글로우 크기(px ≈ \bord·\blur)
     italic: bool = False
     gradient: tuple | None = None   # (top_color, bottom_color) — None이면 단색
     bold: bool = True
@@ -74,6 +79,11 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         outline_color=hx(d.get("outlineColor"), b.outline_color),
         outline_width=int(d.get("outlineWidth", b.outline_width)),
         shadow=2 if d.get("shadow", b.shadow > 0) else 0,
+        shadow_color=hx(d.get("shadowColor"), b.shadow_color),
+        shadow_blur=int(d.get("shadowBlur", b.shadow_blur)),
+        glow=bool(d.get("glow", b.glow)),
+        glow_color=hx(d.get("glowColor"), b.glow_color),
+        glow_size=int(d.get("glowSize", b.glow_size)),
         italic=bool(d.get("italic", b.italic)),
         bold=bool(d.get("bold", b.bold)),
         box=bool(d.get("box", b.box)),
@@ -138,6 +148,11 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "outlineColor": "#" + st.outline_color,
         "outlineWidth": st.outline_width,
         "shadow": st.shadow > 0,
+        "shadowColor": "#" + st.shadow_color,
+        "shadowBlur": st.shadow_blur,
+        "glow": st.glow,
+        "glowColor": "#" + st.glow_color,
+        "glowSize": st.glow_size,
         "italic": st.italic,
         "bold": st.bold,
         "box": st.box,
@@ -271,6 +286,16 @@ def _hex_to_ass(color: str, alpha: int = 0) -> str:
     return f"&H{alpha:02X}{b}{g}{r}".upper()
 
 
+def _ass_c(color: str) -> str:
+    """#RRGGBB → ASS 색 오버라이드 토큰 &HBBGGRR& (alpha 별도, \\1c·\\3c 용)."""
+    h = (color or "FFFFFF").lstrip("#").upper()
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    if len(h) != 6:
+        h = "FFFFFF"
+    return f"&H{h[4:6]}{h[2:4]}{h[0:2]}&"
+
+
 def _ass_time(t: float) -> str:
     """초 → ASS 타임 H:MM:SS.cc."""
     t = max(0.0, t)
@@ -293,6 +318,11 @@ def _style_sig(st) -> tuple:
         getattr(st, "outline", True),
         getattr(st, "outline_width", 3),
         getattr(st, "shadow", 2),
+        getattr(st, "shadow_color", "000000"),
+        getattr(st, "shadow_blur", 0),
+        getattr(st, "glow", False),
+        getattr(st, "glow_color", "FFE600"),
+        getattr(st, "glow_size", 0),
         getattr(st, "bold", True),
         getattr(st, "italic", False),
         getattr(st, "box", False),
@@ -310,7 +340,11 @@ def _style_row(name: str, st, margin_v: int) -> str:
     box = getattr(st, "box", False)
     box_color = getattr(st, "box_color", "000000")
     box_alpha = int(round((1 - float(getattr(st, "box_opacity", 0.5))) * 255))
-    back = _hex_to_ass(box_color, box_alpha) if box else _hex_to_ass("000000", 100)
+    # 박스면 BackColour=박스배경색. 비박스면 BackColour=그림자색(불투명) → 하드 드롭섀도 색 반영.
+    if box:
+        back = _hex_to_ass(box_color, box_alpha)
+    else:
+        back = _hex_to_ass(getattr(st, "shadow_color", "000000"), 0)
     border_style = 3 if box else 1
     bold = -1 if getattr(st, "bold", True) else 0
     italic = -1 if getattr(st, "italic", False) else 0
@@ -379,11 +413,26 @@ Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
 """
     dialog = []
     for i, ln in enumerate(lines):
+        st = getattr(ln, "style", None) or CaptionStyle()
         text = (ln.text or "").replace("\n", "\\N")
         sname = line_style_name[i] if i < len(line_style_name) else "S0"
-        dialog.append(
-            f"Dialogue: 0,{_ass_time(ln.start)},{_ass_time(ln.end)},{sname},,0,0,0,,{text}"
-        )
+        start, end = _ass_time(ln.start), _ass_time(ln.end)
+        # 글로우/소프트섀도는 '메인 텍스트 뒤'(낮은 Layer)에 별도 블러 이벤트로 깐다.
+        # → 메인 텍스트 글리프 자체는 선명 유지(웹 편집기와 동일한 룩).
+        if getattr(st, "glow", False) and int(getattr(st, "glow_size", 0)) > 0:
+            g = int(st.glow_size)
+            # 채움 투명(\1a&HFF&) + 두꺼운 외곽선(글로우색) + 블러 → 빛번짐 후광.
+            gtag = (f"{{\\1a&HFF&\\3a&H00&\\4a&HFF&\\3c{_ass_c(st.glow_color)}"
+                    f"\\bord{g}\\shad0\\blur{max(g, 2)}}}")
+            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{gtag}{text}")
+        if int(getattr(st, "shadow", 0)) and int(getattr(st, "shadow_blur", 0)) > 0:
+            sb = int(st.shadow_blur)
+            # 외곽선/그림자 끄고 채움=그림자색 + 블러 → 부드러운 색 그림자 후광(근사).
+            stag = (f"{{\\bord0\\shad0\\3a&HFF&\\4a&HFF&"
+                    f"\\1c{_ass_c(st.shadow_color)}\\blur{sb}}}")
+            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{stag}{text}")
+        # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
+        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{text}")
     out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
     return out_ass
 

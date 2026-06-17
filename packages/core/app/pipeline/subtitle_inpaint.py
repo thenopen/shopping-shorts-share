@@ -86,13 +86,16 @@ def _to_xywh(box):
     return int(x), int(y), int(w), int(h)
 
 
-def _stroke_mask_in_box(frame, x, y, w, h, dilate=4):
+def _stroke_mask_in_box(frame, x, y, w, h, dilate=4, bright_thresh=200, dark_thresh=55):
     """박스 안에서 '글자 획'만 마스킹(박스 전체 X).
 
     자막/워터마크 글자는 보통 흰색(밝음)+검은 외곽선. 박스영역을 grayscale로
     보고 매우 밝거나 매우 어두운 픽셀(=글자/외곽선)만 골라 마스크.
     박스 전체를 inpaint하면 LaMa가 큰 영역을 뭉개 뿌옇게 됨 → 획만 좁게 덮어
     주변 원본 디테일 보존(선명).
+    bright_thresh/dark_thresh: 밝은 글자(≥bright)·어두운 외곽선(≤dark) 임계.
+      기본 200/55는 LaMa용 보수값(밴드 넓히면 LaMa가 뭉갬). ProPainter는 큰
+      마스크도 안 뭉개므로 dark를 90~110까지 올려 외곽선 잔선을 더 잡아도 됨.
     반환: (H,W) uint8 마스크의 해당 박스 부분에 255 채워진 것 일부.
     """
     H, W = frame.shape[:2]
@@ -102,10 +105,8 @@ def _stroke_mask_in_box(frame, x, y, w, h, dilate=4):
         return None
     roi = frame[y0:y1, x0:x1]
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    # 밝은 글자(흰자막) + 어두운 외곽선/그림자만. 밴드 너무 넓히면 배경/상품까지 잡혀
-    # lama가 크게 뭉갬('운다') → 글자 핵심 톤만(200/55).
-    bright = gray >= 200
-    dark = gray <= 55
+    bright = gray >= bright_thresh
+    dark = gray <= dark_thresh
     m = np.zeros(gray.shape, dtype=np.uint8)
     m[bright | dark] = 255
     # 외곽선 가장자리만 살짝(잔상 제거). dilate 작게 — 과제거 방지.
@@ -145,79 +146,85 @@ def inpaint_subtitles(video_path, out_path, segments, fixed_boxes=None,
     work.mkdir(exist_ok=True)
     model = _get_model()
 
-    idx = 0
-    last_report = -1
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        t = idx / fps
-        boxes = [_to_xywh(b) for b in _seg_at(segments, t)]
-        boxes += [_to_xywh(b) for b in fixed_boxes]  # 고정 UI는 전 프레임
-        if boxes:
-            mask = np.zeros((H, W), dtype=np.uint8)
-            for (x, y, w, h) in boxes:
-                if stroke_only:
-                    sm = _stroke_mask_in_box(frame, x, y, w, h)
-                    if sm is not None:
-                        ox, oy, m = sm
-                        mh, mw = m.shape
-                        # 획이 충분히 잡혔으면 획만, 거의 없으면(빈 박스) 전체 폴백
-                        if int(m.sum()) > 255 * 8:
-                            mask[oy:oy + mh, ox:ox + mw] = np.maximum(
-                                mask[oy:oy + mh, ox:ox + mw], m)
-                        else:
-                            mask[y:y + h, x:x + w] = 255
-                else:
-                    mask[y:y + h, x:x + w] = 255
-            # 마스크에 칠해진 게 있을 때만 LaMa 호출(빈 박스면 원본 그대로 = 선명).
-            if int(mask.sum()) > 0:
-                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                msk = Image.fromarray(mask).convert("L")
-                res = model(img, msk)
-                frame = cv2.cvtColor(np.array(res), cv2.COLOR_RGB2BGR)
-        _imwrite_unicode(work / ("f_%06d.png" % idx), frame)
-        idx += 1
-        if progress_cb and total > 0:
-            pct = int(idx * 100 / total)
-            if pct != last_report:
-                last_report = pct
-                progress_cb(idx / total)
-    cap.release()
-
-    if idx == 0:
-        raise RuntimeError(
-            f"인페인팅 프레임 추출 실패 — OpenCV가 {video_path} 에서 프레임을 0개 읽음"
-        )
-
-    fps_safe = fps if fps and fps > 0 else 30
-    ffmpeg_exe = _resolve_ffmpeg()
-    # 한글 경로가 subprocess argv에서 surrogate로 깨져 ffmpeg가 파일 못찾는 문제.
-    # 8.3 short path는 짧은 한글이름엔 안 먹음 → cwd=work + 상대경로로 한글 부모를
-    # argv에서 완전 제거. frame=현재폴더, source/out=상위폴더(../).
     import os
-    work_abs = work.resolve()
-    frames_pat = "f_%06d.png"                       # cwd 기준
-    src_rel = os.path.relpath(video_path.resolve(), work_abs)   # ../source.mp4
-    out_rel = os.path.relpath(out_path.resolve(), work_abs)     # ../nosub.mp4
-    # 오디오: HE-AACv2 등 copy 실패 대비 aac 재인코딩(호환성↑). 음질 손실 미미.
-    cmd = [ffmpeg_exe, "-hide_banner", "-y", "-framerate", str(fps_safe),
-           "-i", frames_pat, "-i", src_rel,
-           "-map", "0:v:0", "-map", "1:a:0?",
-           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
-           "-c:a", "aac", "-b:a", "128k", "-shortest", out_rel]
-    frame_files = sorted(work_abs.glob("f_*.png"))
-    proc = subprocess.run(cmd, cwd=str(work_abs), capture_output=True,
-                          text=True, errors="replace")
-    if proc.returncode != 0:
-        err = (proc.stderr or "")
-        raise RuntimeError(
-            f"ffmpeg 재조립 실패(code {proc.returncode})\n"
-            f"CWD: {work_abs}\nFRAMES: {len(frame_files)} (first={frame_files[0].name if frame_files else 'NONE'})\n"
-            f"CMD: {' '.join(cmd)}\n"
-            f"STDERR(full):\n{err}"
-        )
-
     import shutil
-    shutil.rmtree(work, ignore_errors=True)
-    return out_path
+    try:
+        idx = 0
+        last_report = -1
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            t = idx / fps
+            boxes = [_to_xywh(b) for b in _seg_at(segments, t)]
+            boxes += [_to_xywh(b) for b in fixed_boxes]  # 고정 UI는 전 프레임
+            if boxes:
+                mask = np.zeros((H, W), dtype=np.uint8)
+                for (x, y, w, h) in boxes:
+                    if stroke_only:
+                        sm = _stroke_mask_in_box(frame, x, y, w, h)
+                        if sm is not None:
+                            ox, oy, m = sm
+                            mh, mw = m.shape
+                            # 획이 충분히 잡혔으면 획만, 거의 없으면(빈 박스) 전체 폴백
+                            if int(m.sum()) > 255 * 8:
+                                mask[oy:oy + mh, ox:ox + mw] = np.maximum(
+                                    mask[oy:oy + mh, ox:ox + mw], m)
+                            else:
+                                mask[y:y + h, x:x + w] = 255
+                    else:
+                        mask[y:y + h, x:x + w] = 255
+                # 마스크에 칠해진 게 있을 때만 LaMa 호출(빈 박스면 원본 그대로 = 선명).
+                if int(mask.sum()) > 0:
+                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    msk = Image.fromarray(mask).convert("L")
+                    res = model(img, msk)
+                    frame = cv2.cvtColor(np.array(res), cv2.COLOR_RGB2BGR)
+            _imwrite_unicode(work / ("f_%06d.png" % idx), frame)
+            idx += 1
+            if progress_cb and total > 0:
+                pct = int(idx * 100 / total)
+                if pct != last_report:
+                    last_report = pct
+                    progress_cb(idx / total)
+        cap.release()
+
+        if idx == 0:
+            raise RuntimeError(
+                f"인페인팅 프레임 추출 실패 — OpenCV가 {video_path} 에서 프레임을 0개 읽음"
+            )
+
+        fps_safe = fps if fps and fps > 0 else 30
+        ffmpeg_exe = _resolve_ffmpeg()
+        # 한글 경로가 subprocess argv에서 surrogate로 깨져 ffmpeg가 파일 못찾는 문제.
+        # 8.3 short path는 짧은 한글이름엔 안 먹음 → cwd=work + 상대경로로 한글 부모를
+        # argv에서 완전 제거. frame=현재폴더, source/out=상위폴더(../).
+        work_abs = work.resolve()
+        frames_pat = "f_%06d.png"                       # cwd 기준
+        src_rel = os.path.relpath(video_path.resolve(), work_abs)   # ../source.mp4
+        out_rel = os.path.relpath(out_path.resolve(), work_abs)     # ../nosub.mp4
+        # 오디오: HE-AACv2 등 copy 실패 대비 aac 재인코딩(호환성↑). 음질 손실 미미.
+        cmd = [ffmpeg_exe, "-hide_banner", "-y", "-framerate", str(fps_safe),
+               "-i", frames_pat, "-i", src_rel,
+               "-map", "0:v:0", "-map", "1:a:0?",
+               "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
+               "-c:a", "aac", "-b:a", "128k", "-shortest", out_rel]
+        frame_files = sorted(work_abs.glob("f_*.png"))
+        proc = subprocess.run(cmd, cwd=str(work_abs), capture_output=True,
+                              text=True, errors="replace")
+        if proc.returncode != 0:
+            err = (proc.stderr or "")
+            raise RuntimeError(
+                f"ffmpeg 재조립 실패(code {proc.returncode})\n"
+                f"CWD: {work_abs}\nFRAMES: {len(frame_files)} (first={frame_files[0].name if frame_files else 'NONE'})\n"
+                f"CMD: {' '.join(cmd)}\n"
+                f"STDERR(full):\n{err}"
+            )
+        return out_path
+    finally:
+        # 성공/실패 무관하게 임시 프레임 폴더·캡처 정리(디스크 누수 방지).
+        try:
+            cap.release()
+        except Exception:
+            pass
+        shutil.rmtree(work, ignore_errors=True)

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import threading
+import time
 import uuid
 
 from fastapi import FastAPI, HTTPException
@@ -24,6 +27,14 @@ app.add_middleware(
 
 JOBS: dict[str, dict] = {}
 
+# GPU 작업(자막 인페인트·whisper STT/정렬) 직렬화 — 동시 실행 시 8GB VRAM OOM 방지.
+# HTTP 응답은 워커 스레드가 즉시 반환하고, GPU 구간만 이 세마포어로 한 번에 하나씩.
+GPU_SEM = threading.Semaphore(1)
+
+# 메모리(JOBS)·디스크(workdir) 무한 증가 방지용 TTL. 영속화는 아니며 정리만.
+_DONE_TTL = 6 * 3600       # 완료/오류 job: 6시간 후 정리
+_HARD_TTL = 24 * 3600      # 모든 job: 24시간 후 강제 정리(작업중 보호 상한)
+
 CTA_TEXT = {
     "comment": "제품 정보는 고정 댓글에서 확인하세요!",
     "profile": "구매처는 프로필 링크에 있어요.",
@@ -31,7 +42,19 @@ CTA_TEXT = {
 }
 
 
+def _prune_jobs() -> None:
+    """오래된 job을 JOBS·workdir에서 정리. _new_job마다 기회주의적 호출."""
+    now = time.time()
+    for jid in list(JOBS.keys()):
+        j = JOBS.get(jid) or {}
+        age = now - j.get("created", now)
+        if (j.get("status") in ("done", "error") and age > _DONE_TTL) or age > _HARD_TTL:
+            JOBS.pop(jid, None)
+            shutil.rmtree(WORKDIR / jid, ignore_errors=True)
+
+
 def _new_job() -> str:
+    _prune_jobs()
     jid = uuid.uuid4().hex[:8]
     JOBS[jid] = {
         "id": jid,
@@ -43,6 +66,7 @@ def _new_job() -> str:
         "output": None,
         "error": None,
         "has_speech": None,
+        "created": time.time(),
         "meta": {},
     }
     return jid
@@ -77,6 +101,7 @@ class RenderReq(BaseModel):
     captions: bool = True            # TTS 대본 자동자막 on/off
     caption_style: dict | None = None  # 웹 CaptionStyle (font/size/color/...) — 기본 스타일
     caption_lines: list | None = None  # 타임라인 편집기서 수정한 줄들(있으면 자동생성 대신 이걸 burn)
+    face_cut: bool = False           # 얼굴 전체샷 구간 자동 컷 제거(opt-in, 기본 off)
 
 
 class CaptionPreviewReq(BaseModel):
@@ -163,6 +188,11 @@ def captions_preview(req: CaptionPreviewReq):
         _dub, stamps = synthesize_by_nickname(
             req.script, dub, nickname=req.voice, speaking_rate=req.speaking_rate,
         )
+        # 프리뷰도 렌더와 동일하게: 타임스탬프 없으면 whisper 재정렬(싱크 일치).
+        if not stamps and _dub:
+            from app.pipeline.align import word_timestamps
+            with GPU_SEM:
+                stamps = word_timestamps(_dub, language="ko")
         style = style_from_dict(req.caption_style)
         total = _probe_dur(_dub)
         lines = build_lines_from_tts(stamps, style, total_dur=total, full_text=req.script)
@@ -258,9 +288,22 @@ def get_job(jid: str):
     return JOBS[jid]
 
 
+_SAFE_SEG = re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+
 @app.get("/file/{jid}/{name}")
 def get_file(jid: str, name: str):
-    f = WORKDIR / jid / name
+    # Path traversal 가드: 세그먼트 화이트리스트 + workdir 밖 탈출 차단.
+    if not (_SAFE_SEG.match(jid) and _SAFE_SEG.match(name)) or ".." in jid or ".." in name:
+        raise HTTPException(403, "invalid path")
+    base = WORKDIR.resolve()
+    f = (base / jid / name).resolve()
+    try:
+        inside = f.is_relative_to(base)
+    except AttributeError:  # py<3.9 안전망(런타임은 3.12)
+        inside = str(f).startswith(str(base))
+    if not inside:
+        raise HTTPException(403, "forbidden")
     if not f.exists():
         raise HTTPException(404, "file not found")
     return FileResponse(str(f))
@@ -324,24 +367,26 @@ def _analyze_worker(jid: str, raw_url: str):
             nosub = None
             engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
             engine_note = ""       # 폴백 사유 등
-            # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
-            # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
-            if segments and os.environ.get("PROPAINTER", "1") != "0":
-                try:
-                    from app.pipeline.propainter_inpaint import inpaint_with_propainter
-                    job.update(stage="자막 제거 (AI 배경복원)", progress=45)
-                    nosub = inpaint_with_propainter(
-                        source, job_dir / "nosub.mp4", segments, progress_cb=_ip_prog)
-                    engine = "propainter"
-                    print("  [ProPainter 자막제거 성공]")
-                except Exception as pe:
-                    engine_note = str(pe)[:200]
-                    print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
-                    nosub = None
-            if nosub is None:
-                nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
-                                          fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
-                engine = "lama_fallback" if engine_note else "lama"
+            # GPU 인페인트는 한 번에 하나만(동시 작업 시 8GB VRAM OOM 방지).
+            with GPU_SEM:
+                # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
+                # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
+                if segments and os.environ.get("PROPAINTER", "1") != "0":
+                    try:
+                        from app.pipeline.propainter_inpaint import inpaint_with_propainter
+                        job.update(stage="자막 제거 (AI 배경복원)", progress=45)
+                        nosub = inpaint_with_propainter(
+                            source, job_dir / "nosub.mp4", segments, progress_cb=_ip_prog)
+                        engine = "propainter"
+                        print("  [ProPainter 자막제거 성공]")
+                    except Exception as pe:
+                        engine_note = str(pe)[:200]
+                        print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
+                        nosub = None
+                if nosub is None:
+                    nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
+                                              fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+                    engine = "lama_fallback" if engine_note else "lama"
             job["subtitle_engine"] = engine
             if engine_note:
                 job["subtitle_engine_note"] = engine_note
@@ -362,7 +407,8 @@ def _transcribe_worker(jid: str):
 
         src = _source_for_job(jid)
         job.update(status="transcribing", stage="중국어 음성 인식/번역", progress=30, error=None)
-        result = transcribe_to_korean(src, model_size="small")
+        with GPU_SEM:  # whisper STT GPU 직렬화
+            result = transcribe_to_korean(src, model_size="small")
         ko = (result.get("ko_text") or "").strip()
         job["script"] = ko
         job["has_speech"] = len(ko) >= 4
@@ -393,6 +439,12 @@ def _render_worker(jid: str, req: RenderReq):
         nosub = job_dir / "nosub.mp4"
         base = nosub if nosub.exists() else _source_for_job(jid)
 
+        # [4] 얼굴 전체샷 컷 제거(opt-in). 인물 클로즈업 구간을 빼고 제품샷 위주로 재연결.
+        if req.face_cut:
+            from app.pipeline.face_cut import cut_face_segments
+            job.update(status="face_cut", stage="얼굴샷 컷 제거", progress=30)
+            base = cut_face_segments(base, job_dir / "facecut.mp4")
+
         dub = None
         stamps: list = []
         if req.script.strip():
@@ -404,6 +456,12 @@ def _render_worker(jid: str, req: RenderReq):
                 nickname=req.voice,
                 speaking_rate=req.speaking_rate,
             )
+            # Google TTS는 단어 타임스탬프를 안 줌([]) → 더빙 음성을 whisper로 재정렬해
+            # 자막 싱크 정확도 확보(없으면 caption이 글자수 균등분할로 폴백).
+            if not stamps and dub:
+                from app.pipeline.align import word_timestamps
+                with GPU_SEM:
+                    stamps = word_timestamps(dub, language="ko")
 
         job.update(status="composing", stage="영상 합성", progress=70)
         out = compose(

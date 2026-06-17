@@ -39,7 +39,7 @@ CTA_TEXT = {
 
 
 def run(url, script=None, voice="소담", rate=None, cta="profile",
-        remove_sub=True, sub_mode="bar",
+        remove_sub=True, sub_mode="bar", face_cut_on=False,
         cookiefile=None, cookies_from_browser=None):
     # 공유 텍스트 통째로 들어와도 URL만 뽑아냄
     from app.url_extract import extract_url
@@ -88,11 +88,12 @@ def run(url, script=None, voice="소담", rate=None, cta="profile",
             fixed = fixed_overlay_boxes(_w, _h, platform=platform)
         cur = inpaint_subtitles(cur, job / "nosub.mp4", segs, fixed_boxes=fixed)
 
-    # [4] 얼굴 컷 제거 (Phase 2)
-    try:
+    # [4] 얼굴 전체샷 컷 제거 (opt-in: --face-cut)
+    if face_cut_on:
+        print("[4/9] face_cut (얼굴 전체샷 제거)...")
         cur = face_cut.cut_face_segments(cur, job / "facecut.mp4")
-    except NotImplementedError:
-        print("[4/9] face_cut [SKIP] Phase 2")
+    else:
+        print("[4/9] face_cut [SKIP] (--face-cut 로 활성화)")
 
     # [5] TTS 더빙
     dub = None
@@ -144,6 +145,8 @@ def main():
     p.add_argument("--cta", default="profile", choices=["comment", "profile", "link"])
     p.add_argument("--no-remove-sub", action="store_true")
     p.add_argument("--sub-mode", default="bar", choices=["bar", "blur"])
+    p.add_argument("--face-cut", action="store_true",
+                   help="얼굴 전체샷 구간 자동 컷 제거")
     # 도우인 쿠키 (둘 중 하나). cookiefile 권장 — 브라우저 안 닫아도 됨.
     p.add_argument("--cookiefile", default=None,
                    help="cookies.txt 경로 (도우인용, 브라우저 안 닫아도 됨)")
@@ -157,7 +160,7 @@ def main():
         script = Path(a.script_file).read_text(encoding="utf-8")
 
     run(a.url, script, voice=a.voice, rate=a.rate, cta=a.cta,
-        remove_sub=not a.no_remove_sub, sub_mode=a.sub_mode,
+        remove_sub=not a.no_remove_sub, sub_mode=a.sub_mode, face_cut_on=a.face_cut,
         cookiefile=a.cookiefile, cookies_from_browser=a.cookies_from_browser)
 
 

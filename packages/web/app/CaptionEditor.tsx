@@ -280,8 +280,17 @@ export default function CaptionEditor({
             <Row label={`박스 상하 여백 ${value.boxPadY}px`}>
               <input type="range" min={0} max={48} value={value.boxPadY} onChange={(e) => set("boxPadY", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
             </Row>
-            <Row label={`박스 둥글기 ${value.boxRadius}px`}>
-              <input type="range" min={0} max={40} value={value.boxRadius} onChange={(e) => set("boxRadius", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+            <Row label={`박스 둥글기 ${value.boxRadius}px · 미리보기 전용(영상 미반영)`}>
+              <input
+                type="range"
+                min={0}
+                max={40}
+                value={value.boxRadius}
+                disabled
+                title="libass(최종 영상 자막)는 둥근 모서리를 지원하지 않아 결과 영상엔 반영되지 않습니다. 웹 미리보기 전용입니다."
+                onChange={(e) => set("boxRadius", +e.target.value)}
+                className="w-full cursor-not-allowed accent-[var(--accent-deep)] opacity-40"
+              />
             </Row>
           </>
         )}

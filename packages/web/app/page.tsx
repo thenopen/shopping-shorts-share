@@ -45,6 +45,19 @@ function apiBase() {
   return "";
 }
 
+async function postJSON<T = any>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${apiBase()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const msg = await r.text().catch(() => "");
+    throw new Error(msg || `요청 실패 (HTTP ${r.status})`);
+  }
+  return r.json();
+}
+
 type JobState = {
   id: string;
   status: string;
@@ -64,6 +77,7 @@ export default function Home() {
   const [voice, setVoice] = useState("소담");
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [captionsOn, setCaptionsOn] = useState(true);
+  const [faceCutOn, setFaceCutOn] = useState(false);  // 얼굴 전체샷 컷 제거(opt-in)
   // 타임라인 편집기서 만든/수정한 자막 줄들. 비어있으면 render때 서버가 자동생성.
   const [captionLines, setCaptionLines] = useState<CaptionLineData[]>([]);
   const [capBusy, setCapBusy] = useState(false);
@@ -87,6 +101,8 @@ export default function Home() {
       }
     } catch {}
   }, []);
+  // 언마운트 시 폴링 인터벌 정리(메모리 누수/유령 폴링 방지).
+  useEffect(() => stopPoll, []);
   function persistCtas(list: string[]) {
     setCtaList(list);
     try { localStorage.setItem(CTA_STORAGE_KEY, JSON.stringify(list)); } catch {}
@@ -121,12 +137,7 @@ export default function Home() {
     if (!script.trim() || ttsBusy) return;  // 분석 전이어도 대본만 있으면 들어보기 가능
     setTtsBusy(true);
     try {
-      const r = await fetch(`${apiBase()}/tts/preview`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job?.id ?? "", script, voice, speaking_rate: rate }),
-      });
-      const d = await r.json();
+      const d = await postJSON<{ audio?: string }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate });
       if (d.audio) {
         const u = `${apiBase()}${d.audio}?t=${renderSeq}-${voice}`;
         setTtsUrl(u);
@@ -179,17 +190,12 @@ export default function Home() {
     setProductBusy(true);
     setProductErr("");
     try {
-      const r = await fetch(`${apiBase()}/script/product`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_url: productUrl.trim(),
-          product_images: productImages,
-          video_content: script, // 현재 대본/영상내용과 결합
-          combine: true,
-        }),
+      const d = await postJSON<any>("/script/product", {
+        product_url: productUrl.trim(),
+        product_images: productImages,
+        video_content: script, // 현재 대본/영상내용과 결합
+        combine: true,
       });
-      const d = await r.json();
       if (d.error) {
         setProductErr(d.error);
         if (d.selling_points) setSellingPoints(d.selling_points);
@@ -197,8 +203,8 @@ export default function Home() {
         setSellingPoints(d.selling_points || "");
         if (d.script) commitScript(d.script);
       }
-    } catch {
-      setProductErr("대본 생성 실패. 서버 상태를 확인하세요.");
+    } catch (e) {
+      setProductErr(e instanceof Error && e.message ? e.message : "대본 생성 실패. 서버 상태를 확인하세요.");
     } finally {
       setProductBusy(false);
     }
@@ -252,10 +258,27 @@ export default function Home() {
   }
 
   function pollJob(id: string, stopStatuses: string[], done?: (j: JobState) => void) {
+    if (!id) {
+      stopPoll();
+      setBusy(false); setScriptBusy(false);
+      alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요.");
+      return;
+    }
     stopPoll();
+    let fails = 0;
     pollRef.current = setInterval(async () => {
       try {
         const r = await fetch(`${apiBase()}/jobs/${id}`);
+        if (!r.ok) {
+          if (r.status === 404) {
+            stopPoll();
+            setBusy(false); setScriptBusy(false);
+            alert("작업을 찾을 수 없습니다. 서버가 재시작되었을 수 있습니다.");
+            return;
+          }
+          throw new Error(`HTTP ${r.status}`);
+        }
+        fails = 0;
         const j: JobState = await r.json();
         setJob(j);
         // 자막제거에 실제로 쓰인 엔진을 브라우저 콘솔에 1회 기록.
@@ -283,7 +306,16 @@ export default function Home() {
           setScriptBusy(false);
           done?.(j);
         }
-      } catch {}
+      } catch {
+        // 일시적 네트워크 오류는 관용 — 연속 실패가 누적되면 폴링 중단.
+        fails += 1;
+        if (fails >= 5) {
+          stopPoll();
+          setBusy(false);
+          setScriptBusy(false);
+          alert("서버 연결이 끊겼습니다.");
+        }
+      }
     }, 1200);
   }
 
@@ -293,12 +325,8 @@ export default function Home() {
     setJob(null);
     loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
     try {
-      const r = await fetch(`${apiBase()}/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
-      });
-      const { job_id } = await r.json();
+      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim() });
+      if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
       pollJob(job_id, ["analyzed", "error"]);
     } catch {
       setBusy(false);
@@ -310,11 +338,7 @@ export default function Home() {
     if (!job?.id || scriptBusy) return;
     setScriptBusy(true);
     try {
-      await fetch(`${apiBase()}/transcribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job.id }),
-      });
+      await postJSON("/transcribe", { job_id: job.id });
       pollJob(job.id, ["transcribed", "error"]);
     } catch {
       setScriptBusy(false);
@@ -410,19 +434,16 @@ export default function Home() {
     setRenderSeq((n) => n + 1); // 결과 영상 캐시버스터 — 재렌더 시 브라우저가 새 영상 받게
     setBusy(true);
     try {
-      const r = await fetch(`${apiBase()}/render`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          job_id: job.id, script, voice, speaking_rate: rate, cta,
-          cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
-          captions: captionsOn,
-          caption_style: captionStyle,
-          // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
-          caption_lines: captionLines.length ? captionLines : null,
-        }),
+      const { job_id } = await postJSON<{ job_id?: string }>("/render", {
+        job_id: job.id, script, voice, speaking_rate: rate, cta,
+        cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
+        captions: captionsOn,
+        caption_style: captionStyle,
+        // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
+        caption_lines: captionLines.length ? captionLines : null,
+        face_cut: faceCutOn,
       });
-      const { job_id } = await r.json();
+      if (!job_id) { setBusy(false); alert("렌더 작업 ID를 받지 못했습니다."); return; }
       pollJob(job_id, ["done", "error"]);
     } catch {
       setBusy(false);
@@ -463,6 +484,8 @@ export default function Home() {
   }
 
   const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
+  // 상대경로 → 절대경로(외부 기기/공유시 동작). 다운로드·공유 링크에만 적용.
+  const absUrl = (rel: string) => (typeof window !== "undefined" ? new URL(rel, window.location.origin).href : rel);
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
 
   return (
@@ -746,6 +769,19 @@ export default function Home() {
         </section>
 
         <div className="mt-8">
+          <div className="mb-4 flex items-center justify-between rounded-3xl glass px-6 py-4">
+            <div>
+              <div className="text-sm font-bold text-[var(--ink)]">얼굴샷 컷 제거</div>
+              <div className="text-xs text-[var(--ink-soft)]">인물 얼굴이 크게 잡힌 구간을 자동으로 잘라내고 제품샷 위주로 이어붙입니다. (남길 분량이 너무 짧으면 자동으로 컷을 생략합니다.)</div>
+            </div>
+            <button
+              onClick={() => setFaceCutOn((v) => !v)}
+              className={`relative h-7 w-12 flex-none rounded-full transition-colors ${faceCutOn ? "btn-grad" : "bg-white/60"}`}
+              aria-label="얼굴샷 컷 제거 토글"
+            >
+              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${faceCutOn ? "left-[22px]" : "left-0.5"}`} />
+            </button>
+          </div>
           <div className="mb-8 flex items-center justify-between rounded-3xl glass px-6 py-4">
             <div>
               <div className="text-sm font-bold text-[var(--ink)]">자동 자막</div>
@@ -777,12 +813,12 @@ export default function Home() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="text-sm font-bold text-emerald-600">✅ 영상 완성</div>
               <div className="flex flex-wrap gap-2">
-                <a href={previewUrl ?? `${apiBase()}${job.output}`} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
+                <a href={absUrl(previewUrl ?? `${apiBase()}${job.output}`)} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
                   다운로드
                 </a>
                 <button
                   onClick={async () => {
-                    const link = previewUrl ?? `${apiBase()}${job!.output}`;
+                    const link = absUrl(previewUrl ?? `${apiBase()}${job!.output}`);
                     // 모바일 공유시트(가능하면) — 아니면 클립보드 복사
                     const navAny = navigator as Navigator & { share?: (d: { title?: string; url?: string }) => Promise<void> };
                     try {
