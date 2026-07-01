@@ -846,9 +846,13 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                 nosub = None
                 engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
                 engine_note = ""       # 폴백 사유 등
-                use_pp = bool(segments) and os.environ.get("PROPAINTER", "1") != "0"
-                _dbg(f"엔진 판단: use_pp={use_pp} → "
-                     f"{'ProPainter 시도(세그먼트 있음+PROPAINTER 켜짐)' if use_pp else 'ProPainter 건너뜀 → LaMa/고정박스'}")
+                # PROPAINTER=0은 '로컬 8GB OOM 회피'용이라 Modal(클라우드·청킹)엔 무관.
+                # → modal 백엔드는 이 env를 무시하고 항상 ProPainter. local만 이 env로 끔.
+                pp_env_on = os.environ.get("PROPAINTER", "1") != "0"
+                use_pp = bool(segments) and (subtitle_backend == "modal" or pp_env_on)
+                _dbg(f"엔진 판단: use_pp={use_pp} (segments={len(segments)}, backend={subtitle_backend}, "
+                     f"PROPAINTER_env_on={pp_env_on}) → "
+                     f"{'ProPainter 시도' if use_pp else 'ProPainter 건너뜀 → LaMa/고정박스'}")
 
                 # 1순위 ProPainter(modal): 클라우드 GPU라 로컬 세마포어 없이 실행 →
                 # 여러 영상이 동시에 자막제거되고, 풀이 계정을 로테이션한다.
