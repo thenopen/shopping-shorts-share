@@ -757,7 +757,8 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
         from app.pipeline.download import probe_info
 
         platform = "douyin" if "douyin" in url else ("tiktok" if "tiktok" in url else "")
-        job.update(status="downloading", stage="영상 다운로드", progress=10, error=None)
+        # 진행률은 '현재 단계 기준 0~100'. 단계 전환 때마다 그 단계의 0에서 시작.
+        job.update(status="downloading", stage="영상 다운로드", progress=0, error=None)
         job_src = job_dir / "source.mp4"
 
         # 이미 받은 영상이면 재사용(다운로드 생략) — 라이브러리 보관본을 job으로 링크/복사.
@@ -767,7 +768,7 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
             job["reused"] = True
             job["title"] = ent.get("title") or ""
             job["meta"]["title"] = ent.get("title") or ""
-            job.update(stage="이미 받은 영상 재사용", progress=38)
+            job.update(stage="이미 받은 영상 재사용", progress=100)
         else:
             info: dict = {}
             if platform == "douyin":
@@ -795,13 +796,14 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
             job["reused"] = False
         job["meta"]["source"] = str(source)
 
-        job.update(status="removing_subtitle", stage="자막·워터마크 제거", progress=40)
+        # 진행률은 '현재 단계 기준 0~100'(전체 파이프라인 아님). 단계마다 0에서 시작.
+        job.update(status="removing_subtitle", stage="자막·워터마크 제거", progress=0)
         job_nosub = job_dir / "nosub.mp4"
 
         # 이미 만든 자막제거본이 있으면 재사용(자막탐지·GPU 인페인트 전부 생략).
         if reuse_nosub and library.reuse_nosub_into(url, job_nosub):
             job["subtitle_engine"] = "cached"
-            job.update(stage="자막 제거본 재사용", progress=95)
+            job.update(stage="자막 제거본 재사용", progress=100)
         else:
             # 화면 전체 OCR로 자막+워터마크 글자 모두 탐지(언어 무관, 하단제한 해제).
             # require_center=True: 가로로 긴 중앙정렬 자막 형태만 → 상품 패키지/배경 글자 과제거 방지.
@@ -826,8 +828,8 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
 
             if segments or fixed_boxes:
                 def _ip_prog(frac):
-                    # inpaint 40~90% 구간 매핑
-                    job.update(progress=40 + int(frac * 50),
+                    # 자막제거 단계 자체 0~100 (LaMa 등 프레임 콜백 기준)
+                    job.update(progress=int(frac * 100),
                                stage=f"자막·워터마크 제거 ({int(frac*100)}%)")
                 nosub = None
                 engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
@@ -839,7 +841,7 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                 if use_pp and subtitle_backend == "modal":
                     try:
                         from app.pipeline.propainter_inpaint import inpaint_with_propainter
-                        job.update(stage="자막 제거 (클라우드 AI 배경복원)", progress=45)
+                        job.update(stage="자막 제거 (클라우드 AI 배경복원)", progress=0)
                         nosub = inpaint_with_propainter(
                             source, job_dir / "nosub.mp4", segments,
                             backend="modal", progress_cb=_ip_prog)
@@ -856,7 +858,7 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                         if use_pp and subtitle_backend == "local":
                             try:
                                 from app.pipeline.propainter_inpaint import inpaint_with_propainter
-                                job.update(stage="자막 제거 (AI 배경복원)", progress=45)
+                                job.update(stage="자막 제거 (AI 배경복원)", progress=0)
                                 nosub = inpaint_with_propainter(
                                     source, job_dir / "nosub.mp4", segments,
                                     backend="local", progress_cb=_ip_prog)
@@ -911,11 +913,11 @@ def _transcribe_worker(jid: str, reuse_script: bool = True):
             job.update(status="transcribed", stage="대본 재사용", progress=100)
             return
 
-        job.update(status="transcribing", stage="중국어 음성 인식/번역", progress=30, error=None)
+        job.update(status="transcribing", stage="중국어 음성 인식/번역", progress=0, error=None)
 
         def _stt_prog(frac):
-            # STT 30~95% 구간 매핑(faster-whisper 세그먼트 진행 기반)
-            job.update(progress=30 + int(frac * 65),
+            # 대본 단계 자체 0~100 (faster-whisper 세그먼트 진행 기반)
+            job.update(progress=int(frac * 100),
                        stage=f"중국어 음성 인식/번역 ({int(frac*100)}%)")
 
         with gpu_slot(job, wait_stage="GPU 대기 중 (대본 생성 대기열)"):  # whisper STT GPU 직렬화
@@ -964,13 +966,13 @@ def _render_worker(jid: str, req: RenderReq):
         # [4] 얼굴 전체샷 컷 제거(opt-in). 인물 클로즈업 구간을 빼고 제품샷 위주로 재연결.
         if req.face_cut:
             from app.pipeline.face_cut import cut_face_segments
-            job.update(status="face_cut", stage="얼굴샷 컷 제거", progress=30)
+            job.update(status="face_cut", stage="얼굴샷 컷 제거", progress=0)
             base = cut_face_segments(base, job_dir / "facecut.mp4")
 
         dub = None
         stamps: list = []
         if req.script.strip():
-            job.update(status="dubbing", stage="TTS 더빙", progress=40, error=None)
+            job.update(status="dubbing", stage="TTS 더빙", progress=0, error=None)
             base = strip_audio(base, job_dir / "muted.mp4")
             dub, stamps = synthesize_by_nickname(
                 req.script,
@@ -986,7 +988,7 @@ def _render_worker(jid: str, req: RenderReq):
                 with gpu_slot(job, wait_stage="GPU 대기 중 (자막 정렬 대기열)"):
                     stamps = word_timestamps(dub, language="ko")
 
-        job.update(status="composing", stage="영상 합성", progress=70)
+        job.update(status="composing", stage="영상 합성", progress=0)
         out = compose(
             video_path=base,
             audio_path=dub,
@@ -1006,7 +1008,7 @@ def _render_worker(jid: str, req: RenderReq):
                     lines_from_payload,
                 )
                 from app.config import TARGET_W, TARGET_H, BACKEND_ROOT
-                job.update(status="captioning", stage="자막 입히기", progress=88)
+                job.update(status="captioning", stage="자막 입히기", progress=0)
                 style = _build_caption_style(req.caption_style)
                 total = _probe_dur(dub) if dub else None
                 if req.caption_lines:

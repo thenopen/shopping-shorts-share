@@ -518,6 +518,7 @@ function PipelineProgress({ job }: { job: JobState | null }) {
   const stageStartRef = useRef(0);
   const lastStageRef = useRef("");
   const lastStepRef = useRef(0);
+  const lastStatusRef = useRef("");
 
   const mapped = STATUS_STEP[status];
   const stepIdx = mapped !== undefined ? mapped : lastStepRef.current;
@@ -533,13 +534,15 @@ function PipelineProgress({ job }: { job: JobState | null }) {
     }
   }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 단계(stage 텍스트) 전환 → 단계 타이머 리셋(ETA 재계산 기준)
+  // 단계(status) 전환 → 진행바를 '그 단계 0'에서 다시 시작 + 단계 타이머 리셋.
+  // status 기준(stage 텍스트는 %마다 바뀌므로 리셋 트리거로 못 씀).
   useEffect(() => {
-    if (stage !== lastStageRef.current) {
-      lastStageRef.current = stage;
+    if (status !== lastStatusRef.current) {
+      lastStatusRef.current = status;
+      setDisp(job?.progress ?? 0);   // 현재 단계 0~100 시작점
       stageStartRef.current = Date.now();
     }
-  }, [stage]);
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (mapped !== undefined) lastStepRef.current = mapped;
@@ -552,9 +555,10 @@ function PipelineProgress({ job }: { job: JobState | null }) {
       setDisp((d) => {
         const t = job?.progress ?? 0;
         if (waiting) return d;
-        if (t > d) return Math.min(100, d + Math.max(0.5, (t - d) * 0.18));
-        const idle = !!status && !["done", "analyzed", "transcribed", "error"].includes(status);
-        if (idle && t < 99) return Math.min(d + 0.3, t + 6, 99);
+        if (t > d) return Math.min(100, d + Math.max(0.5, (t - d) * 0.2));  // 실제 진행 따라감
+        // 백엔드 실측 없는 단계(ProPainter·합성 등): 현재 단계 0~92 살살 크롤.
+        const idle = !!status && !["done", "analyzed", "transcribed", "error", "waiting_gpu"].includes(status);
+        if (idle && d < 92) return Math.min(d + 0.25, 92);
         return d;
       });
     }, 200);
