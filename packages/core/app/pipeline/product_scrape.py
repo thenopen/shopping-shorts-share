@@ -150,10 +150,8 @@ def extract_selling_points(url: str | None = None,
     url 크롤 시 텍스트+스크린샷 둘 다 Gemini에 줘서 이미지 상세까지 반영.
     debug(list)가 주어지면 각 단계를 append(웹 F12 콘솔용).
     """
-    def _d(m):
-        if debug is not None:
-            debug.append(m)
-        print(f"[제품대본] {m}", flush=True)
+    from app.debuglog import make_dbg
+    _d = make_dbg(debug, "제품대본")
 
     out = {"points": "", "source": "", "site": "", "error": ""}
 

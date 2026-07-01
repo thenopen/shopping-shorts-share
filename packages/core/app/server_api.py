@@ -808,11 +808,9 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
         job_nosub = job_dir / "nosub.mp4"
 
         # 자막제거 판단/폴백 과정을 DEBUG로 남긴다 → job에 쌓아 웹 F12 콘솔에 노출 + 서버 로그.
+        from app.debuglog import make_dbg
         dbg = job.setdefault("subtitle_debug", [])
-
-        def _dbg(m):
-            dbg.append(m)
-            print(f"[자막제거] {m}", flush=True)
+        _dbg = make_dbg(dbg, "자막제거")
 
         _dbg(f"입력: reuse_nosub={reuse_nosub}, backend={subtitle_backend}, "
              f"PROPAINTER={os.environ.get('PROPAINTER', '1')}, platform={platform or '-'}")

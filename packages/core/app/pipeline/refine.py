@@ -69,10 +69,8 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
     '원문에 없는 속성 추가 금지' 안전필터를 적용하지 않는다(소구포인트는
     실제 상세페이지 근거가 있는 사실). debug(list)면 단계 append.
     """
-    def _d(m):
-        if debug is not None:
-            debug.append(m)
-        print(f"[제품대본] {m}", flush=True)
+    from app.debuglog import make_dbg
+    _d = make_dbg(debug, "제품대본")
 
     video_content = (video_content or "").strip()
     selling_points = (selling_points or "").strip()
