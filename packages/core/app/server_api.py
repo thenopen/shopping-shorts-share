@@ -590,6 +590,72 @@ def library_delete(key: str):
     return {"ok": library.delete(key)}
 
 
+class LibraryLoadReq(BaseModel):
+    url: str = ""
+    key: str = ""
+
+
+@app.post("/library/load")
+def library_load(req: LibraryLoadReq):
+    """'이어하기' — 보관본을 새 job으로 즉시 불러온다(재실행 없이). 캐시된 단계까지
+    job에 채워 그 지점부터 이어서 작업: source → (nosub) → (script). 렌더 바로 가능."""
+    import shutil
+    from app import library
+
+    url = extract_url(req.url) or (req.url or "").strip()
+    if not url and req.key:
+        for e in library.list_entries(limit=1000):
+            if e.get("key") == req.key:
+                url = e.get("url", "")
+                break
+    ent = library.find(url) if url else None
+    if not ent:
+        raise HTTPException(404, "library entry not found")
+
+    jid = _new_job()
+    job = JOBS[jid]
+    job_dir = WORKDIR / jid
+    job_dir.mkdir(parents=True, exist_ok=True)
+    job["meta"]["url"] = url
+    job["title"] = ent.get("title") or ""
+    job["meta"]["title"] = ent.get("title") or ""
+    job["reused"] = True
+    stages = ent.get("stages") or {}
+
+    shutil.copy2(ent["source"], job_dir / "source.mp4")
+    loaded = "source"
+    job["preview"] = f"/file/{jid}/source.mp4"
+
+    if stages.get("nosub") and library.reuse_nosub_into(url, job_dir / "nosub.mp4"):
+        job["preview"] = f"/file/{jid}/nosub.mp4"
+        job["subtitle_engine"] = "cached"
+        loaded = "nosub"
+
+    script = ""
+    if stages.get("script"):
+        sc = library.get_script(url) or {}
+        script = (sc.get("ko_text") or "").strip()
+        if script:
+            job["script"] = script
+            job["has_speech"] = bool(sc.get("has_speech"))
+            job["meta"]["transcribe"] = {
+                "provider": sc.get("provider"), "zh_text": sc.get("zh_text", ""),
+                "segments": sc.get("segments", []),
+            }
+            loaded = "script"
+
+    if loaded == "script":
+        job.update(status="transcribed", stage="대본까지 불러옴 · 이어서 렌더", progress=100)
+    elif loaded == "nosub":
+        job.update(status="analyzed", stage="자막제거본 불러옴 · 이어서 대본/렌더", progress=100)
+    else:
+        job.update(status="analyzed", stage="원본 불러옴", progress=100)
+
+    return {"job_id": jid, "loaded": loaded, "title": job["title"],
+            "script": script, "preview": job.get("preview"), "stages": stages,
+            "has_speech": job.get("has_speech")}
+
+
 def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                     reuse_nosub: bool = True):
     job = JOBS[jid]

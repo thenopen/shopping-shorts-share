@@ -861,6 +861,28 @@ export default function Home() {
     }
   }
 
+  // '이어하기' — 라이브러리 보관본을 새 job으로 즉시 불러와 그 단계부터 이어서 진행.
+  async function resumeFromLibrary(target: string) {
+    const t = (target || "").trim();
+    if (!t) return;
+    try {
+      const r = await postJSON<{ job_id: string; loaded: string; script: string }>(
+        "/library/load", { url: t });
+      const jr = await fetch(`${apiBase()}/jobs/${r.job_id}`);
+      if (jr.ok) {
+        const j: JobState = await jr.json();
+        setJob(j);
+        if (j.script) { setScript(j.script); scriptDirtyRef.current = true; }
+      }
+      const lbl: Record<string, string> = { source: "원본", nosub: "자막제거본", script: "대본" };
+      setPreview(null);
+      // 결과 영상/대본이 아래에 바로 뜸 — 이어서 대본생성/렌더 진행
+      alert(`이어하기 완료 · ${lbl[r.loaded] || r.loaded}까지 불러왔어요. 아래에서 이어서 진행하세요.`);
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "이어하기 실패");
+    }
+  }
+
   async function analyze() {
     if (!url.trim() || busy) return;
     setBusy(true);
@@ -1129,6 +1151,14 @@ export default function Home() {
                 </div>
                 {preview.duration ? <div className="text-[11px] text-[var(--ink-soft)]">{fmtSec(preview.duration)}</div> : null}
                 {preview.stages && <StageBadges stages={preview.stages} />}
+                {preview.in_library && (
+                  <button
+                    onClick={() => resumeFromLibrary(preview.url)}
+                    className="btn-grad mt-2 rounded-full px-4 py-1.5 text-xs font-bold transition"
+                  >
+                    ▶ 이어하기 {preview.stages ? `(${preview.stages.script ? "대본까지" : preview.stages.nosub ? "자막제거본까지" : "원본"} 불러오기)` : ""}
+                  </button>
+                )}
                 {preview.note && <div className="mt-1 text-[11px] text-amber-600">{preview.note}</div>}
                 {preview.error && <div className="mt-1 text-[11px] text-rose-500">{preview.error}</div>}
               </div>
