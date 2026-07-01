@@ -93,6 +93,14 @@ def _new_job() -> str:
     return jid
 
 
+def _require_job(jid: str) -> dict:
+    """job 존재 확인 후 반환. 없으면 404."""
+    job = JOBS.get(jid)
+    if job is None:
+        raise HTTPException(404, "job not found")
+    return job
+
+
 class AnalyzeReq(BaseModel):
     url: str
     # 자막제거 ProPainter 백엔드: modal(클라우드)만 서비스. local(로컬 GPU)은 제품에서
@@ -163,8 +171,7 @@ def analyze(req: AnalyzeReq):
 
 @app.post("/transcribe")
 def transcribe(req: TranscribeReq):
-    if req.job_id not in JOBS:
-        raise HTTPException(404, "job not found")
+    _require_job(req.job_id)
     threading.Thread(target=_transcribe_worker, args=(req.job_id, req.reuse_script),
                      daemon=True).start()
     return {"job_id": req.job_id}
@@ -181,8 +188,7 @@ def refine(req: RefineReq):
 
 @app.post("/render")
 def render(req: RenderReq):
-    if req.job_id not in JOBS:
-        raise HTTPException(404, "job not found")
+    _require_job(req.job_id)
     threading.Thread(target=_render_worker, args=(req.job_id, req), daemon=True).start()
     return {"job_id": req.job_id}
 
@@ -194,8 +200,7 @@ def captions_preview(req: CaptionPreviewReq):
     웹 타임라인 편집기가 이 줄들을 받아 start/end·텍스트·줄별 스타일을 수정한 뒤
     /render 의 caption_lines 로 다시 보낸다. dub.mp3는 캐시로 남겨 렌더때 재사용.
     """
-    if req.job_id not in JOBS:
-        raise HTTPException(404, "job not found")
+    _require_job(req.job_id)
     if not req.script.strip():
         raise HTTPException(400, "script is empty")
     try:
@@ -375,9 +380,7 @@ def _decode_image_b64(s: str) -> bytes | None:
 
 @app.get("/jobs/{jid}")
 def get_job(jid: str):
-    if jid not in JOBS:
-        raise HTTPException(404, "job not found")
-    return JOBS[jid]
+    return _require_job(jid)
 
 
 class QualityReq(BaseModel):
@@ -394,9 +397,7 @@ def quality_frames(req: QualityReq):
     import subprocess
     from app.config import FFMPEG
 
-    if req.job_id not in JOBS:
-        raise HTTPException(404, "job not found")
-    job = JOBS[req.job_id]
+    job = _require_job(req.job_id)
     job_dir = WORKDIR / req.job_id
     try:
         src = _source_for_job(req.job_id)
