@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import CaptionEditor, { CaptionStyle, DEFAULT_STYLE } from "./CaptionEditor";
 import CaptionTimeline, { CaptionLineData } from "./CaptionTimeline";
+import { Spinner } from "./ui";
 
 const VOICES: { name: string; gender: "F" | "M" }[] = [
   { name: "소담", gender: "F" },
@@ -443,7 +444,7 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
                 const dep = a.deploy;
                 const depChip =
                   dep === "done" ? <span className="text-emerald-600">✓ 배포됨</span>
-                    : dep === "deploying" ? <span className="flex items-center gap-1 text-amber-600"><span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-400/50 border-t-amber-600" />배포중… (수 분)</span>
+                    : dep === "deploying" ? <span className="flex items-center gap-1 text-amber-600"><Spinner className="h-2.5 w-2.5 border-amber-400/50 border-t-amber-600" />배포중… (수 분)</span>
                       : dep === "error" ? <span className="text-rose-500" title={a.deploy_msg}>✗ 배포실패</span>
                         : <span className="text-[var(--ink-soft)]/70">미배포</span>;
                 return (
@@ -598,7 +599,7 @@ function PipelineProgress({ job }: { job: JobState | null }) {
         })}
       </div>
       <div className="flex items-center gap-3 px-5 py-2.5 text-sm font-medium text-[var(--ink)]">
-        <span className={`inline-block h-4 w-4 animate-spin rounded-full border-2 ${waiting ? "border-amber-400/50 border-t-amber-500" : "border-[var(--accent)]/40 border-t-[var(--accent-deep)]"}`} />
+        <Spinner className={`h-4 w-4 ${waiting ? "border-amber-400/50 border-t-amber-500" : "border-[var(--accent)]/40 border-t-[var(--accent-deep)]"}`} />
         {waiting ? (
           <span className="text-amber-600">GPU 대기 중 · 앞 작업이 끝나면 시작돼요</span>
         ) : (
@@ -1221,7 +1222,7 @@ export default function Home() {
               title="Modal 계정 배포 중 — 클릭해 설정에서 상태 보기"
               className="flex items-center gap-1.5 rounded-full bg-amber-100/80 px-2.5 py-1 text-[11px] font-bold text-amber-700 backdrop-blur transition hover:bg-amber-100"
             >
-              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400/50 border-t-amber-600" />
+              <Spinner className="h-3 w-3 border-amber-400/50 border-t-amber-600" />
               Modal 배포중 {deployN}
             </button>
           )}
@@ -1377,14 +1378,14 @@ export default function Home() {
                 disabled={productBusy}
                 className="btn-grad flex items-center justify-center gap-2 rounded-full px-7 py-3 text-sm font-bold transition disabled:opacity-50"
               >
-                {productBusy && <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
+                {productBusy && <Spinner className="h-4 w-4 border-white/40 border-t-white" />}
                 {productBusy ? "분석 중..." : "소구포인트 → 대본"}
               </button>
             </div>
 
             {productBusy && productStage && (
               <div className="mt-2.5 flex items-center gap-2 rounded-xl bg-white/55 px-3 py-2 text-[13px] font-medium text-[var(--ink)]">
-                <span className="inline-block h-3.5 w-3.5 flex-none animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
+                <Spinner className="h-3.5 w-3.5 flex-none border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
                 {productStage} <span className="text-[var(--ink-soft)]">· 상세페이지가 크면 수십 초 걸려요</span>
               </div>
             )}
@@ -1563,7 +1564,7 @@ export default function Home() {
                     aria-label={`${v.name} 미리듣기`}
                   >
                     {loadingVoice === v.name ? (
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
+                      <Spinner className="h-3 w-3 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
                     ) : playing === v.name ? "■" : "▶"}
                   </button>
                 </div>
@@ -1575,7 +1576,7 @@ export default function Home() {
               disabled={!script.trim() || ttsBusy}
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
             >
-              {ttsBusy && <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+              {ttsBusy && <Spinner className="h-4 w-4 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
               {ttsBusy ? "음성 생성 중..." : `🔊 '${voice}' 목소리로 대본 들어보기`}
             </button>
             {ttsUrl && (
@@ -1634,11 +1635,11 @@ export default function Home() {
               <label className="text-sm font-bold text-[var(--ink)]">한국어 대본</label>
               <div className="flex flex-wrap gap-2">
                 <button onClick={genScript} disabled={!job?.id || scriptBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {scriptBusy && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+                  {scriptBusy && <Spinner className="h-3 w-3 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
                   {scriptBusy ? "생성 중..." : "자동 대본 생성"}
                 </button>
                 <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {refineBusy && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-fuchsia-300 border-t-fuchsia-600" />}
+                  {refineBusy && <Spinner className="h-3 w-3 border-fuchsia-300 border-t-fuchsia-600" />}
                   {refineBusy ? "가공 중..." : "AI로 가공"}
                 </button>
                 <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">

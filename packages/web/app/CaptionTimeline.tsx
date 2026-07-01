@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CaptionStyle, styleToCss, emphasizeNodes } from "./CaptionEditor";
 import { FONTS } from "./fonts";
+import { Spinner } from "./ui";
 
 // AI 자막 다듬기 방향. ai=false는 결정형(즉시·무료), ai=true는 Gemini 재작성.
 const EDIT_DIRECTIONS: { key: string; label: string; ai: boolean; hint: string }[] = [
@@ -99,7 +100,7 @@ export default function CaptionTimeline({
           className="btn-grad flex items-center gap-1.5 rounded-full px-5 py-2.5 text-xs font-bold transition disabled:opacity-40"
           title={hasScript ? "" : "먼저 대본을 입력하세요"}
         >
-          {generating && <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
+          {generating && <Spinner className="h-3.5 w-3.5 border-white/40 border-t-white" />}
           {generating ? "자막 생성 중..." : lines.length ? "자막 다시 생성" : "자동 자막 생성"}
         </button>
       </div>
@@ -135,7 +136,7 @@ export default function CaptionTimeline({
             ))}
           </div>
           <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--ink-soft)]">
-            {aiEditBusy && <span className="inline-block h-3 w-3 flex-none animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+            {aiEditBusy && <Spinner className="h-3 w-3 flex-none border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
             {aiEditBusy ? "자막 다듬는 중…" : "✨ = AI가 문장을 다시 씀(Gemini) · 나머지는 즉시 재분할. 시간/구간은 유지됩니다."}
           </div>
         </div>
