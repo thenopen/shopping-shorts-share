@@ -1336,26 +1336,6 @@ export default function Home() {
             </details>
           )}
 
-          {/* [로컬 GPU 자막제거 제거 — 서비스는 Modal만 사용. 디버깅 시 이 토글 복원 + setSubtitleBackend 복원 + 백엔드 env ALLOW_LOCAL_GPU=1]
-          <div className="mt-3 flex items-center gap-2.5 text-[13px]">
-            <span className="font-semibold text-[var(--ink-soft)]">자막 제거 모델</span>
-            <div className="inline-flex rounded-full bg-white/55 p-1 backdrop-blur">
-              <button
-                onClick={() => setSubtitleBackend("local")}
-                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "local" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
-              >
-                로컬 GPU <span className="font-normal opacity-70">(개발)</span>
-              </button>
-              <button
-                onClick={() => setSubtitleBackend("modal")}
-                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "modal" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
-              >
-                클라우드 <span className="font-normal opacity-70">(Modal)</span>
-              </button>
-            </div>
-          </div>
-          */}
-
           {/* 제품 소구포인트 — 상세페이지 링크/캡처/수동 → 대본 결합 */}
           <div className="mt-6 rounded-2xl glass-soft p-5" onPaste={onProductPaste}>
             <label className="mb-1 block text-sm font-bold text-[var(--ink)]">제품 링크 <span className="font-medium text-[var(--ink-soft)]">(선택 · 영상에 맞는 상품 상세페이지)</span></label>
@@ -1621,12 +1601,9 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="mt-3">
             <Field label={`배속 ${rate.toFixed(1)}x`}>
               <input type="range" min={0.5} max={2} step={0.1} value={rate} onChange={(e) => setRate(parseFloat(e.target.value))} className="mt-1.5 w-full accent-[var(--accent-deep)]" />
-            </Field>
-            <Field label="중국어 자막 제거">
-              <div className="rounded-xl bg-emerald-100/60 px-3 py-2 text-xs font-semibold text-emerald-700">분석 단계에서 자동 처리</div>
             </Field>
           </div>
 
