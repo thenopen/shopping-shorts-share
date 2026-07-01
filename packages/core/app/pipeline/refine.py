@@ -47,11 +47,17 @@ def _retry_seconds(e: Exception) -> float | None:
     return float(m.group(1)) if m else 30.0
 
 
-def _call_gemini(prompt: str) -> str:
-    """Gemini 1회 호출 + 사용량 집계. 실패 시 예외(호출측이 원문 폴백).
+_TRANSIENT = ("503", "UNAVAILABLE", "overloaded", "500", "INTERNAL",
+              "429", "RESOURCE_EXHAUSTED", "deadline", "timeout")
 
-    429면 usage에 소진 쿨다운 기록 → 웹 배지가 '재시도 N초' 표시.
+
+def _call_gemini(prompt: str, retries: int = 3) -> str:
+    """Gemini 호출 + 사용량 집계. 일시오류(503 과부하·429·타임아웃)는 지수백오프 재시도.
+
+    끝까지 실패하면 예외(호출측이 원문 폴백). 429면 usage에 쿨다운 기록.
     """
+    import time
+
     from google import genai
 
     from app import usage
@@ -60,18 +66,26 @@ def _call_gemini(prompt: str) -> str:
     if not key:
         raise RuntimeError("no gemini key")
     client = genai.Client(api_key=key)
-    try:
-        res = client.models.generate_content(model=MODEL, contents=prompt)
-    except Exception as e:
-        secs = _retry_seconds(e)
-        if secs is not None:
-            usage.record_gemini_429(secs)
-        raise
-    try:
-        usage.record_gemini(MODEL, getattr(res, "usage_metadata", None))
-    except Exception:
-        pass
-    return (res.text or "").strip()
+    last = None
+    for i in range(max(1, retries)):
+        try:
+            res = client.models.generate_content(model=MODEL, contents=prompt)
+            try:
+                usage.record_gemini(MODEL, getattr(res, "usage_metadata", None))
+            except Exception:
+                pass
+            return (res.text or "").strip()
+        except Exception as e:
+            last = e
+            secs = _retry_seconds(e)
+            if secs is not None:               # 429 → 쿨다운 기록
+                usage.record_gemini_429(secs)
+            transient = any(c in str(e) for c in _TRANSIENT)
+            if transient and i < retries - 1:
+                time.sleep(1.5 * (i + 1))       # 1.5s, 3s, …
+                continue
+            raise
+    raise last if last else RuntimeError("gemini call failed")
 
 
 def refine_script(script: str) -> str:

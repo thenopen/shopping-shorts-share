@@ -194,6 +194,10 @@ def extract_selling_points(url: str | None = None,
         _d(f"→ 업로드 이미지 {len(imgs)}장 Gemini 비전({VISION_MODEL}) 분석…")
         try:
             out["points"] = points_from_images(imgs)
+            if not (out["points"] or "").strip():
+                out["error"] = "이미지에서 소구포인트를 못 뽑았습니다(인식 실패). 더 선명한 상세페이지 캡처를 올려보세요."
+                _d("✗ 이미지 분석 결과가 비어있음")
+                return out
             out["source"] = f"image x{len(imgs)}"
             _d(f"→ 이미지 분석 성공: 소구포인트 {len(out['points'])}자")
             return out
@@ -220,6 +224,10 @@ def extract_selling_points(url: str | None = None,
                     _d("→ 텍스트 Gemini 분석…")
                     out["points"] = points_from_text(scraped["text"])
                     out["source"] = "url+text"
+                if not (out["points"] or "").strip():
+                    out["error"] = "페이지에서 소구포인트를 못 뽑았습니다. 상세페이지 캡처 이미지를 올려보세요."
+                    _d("✗ Gemini 결과가 비어있음")
+                    return out
                 _d(f"→ 소구포인트 추출 성공: {len(out['points'])}자 (source={out['source']})")
                 return out
             except Exception as e:
