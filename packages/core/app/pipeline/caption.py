@@ -194,6 +194,21 @@ def _vis_len(s: str) -> int:
     return len((s or "").replace(" ", ""))
 
 
+def _clean_caption_text(text: str) -> str:
+    """자막 텍스트 잡음 정리 — STT/TTS 필러·반복 문장부호 제거.
+
+    정상 한국어는 완성형 음절(가-힣). 고립된 한글 호환 자모(ㄱ-ㅎ, ㅏ-ㅣ; 예 'ㅇ')는
+    인식/합성 잡음이라 제거한다. 'ㅇ,,'처럼 자막에 튀는 노이즈 방지.
+    """
+    t = text or ""
+    t = _re.sub(r"[ㄱ-ㅎㅏ-ㅣ]+", " ", t)          # 고립 자모(필러) 제거
+    t = _re.sub(r"[,，、]{2,}", ",", t)             # 반복 쉼표 → 하나
+    t = _re.sub(r"[.。]{3,}", "…", t)              # 마침표 3+ → …
+    t = _re.sub(r"\s+([,.。、，!?！？…])", r"\1", t)  # 부호 앞 공백 제거
+    t = _re.sub(r"\s{2,}", " ", t).strip()
+    return t.strip(" ,，、").strip()                # 양끝 고립 쉼표/공백 정리
+
+
 def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
                        min_chars: int = 6) -> list[str]:
     """한국어 텍스트를 6~10자(목표 8) 의미단위 줄로 분할.
@@ -203,7 +218,7 @@ def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
     - 문장부호(。！？.…)에서 우선 끊음(min_chars 이상이면).
     - 누적이 ideal 도달하면 어절 경계에서 끊음 → 대부분 6~10자 단일 줄.
     """
-    text = _re.sub(r"\s+", " ", (text or "").replace("\n", " ")).strip()
+    text = _clean_caption_text(_re.sub(r"\s+", " ", (text or "").replace("\n", " ")).strip())
     if not text:
         return []
     # 어절 토큰화 + 너무 긴 어절 강제 분할
@@ -290,7 +305,7 @@ def build_lines_from_tts(
 
     def flush():
         nonlocal cur_words, cur_start, cur_end
-        text = joined_text()
+        text = _clean_caption_text(joined_text())
         if text and cur_start is not None:
             lines.append(CaptionLine(text=text,
                                      start=round(cur_start, 2),
