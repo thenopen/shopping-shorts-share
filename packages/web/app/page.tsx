@@ -223,6 +223,8 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<Record<string, TestResult>>({});
   const [modalAccts, setModalAccts] = useState<ModalAcct[]>([]);       // Modal 로테이션 풀
+  const [acctTotal, setAcctTotal] = useState(0);                       // 실효 계정수(풀+기존)
+  const [defaultIncluded, setDefaultIncluded] = useState(false);       // 기존(대표) 자동 포함?
   const [newAcct, setNewAcct] = useState({ label: "", token_id: "", token_secret: "" });
   const [acctBusy, setAcctBusy] = useState(false);
   const [acctTest, setAcctTest] = useState<TestResult | null>(null);
@@ -261,6 +263,8 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
       if (!r.ok) return;
       const j = await r.json();
       setModalAccts(j.accounts || []);
+      setAcctTotal(j.total ?? (j.accounts || []).length);
+      setDefaultIncluded(!!j.default_included);
     } catch {}
   }
   async function addAcct() {
@@ -445,6 +449,9 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
             </div>
           ) : (
             <p className="mb-2 text-[11px] text-[var(--ink-soft)]">등록된 계정 없음 — 비어있으면 대표 계정 1개로 동작.</p>
+          )}
+          {defaultIncluded && (
+            <p className="mb-2 text-[11px] font-medium text-emerald-700">＋ 기존(대표) 계정도 로테이션·크레딧에 자동 포함 · <b>총 {acctTotal}계정</b> 합산</p>
           )}
           <div className="flex flex-col gap-1.5">
             <input value={newAcct.label} onChange={(e) => setNewAcct({ ...newAcct, label: e.target.value })} placeholder="라벨(선택, 예: acctA)" className={inp} />

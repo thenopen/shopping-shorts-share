@@ -196,6 +196,24 @@ def set_account_deployed(token_id: str, deployed: bool = True) -> None:
         set_modal_accounts(accts)
 
 
+def effective_accounts() -> list[dict]:
+    """실제 로테이션·크레딧 합산 대상 = 풀 계정 + 기존(대표, ~/.modal.toml) 계정.
+
+    개발 중엔 기존 계정도 함께 돌리고 크레딧도 합산한다. 기존 계정이 이미 풀에
+    있으면(같은 token_id) 중복 추가하지 않는다.
+    """
+    pool = get_modal_accounts()
+    ids = {a.get("token_id") for a in pool}
+    out = list(pool)
+    name, data = _read_modal()
+    prof = data.get(name, {}) if data else {}
+    tid, tsec = prof.get("token_id"), prof.get("token_secret")
+    if tid and tsec and tid not in ids:
+        out.append({"token_id": tid, "token_secret": tsec,
+                    "label": name or "기존", "default": True})
+    return out
+
+
 def modal_accounts_masked() -> list[dict]:
     """계정 풀의 마스킹 상태(전체 토큰 미포함) — 라벨·끝4자리만."""
     out = []

@@ -180,8 +180,8 @@ def snapshot() -> dict:
     m_cost = mo.get("cost", 0.0)
     rpd, tpm = lim["gemini_rpd"], lim["gemini_tpm"]
     tts_lim, modal_lim = lim["tts_chars"], lim["modal_credit"]
-    # 풀 계정 수(0이면 기본 계정 1개로 폴백) — Modal 크레딧 합산 기준.
-    n_modal = max(1, len(settings.get_modal_accounts()))
+    # 크레딧 합산 기준 = 실효 계정수(풀 + 기존/대표 계정). 0이면 1로 폴백.
+    n_modal = max(1, len(settings.effective_accounts()))
     return {
         "gemini": {
             "calls": g_calls,

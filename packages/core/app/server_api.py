@@ -561,7 +561,10 @@ def modal_accounts_status():
             "deploy": state,                              # unknown|deploying|done|error
             "deploy_msg": (dep.get("msg") or "")[-160:],
         })
-    return {"accounts": out, "limit": lim}
+    pool_n = len(out)
+    total_n = len(settings.effective_accounts())         # 풀 + 기존(대표)
+    return {"accounts": out, "limit": lim, "total": total_n,
+            "default_included": total_n > pool_n}
 
 
 class ModalAccountReq(BaseModel):

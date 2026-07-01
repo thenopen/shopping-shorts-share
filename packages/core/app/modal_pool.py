@@ -62,7 +62,7 @@ def _pick_order(accts: list[dict]) -> list[dict]:
 
 
 def available() -> bool:
-    return bool(settings.get_modal_accounts())
+    return bool(settings.effective_accounts())
 
 
 def run_propainter(frames_tar: bytes, masks_tar: bytes, **kwargs) -> dict:
@@ -72,7 +72,7 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes, **kwargs) -> dict:
     """
     import modal
 
-    accts = settings.get_modal_accounts()
+    accts = settings.effective_accounts()   # 풀 + 기존(대표) 계정 로테이션
     if not accts:
         fn = modal.Function.from_name(APP_NAME, FN_NAME)
         res = fn.remote(frames_tar, masks_tar, **kwargs)
