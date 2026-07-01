@@ -740,21 +740,21 @@ export default function Home() {
     }
   }
 
-  async function generateProductScript() {
+  // opts.fromPoints=true → 재크롤 없이 이미 뽑은 소구포인트(sellingPoints)로 대본만 다시.
+  async function generateProductScript(opts?: { fromPoints?: boolean }) {
     if (productBusy) return;
-    if (!productUrl.trim() && productImages.length === 0) {
+    const fromPoints = !!opts?.fromPoints && !!sellingPoints.trim();
+    if (!fromPoints && !productUrl.trim() && productImages.length === 0) {
       setProductErr("제품 링크 또는 캡처 이미지를 올려주세요.");
       return;
     }
     setProductBusy(true);
     setProductErr("");
     try {
-      const d = await postJSON<any>("/script/product", {
-        product_url: productUrl.trim(),
-        product_images: productImages,
-        video_content: script, // 현재 대본/영상내용과 결합
-        combine: true,
-      });
+      const body = fromPoints
+        ? { manual_points: sellingPoints, video_content: script, combine: true }
+        : { product_url: productUrl.trim(), product_images: productImages, video_content: script, combine: true };
+      const d = await postJSON<any>("/script/product", body);
       if (d.debug?.length) console.log("[제품대본 DEBUG] 전 과정 ↓\n" + d.debug.join("\n"));
       if (d.error) {
         setProductErr(d.error);
@@ -1349,7 +1349,7 @@ export default function Home() {
                 />
               </div>
               <button
-                onClick={generateProductScript}
+                onClick={() => generateProductScript()}
                 disabled={productBusy}
                 className="btn-grad flex items-center justify-center gap-2 rounded-full px-7 py-3 text-sm font-bold transition disabled:opacity-50"
               >
@@ -1397,8 +1397,23 @@ export default function Home() {
             {productErr && <p className="mt-3 rounded-xl bg-rose-100/70 px-4 py-2.5 text-xs font-medium text-rose-600">⚠ {productErr}</p>}
             {sellingPoints && (
               <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs text-emerald-900">
-                <div className="mb-1 font-bold">추출된 소구포인트</div>
-                <pre className="whitespace-pre-wrap font-sans">{sellingPoints}</pre>
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="font-bold">추출된 소구포인트 <span className="font-medium opacity-70">(수정 가능)</span></span>
+                  <button
+                    onClick={() => generateProductScript({ fromPoints: true })}
+                    disabled={productBusy}
+                    title="재크롤 없이 이 소구포인트로 대본만 다시 생성"
+                    className="flex-none rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    🔄 이 소구포인트로 대본 다시
+                  </button>
+                </div>
+                <textarea
+                  value={sellingPoints}
+                  onChange={(e) => setSellingPoints(e.target.value)}
+                  rows={5}
+                  className="w-full rounded-lg bg-white/70 px-3 py-2 font-sans text-xs leading-relaxed text-emerald-950 outline-none"
+                />
               </div>
             )}
 
