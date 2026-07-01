@@ -76,7 +76,7 @@ type JobState = {
 type Usage = {
   gemini: { calls: number; tokens: number; model?: string | null; cooldown: number; limit: number; remaining: number; tpm_limit: number; reset: string };
   tts: { chars: number; calls: number; limit: number; remaining: number; reset: string };
-  modal: { jobs: number; seconds: number; cost: number; gpu?: string | null; limit: number; remaining: number; reset: string };
+  modal: { jobs: number; seconds: number; cost: number; gpu?: string | null; limit: number; remaining: number; reset: string; accounts: number };
 };
 
 // 리셋 시각/설명을 보여주는 (?) 도움말 아이콘 — 네이티브 title 툴팁(줄바꿈 포함).
@@ -157,10 +157,10 @@ function QuotaBadge({ refreshKey, active }: { refreshKey: number; active: boolea
       help: `Google TTS(Chirp3-HD) 무료 한도: 월 ${t.limit.toLocaleString()}자.\n남은 = 한도 − 이번달 사용 ${t.chars.toLocaleString()}자.\n리셋: 매월 1일 ${t.reset} (KST).\n정확한 잔여는 Cloud Console 할당량.`,
     },
     {
-      key: "modal", icon: "☁️", label: "Modal",
+      key: "modal", icon: "☁️", label: m.accounts > 1 ? `Modal×${m.accounts}` : "Modal",
       value: `$${m.remaining}/$${m.limit}`, unit: "",
       cls: clr(m.remaining, m.limit),
-      help: `Modal 무료 크레딧: 월 $${m.limit}.\n남은 = 한도 − 이번달 추정사용 $${m.cost} (자막제거 ${m.jobs}건, GPU ${Math.round(m.seconds)}s${m.gpu ? `, ${m.gpu}` : ""}).\nGPU초×단가 추정치 — 정확한 잔여는 Modal 대시보드.\n리셋: 매월 1일 ${m.reset} (KST).`,
+      help: `Modal 무료 크레딧: 월 $${m.limit}${m.accounts > 1 ? ` (${m.accounts}계정 합산 · 계정당 $${(m.limit / m.accounts).toFixed(0)})` : ""}.\n남은 = 총한도 − 이번달 추정사용 $${m.cost} (자막제거 ${m.jobs}건, GPU ${Math.round(m.seconds)}s${m.gpu ? `, ${m.gpu}` : ""}).\nGPU초×단가 추정치 — 정확한 잔여는 Modal 대시보드.\n리셋: 매월 1일 ${m.reset} (KST).`,
     },
   ];
 
@@ -212,7 +212,7 @@ type ModalAcct = { label: string; masked: string; cost: number; remaining: numbe
 
 // 설정 패널 — API 키/토큰/한도를 사이트에서 입력·저장. 키는 서버에만 저장되고
 // 화면엔 마스킹(끝 4자리)만. 빈칸은 기존값 유지. 저장 시 배지도 갱신(onSaved).
-function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; onSaved: () => void; onDeploy: () => void }) {
   const [st, setSt] = useState<SettingsStatus | null>(null);
   const [geminiKey, setGeminiKey] = useState("");
   const [ttsJson, setTtsJson] = useState("");
@@ -272,6 +272,8 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
       setNewAcct({ label: "", token_id: "", token_secret: "" });
       setAcctTest(null);
       onSaved();
+      onDeploy();   // 추가 즉시 자동 배포 시작 → 헤더 배포중 감시
+
     } catch (e) {
       alert(e instanceof Error && e.message ? e.message : "계정 추가 실패");
     } finally {
@@ -290,6 +292,7 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     try {
       await postJSON("/modal/accounts/deploy", { index: i });
       loadAccts();  // 배포중 상태 반영 시작
+      onDeploy();   // 헤더 배포중 감시 시작
     } catch (e) {
       alert(e instanceof Error && e.message ? e.message : "배포 시작 실패");
     }
@@ -423,7 +426,7 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
                 const dep = a.deploy;
                 const depChip =
                   dep === "done" ? <span className="text-emerald-600">✓ 배포됨</span>
-                    : dep === "deploying" ? <span className="text-amber-600">⏳ 배포중…</span>
+                    : dep === "deploying" ? <span className="flex items-center gap-1 text-amber-600"><span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-amber-400/50 border-t-amber-600" />배포중… (수 분)</span>
                       : dep === "error" ? <span className="text-rose-500" title={a.deploy_msg}>✗ 배포실패</span>
                         : <span className="text-[var(--ink-soft)]/70">미배포</span>;
                 return (
@@ -613,6 +616,8 @@ export default function Home() {
   const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
   const bumpUsage = () => setUsageRefresh((n) => n + 1);
   const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
+  const [deployN, setDeployN] = useState(0);      // Modal 배포중 계정 수(헤더 표시용)
+  const [deployWatch, setDeployWatch] = useState(0);  // 배포 감시 폴링 트리거
   const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
   const [previewBusy, setPreviewBusy] = useState(false);
   const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
@@ -876,6 +881,26 @@ export default function Home() {
     } catch {}
   }
   useEffect(() => { loadLibrary(); }, []);
+
+  // Modal 계정 배포 감시 — 마운트 시 1회 + 배포 트리거(deployWatch) 시 폴링. 배포중 0되면 멈춤.
+  useEffect(() => {
+    let live = true;
+    let done = false;
+    const poll = async () => {
+      try {
+        const r = await fetch(`${apiBase()}/modal/accounts`);
+        if (!r.ok) return;
+        const j = await r.json();
+        const n = (j.accounts || []).filter((a: { deploy: string }) => a.deploy === "deploying").length;
+        if (!live) return;
+        setDeployN(n);
+        if (n === 0) done = true;
+      } catch {}
+    };
+    poll();
+    const id = setInterval(() => { if (done) { clearInterval(id); return; } poll(); }, 5000);
+    return () => { live = false; clearInterval(id); };
+  }, [deployWatch]);
 
   // '확인' — 다운로드 없이 제목/썸네일 미리보기. 이미 받은 영상이면 재사용·단계 표시.
   async function checkUrl(u?: string) {
@@ -1141,6 +1166,16 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-2.5">
+          {deployN > 0 && (
+            <button
+              onClick={() => setSettingsOpen(true)}
+              title="Modal 계정 배포 중 — 클릭해 설정에서 상태 보기"
+              className="flex items-center gap-1.5 rounded-full bg-amber-100/80 px-2.5 py-1 text-[11px] font-bold text-amber-700 backdrop-blur transition hover:bg-amber-100"
+            >
+              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400/50 border-t-amber-600" />
+              Modal 배포중 {deployN}
+            </button>
+          )}
           <QuotaBadge refreshKey={usageRefresh} active={busy || scriptBusy} />
           <button
             onClick={() => setSettingsOpen(true)}
@@ -1150,7 +1185,7 @@ export default function Home() {
           >⚙️</button>
         </div>
       </header>
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} />}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={() => setDeployWatch((w) => w + 1)} />}
 
       <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6">
         <section className="glass rounded-[28px] p-5 sm:p-8">

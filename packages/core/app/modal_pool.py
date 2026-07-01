@@ -143,6 +143,11 @@ def deploy_account(token_id: str, token_secret: str) -> None:
             ok = r.returncode == 0
             tail = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()[-400:]
             _DEPLOY[token_id] = {"state": "done" if ok else "error", "msg": tail}
+            if ok:
+                try:
+                    settings.set_account_deployed(token_id, True)   # 재시작에도 유지
+                except Exception:
+                    pass
         except Exception as e:
             _DEPLOY[token_id] = {"state": "error", "msg": str(e)[:200]}
 

@@ -170,8 +170,11 @@ def set_modal_accounts(accts: list) -> None:
         tid = (a.get("token_id") or "").strip()
         tsec = (a.get("token_secret") or "").strip()
         if tid and tsec:
-            clean.append({"token_id": tid, "token_secret": tsec,
-                          "label": (a.get("label") or "").strip()})
+            entry = {"token_id": tid, "token_secret": tsec,
+                     "label": (a.get("label") or "").strip()}
+            if a.get("deployed"):          # 배포 성공 플래그 보존(재시작에도 유지)
+                entry["deployed"] = True
+            clean.append(entry)
     try:
         cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
     except Exception:
@@ -179,6 +182,18 @@ def set_modal_accounts(accts: list) -> None:
     cur["modal_accounts"] = clean
     LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
     LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def set_account_deployed(token_id: str, deployed: bool = True) -> None:
+    """계정의 배포 성공 플래그를 영속화(재시작 후에도 '배포됨' 표시)."""
+    accts = get_modal_accounts()
+    hit = False
+    for a in accts:
+        if a.get("token_id") == token_id:
+            a["deployed"] = bool(deployed)
+            hit = True
+    if hit:
+        set_modal_accounts(accts)
 
 
 def modal_accounts_masked() -> list[dict]:

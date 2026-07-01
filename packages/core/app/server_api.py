@@ -549,12 +549,16 @@ def modal_accounts_status():
     for a in settings.get_modal_accounts():
         cost = usage.modal_account_cost(a["token_id"])
         dep = modal_pool.deploy_status(a["token_id"])
+        state = dep.get("state", "unknown")
+        # 라이브 상태가 없으면(재시작 등) 영속 배포플래그로 폴백.
+        if state == "unknown" and a.get("deployed"):
+            state = "done"
         out.append({
             "label": a.get("label", ""),
             "masked": settings._mask(a["token_id"]),
             "cost": round(cost, 2),
             "remaining": round(max(0.0, lim - cost), 2),
-            "deploy": dep.get("state", "unknown"),        # unknown|deploying|done|error
+            "deploy": state,                              # unknown|deploying|done|error
             "deploy_msg": (dep.get("msg") or "")[-160:],
         })
     return {"accounts": out, "limit": lim}

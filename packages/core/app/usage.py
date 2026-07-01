@@ -180,6 +180,8 @@ def snapshot() -> dict:
     m_cost = mo.get("cost", 0.0)
     rpd, tpm = lim["gemini_rpd"], lim["gemini_tpm"]
     tts_lim, modal_lim = lim["tts_chars"], lim["modal_credit"]
+    # 풀 계정 수(0이면 기본 계정 1개로 폴백) — Modal 크레딧 합산 기준.
+    n_modal = max(1, len(settings.get_modal_accounts()))
     return {
         "gemini": {
             "calls": g_calls,
@@ -198,13 +200,15 @@ def snapshot() -> dict:
             "remaining": max(0, tts_lim - t_chars),
             "reset": _next_monthly_reset_kst(),    # 매월 1일
         },
+        # Modal 복수 계정이면 크레딧 합산: 총한도 = 계정당 한도 × 계정수, 총사용 = m_cost.
         "modal": {
             "jobs": mo.get("jobs", 0),
             "seconds": mo.get("seconds", 0.0),
             "cost": round(m_cost, 2),
             "gpu": mo.get("gpu"),
-            "limit": modal_lim,
-            "remaining": round(max(0.0, modal_lim - m_cost), 2),
+            "limit": round(modal_lim * n_modal, 2),
+            "remaining": round(max(0.0, modal_lim * n_modal - m_cost), 2),
+            "accounts": n_modal,                   # 합산한 계정 수
             "reset": _next_monthly_reset_kst(),    # 매월 1일(크레딧 리셋)
         },
     }
