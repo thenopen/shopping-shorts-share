@@ -111,7 +111,7 @@ function StageBadges({ stages }: { stages: Stages }) {
 
 // 헤더 우측 API 잔여 한도 배지 — /usage 8초 폴링. 무료티어는 잔여 quota API가 없어
 // '한도 − 우리 사용량'으로 남은 양을 계산(이 키를 이 앱만 쓸 때 정확). 리셋시각은 (?)에.
-function QuotaBadge({ refreshKey }: { refreshKey: number }) {
+function QuotaBadge({ refreshKey, active }: { refreshKey: number; active: boolean }) {
   const [u, setU] = useState<Usage | null>(null);
   const [cool, setCool] = useState(0);
   useEffect(() => {
@@ -126,10 +126,11 @@ function QuotaBadge({ refreshKey }: { refreshKey: number }) {
         setCool(j.gemini?.cooldown ?? 0);
       } catch {}
     };
-    load();
-    const id = setInterval(load, 8000);
+    load();  // active 토글(작업 시작/종료) 시 즉시 1회 → 완료 직후 최종 사용량 반영
+    // 처리 중엔 2.5s로 빠르게(사용량 실시간 반영), 유휴 시 8s.
+    const id = setInterval(load, active ? 2500 : 8000);
     return () => { live = false; clearInterval(id); };
-  }, [refreshKey]);
+  }, [refreshKey, active]);
   // 소진 쿨다운은 1초씩 로컬 감소(폴링 사이에도 부드럽게).
   useEffect(() => {
     if (cool <= 0) return;
@@ -1085,7 +1086,7 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-2.5">
-          <QuotaBadge refreshKey={usageRefresh} />
+          <QuotaBadge refreshKey={usageRefresh} active={busy || scriptBusy} />
           <button
             onClick={() => setSettingsOpen(true)}
             title="설정 · API 키/한도"
