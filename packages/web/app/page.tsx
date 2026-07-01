@@ -114,6 +114,11 @@ function normLines(arr: CaptionLineData[] | undefined | null): CaptionLineData[]
   return (arr || []).map((l) => ({ text: l.text, start: l.start, end: l.end, style: l.style ?? null }));
 }
 
+// catch 블록 공용 — Error면 그 메시지, 아니면 fallback.
+function errMsg(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback;
+}
+
 // 재사용 진입점 표시 — 원본/자막제거/대본 중 어디까지 캐시되어 있는지(✓/○).
 function StageBadges({ stages }: { stages: Stages }) {
   const items: [keyof Stages, string][] = [["source", "원본"], ["nosub", "자막제거"], ["script", "대본"]];
@@ -298,7 +303,7 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
       onDeploy();   // 추가 즉시 자동 배포 시작 → 헤더 배포중 감시
 
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "계정 추가 실패");
+      alert(errMsg(e, "계정 추가 실패"));
     } finally {
       setAcctBusy(false);
     }
@@ -317,7 +322,7 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
       loadAccts();  // 배포중 상태 반영 시작
       onDeploy();   // 헤더 배포중 감시 시작
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "배포 시작 실패");
+      alert(errMsg(e, "배포 시작 실패"));
     }
   }
   async function testNewAcct() {
@@ -354,7 +359,7 @@ function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; on
       if (!r.ok) alert("일부 저장 실패:\n" + Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
       onSaved();
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "저장 실패");
+      alert(errMsg(e, "저장 실패"));
     } finally {
       setSaving(false);
     }
@@ -788,7 +793,7 @@ export default function Home() {
         }
       }
     } catch (e) {
-      setProductErr(e instanceof Error && e.message ? e.message : "대본 생성 실패. 서버 상태를 확인하세요.");
+      setProductErr(errMsg(e, "대본 생성 실패. 서버 상태를 확인하세요."));
     } finally {
       setProductBusy(false);
     }
@@ -988,7 +993,7 @@ export default function Home() {
       // 결과 영상/대본이 아래에 바로 뜸 — 이어서 대본생성/렌더 진행
       alert(`이어하기 완료 · ${lbl[r.loaded] || r.loaded}까지 불러왔어요. 아래에서 이어서 진행하세요.`);
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "이어하기 실패");
+      alert(errMsg(e, "이어하기 실패"));
     }
   }
 
@@ -1002,7 +1007,7 @@ export default function Home() {
       setQFrames(r.frames || []);
       setQEngine(r.engine ?? null);
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "품질 확인 실패");
+      alert(errMsg(e, "품질 확인 실패"));
     } finally {
       setQBusy(false);
     }
@@ -1096,7 +1101,7 @@ export default function Home() {
       setCapEditPrev(prev);
       setCaptionLines(next);
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "자막 다듬기 실패.");
+      alert(errMsg(e, "자막 다듬기 실패."));
     } finally {
       setCapEditBusy(false);
       bumpUsage();
