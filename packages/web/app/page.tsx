@@ -1192,6 +1192,8 @@ export default function Home() {
   }
 
   const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
+  // 자막제거본(nosub) 전용 — 미리보기·품질확인은 이걸 쓰고, 완성 영상은 아래 전용 섹션에서(중복 방지).
+  const nosubUrl = job?.preview ? `${apiBase()}${job.preview}` : null;
   // 상대경로 → 절대경로(외부 기기/공유시 동작). 다운로드·공유 링크에만 적용.
   const absUrl = (rel: string) => (typeof window !== "undefined" ? new URL(rel, window.location.origin).href : rel);
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
@@ -1481,13 +1483,13 @@ export default function Home() {
 
           {job?.error && <p className="mt-3 rounded-2xl bg-rose-100/70 px-4 py-3 text-xs font-medium text-rose-600 backdrop-blur">오류: {job.error}</p>}
 
-          {previewUrl && (
+          {nosubUrl && (
             <div className="mt-6 flex flex-col items-center gap-2.5 rounded-3xl glass-soft p-5">
               <div className="flex w-full items-center justify-between text-xs font-semibold text-[var(--ink-soft)]">
-                <span>{job?.output ? "✨ 완성 영상" : "자막 제거 미리보기"}</span>
+                <span>자막 제거 미리보기 <span className="font-medium opacity-70">(자막·워터마크 제거 결과)</span></span>
                 {busy && <span>{job?.stage} · {job?.progress}%</span>}
               </div>
-              <video key={previewUrl} src={previewUrl} controls className="max-h-[440px] rounded-2xl bg-black/80 shadow-lg" style={{ aspectRatio: "9/16" }} />
+              <video key={nosubUrl} src={nosubUrl} controls className="max-h-[440px] rounded-2xl bg-black/80 shadow-lg" style={{ aspectRatio: "9/16" }} />
 
               {/* 자막 제거 품질 확인 — 군데군데 원본 vs 제거본 비교(잔상·번짐 눈으로 잡기) */}
               {job?.id && (
