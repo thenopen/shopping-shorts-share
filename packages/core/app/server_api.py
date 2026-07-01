@@ -542,17 +542,20 @@ def test_settings(req: SettingsTestReq):
 
 @app.get("/modal/accounts")
 def modal_accounts_status():
-    """로테이션 풀 각 계정의 마스킹 + 이번달 추정 사용액/잔여 크레딧."""
-    from app import settings, usage
+    """로테이션 풀 각 계정의 마스킹 + 이번달 추정 사용액/잔여 크레딧 + 배포 상태."""
+    from app import settings, usage, modal_pool
     lim = settings.get_limits().get("modal_credit", 30.0)
     out = []
     for a in settings.get_modal_accounts():
         cost = usage.modal_account_cost(a["token_id"])
+        dep = modal_pool.deploy_status(a["token_id"])
         out.append({
             "label": a.get("label", ""),
             "masked": settings._mask(a["token_id"]),
             "cost": round(cost, 2),
             "remaining": round(max(0.0, lim - cost), 2),
+            "deploy": dep.get("state", "unknown"),        # unknown|deploying|done|error
+            "deploy_msg": (dep.get("msg") or "")[-160:],
         })
     return {"accounts": out, "limit": lim}
 
@@ -565,13 +568,31 @@ class ModalAccountReq(BaseModel):
 
 @app.post("/modal/accounts/add")
 def modal_account_add(req: ModalAccountReq):
-    """계정 추가(기존 시크릿 재전송 없이). 성공 시 갱신된 목록 반환."""
-    from app import settings
+    """계정 추가(기존 시크릿 재전송 없이) + 그 계정에 자동 배포(백그라운드). 갱신 목록 반환."""
+    from app import settings, modal_pool
     try:
         settings.add_modal_account(req.token_id, req.token_secret, req.label)
     except Exception as e:
         raise HTTPException(400, str(e)[:140]) from e
+    # 추가 즉시 그 계정 워크스페이스에 shorts-propainter 배포 시작(사용자가 CLI 없이 활성화).
+    modal_pool.deploy_account(req.token_id, req.token_secret)
     return modal_accounts_status()
+
+
+class ModalDeployReq(BaseModel):
+    index: int
+
+
+@app.post("/modal/accounts/deploy")
+def modal_account_deploy(req: ModalDeployReq):
+    """풀의 index 계정에 shorts-propainter 재배포(백그라운드). 상태는 /modal/accounts에."""
+    from app import settings, modal_pool
+    accts = settings.get_modal_accounts()
+    if not (0 <= req.index < len(accts)):
+        raise HTTPException(400, "bad index")
+    a = accts[req.index]
+    modal_pool.deploy_account(a["token_id"], a["token_secret"])
+    return {"ok": True, "state": "deploying"}
 
 
 @app.delete("/modal/accounts/{index}")

@@ -208,7 +208,7 @@ type LibraryEntry = {
 };
 
 type TestResult = { ok: boolean; msg: string } | "loading";
-type ModalAcct = { label: string; masked: string; cost: number; remaining: number };
+type ModalAcct = { label: string; masked: string; cost: number; remaining: number; deploy: string; deploy_msg: string };
 
 // 설정 패널 — API 키/토큰/한도를 사이트에서 입력·저장. 키는 서버에만 저장되고
 // 화면엔 마스킹(끝 4자리)만. 빈칸은 기존값 유지. 저장 시 배지도 갱신(onSaved).
@@ -248,6 +248,13 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     return () => { live = false; };
   }, []);
 
+  // 배포 진행 중인 계정이 있으면 4초마다 상태 폴링(첫 배포는 이미지 빌드로 수 분).
+  useEffect(() => {
+    if (!modalAccts.some((a) => a.deploy === "deploying")) return;
+    const id = setInterval(loadAccts, 4000);
+    return () => clearInterval(id);
+  }, [modalAccts]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function loadAccts() {
     try {
       const r = await fetch(`${apiBase()}/modal/accounts`);
@@ -278,6 +285,14 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
       setModalAccts(j.accounts || []);
       onSaved();
     } catch {}
+  }
+  async function deployAccount(i: number) {
+    try {
+      await postJSON("/modal/accounts/deploy", { index: i });
+      loadAccts();  // 배포중 상태 반영 시작
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "배포 시작 실패");
+    }
   }
   async function testNewAcct() {
     if (!newAcct.token_id.trim() || !newAcct.token_secret.trim()) return;
@@ -401,17 +416,29 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         {/* Modal 계정 풀 — 여러 계정 로테이션(병렬 처리·크레딧 분산·페일오버) */}
         <div className="mb-4 rounded-2xl bg-white/40 p-3">
           <div className="mb-1 text-sm font-bold text-[var(--ink)]">Modal 계정 풀 · 로테이션 <span className="font-medium text-[var(--ink-soft)]">(여러 영상 병렬)</span></div>
-          <p className="mb-2 text-[11px] leading-relaxed text-amber-700">⚠ 무료계정 다수로 크레딧 불리기는 ToS 멀티어카운팅 위반 소지(정지 위험). 배포는 대표 계정 1개로만.</p>
+          <p className="mb-2 text-[11px] leading-relaxed text-amber-700">⚠ 무료계정 다수로 크레딧 불리기는 ToS 멀티어카운팅 위반 소지(정지 위험). 계정 추가하면 그 계정에 자동 배포됨(첫 배포는 이미지 빌드로 수 분).</p>
           {modalAccts.length > 0 ? (
             <div className="mb-2 flex flex-col gap-1">
-              {modalAccts.map((a, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-[11px]">
-                  <span className="font-bold text-[var(--ink)]">{a.label || `계정 ${i + 1}`}</span>
-                  <span className="text-[var(--ink-soft)]">{a.masked}</span>
-                  <span className={`ml-auto font-semibold ${a.remaining <= 0 ? "text-rose-500" : "text-emerald-600"}`}>{`$${a.remaining} 남음`}</span>
-                  <button onClick={() => delAcct(i)} className="font-semibold text-rose-500 hover:underline">삭제</button>
-                </div>
-              ))}
+              {modalAccts.map((a, i) => {
+                const dep = a.deploy;
+                const depChip =
+                  dep === "done" ? <span className="text-emerald-600">✓ 배포됨</span>
+                    : dep === "deploying" ? <span className="text-amber-600">⏳ 배포중…</span>
+                      : dep === "error" ? <span className="text-rose-500" title={a.deploy_msg}>✗ 배포실패</span>
+                        : <span className="text-[var(--ink-soft)]/70">미배포</span>;
+                return (
+                  <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-white/60 px-2.5 py-1.5 text-[11px]">
+                    <span className="font-bold text-[var(--ink)]">{a.label || `계정 ${i + 1}`}</span>
+                    <span className="text-[var(--ink-soft)]">{a.masked}</span>
+                    {depChip}
+                    <span className={`ml-auto font-semibold ${a.remaining <= 0 ? "text-rose-500" : "text-emerald-600"}`}>{`$${a.remaining} 남음`}</span>
+                    <button onClick={() => deployAccount(i)} disabled={dep === "deploying"} className="font-semibold text-[var(--accent-deep)] hover:underline disabled:opacity-50">
+                      {dep === "done" ? "재배포" : "배포"}
+                    </button>
+                    <button onClick={() => delAcct(i)} className="font-semibold text-rose-500 hover:underline">삭제</button>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p className="mb-2 text-[11px] text-[var(--ink-soft)]">등록된 계정 없음 — 비어있으면 대표 계정 1개로 동작.</p>

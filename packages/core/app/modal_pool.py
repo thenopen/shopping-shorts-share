@@ -24,7 +24,11 @@ Modal Function 배포(`modal deploy infra/modal_propainter.py`) — 기술적 �
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import threading
+from pathlib import Path
 
 from app import settings, usage
 
@@ -97,6 +101,52 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes, **kwargs) -> dict:
             print(f"[modal_pool] '{label}' 실패 → 다음 계정: {str(e)[:120]}")
             continue
     raise RuntimeError(f"모든 Modal 계정 실패: {str(last_err)[:200]}")
+
+
+# ---- 계정 활성화(배포) — 사용자가 추가한 계정 워크스페이스에 shorts-propainter를
+#      서버가 대신 `modal deploy`. 첫 배포는 이미지 빌드(torch+가중치)로 수 분.
+_DEPLOY: dict[str, dict] = {}   # token_id -> {"state": queued|deploying|done|error, "msg"}
+
+
+def _modal_exe() -> str:
+    p = Path(sys.executable).parent / "modal.exe"
+    return str(p) if p.exists() else "modal"
+
+
+def deploy_status(token_id: str) -> dict:
+    return _DEPLOY.get(token_id, {"state": "unknown", "msg": ""})
+
+
+def deploy_account(token_id: str, token_secret: str) -> None:
+    """그 계정으로 shorts-propainter 배포(백그라운드 스레드). 상태는 deploy_status로 조회.
+
+    토큰은 서브프로세스 env(MODAL_TOKEN_ID/SECRET)로만 전달 — stdout에 노출하지 않음.
+    """
+    token_id, token_secret = (token_id or "").strip(), (token_secret or "").strip()
+    if not (token_id and token_secret):
+        return
+    _DEPLOY[token_id] = {"state": "deploying", "msg": ""}
+    core_root = str(Path(__file__).resolve().parent.parent)   # packages/core
+
+    def _run():
+        env = dict(os.environ)
+        env["MODAL_TOKEN_ID"] = token_id
+        env["MODAL_TOKEN_SECRET"] = token_secret
+        env.pop("MODAL_PROFILE", None)          # 프로필 대신 env 토큰 우선
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        try:
+            r = subprocess.run(
+                [_modal_exe(), "deploy", "infra/modal_propainter.py"],
+                cwd=core_root, env=env, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=1800)
+            ok = r.returncode == 0
+            tail = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()[-400:]
+            _DEPLOY[token_id] = {"state": "done" if ok else "error", "msg": tail}
+        except Exception as e:
+            _DEPLOY[token_id] = {"state": "error", "msg": str(e)[:200]}
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def test_account(token_id: str, token_secret: str) -> dict:
