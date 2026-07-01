@@ -1660,21 +1660,26 @@ export default function Home() {
             </div>
             <Switch on={captionsOn} onToggle={() => setCaptionsOn((v) => !v)} ariaLabel="자동 자막 토글" />
           </div>
-          <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
-          <div className="mt-4">
-            <CaptionTimeline
-              lines={captionLines}
-              onChange={setCaptionLines}
-              defaultStyle={captionStyle}
-              onGenerate={genCaptions}
-              generating={capBusy}
-              hasScript={!!job?.id && !!script.trim()}
-              onAiEdit={editCaptions}
-              aiEditBusy={capEditBusy}
-              onUndoEdit={undoCaptionEdit}
-              canUndoEdit={!!capEditPrev}
-            />
-          </div>
+          {/* 자막 스타일·타임라인은 자동자막 켤 때만 노출(끄면 감춤 — 화면 단순화) */}
+          {captionsOn && (
+            <>
+              <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
+              <div className="mt-4">
+                <CaptionTimeline
+                  lines={captionLines}
+                  onChange={setCaptionLines}
+                  defaultStyle={captionStyle}
+                  onGenerate={genCaptions}
+                  generating={capBusy}
+                  hasScript={!!job?.id && !!script.trim()}
+                  onAiEdit={editCaptions}
+                  aiEditBusy={capEditBusy}
+                  onUndoEdit={undoCaptionEdit}
+                  canUndoEdit={!!capEditPrev}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {job?.output && (
