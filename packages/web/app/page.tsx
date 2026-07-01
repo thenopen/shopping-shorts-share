@@ -1447,17 +1447,6 @@ export default function Home() {
               );
             })()}
 
-            {/* 음성 생성 전 대본 확인 및 수정 */}
-            <details className="mt-3" open={!!script}>
-              <summary className="cursor-pointer text-xs font-semibold text-[var(--ink-soft)]">음성 생성 전 대본 확인 및 수정 ▾</summary>
-              <textarea
-                value={script}
-                onChange={(e) => commitScript(e.target.value)}
-                placeholder="여기서 대본을 확인하고 음성 생성 전에 자유롭게 수정하세요."
-                rows={5}
-                className="mt-2 w-full rounded-xl bg-white/85 px-4 py-2.5 text-sm leading-relaxed text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]/60"
-              />
-            </details>
           </div>
 
           {(busy || scriptBusy) && job?.status !== "done" && <PipelineProgress job={job} />}
