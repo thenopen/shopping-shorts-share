@@ -746,6 +746,7 @@ export default function Home() {
         video_content: script, // 현재 대본/영상내용과 결합
         combine: true,
       });
+      if (d.debug?.length) console.log("[제품대본 DEBUG] 전 과정 ↓\n" + d.debug.join("\n"));
       if (d.error) {
         setProductErr(d.error);
         if (d.selling_points) setSellingPoints(d.selling_points);

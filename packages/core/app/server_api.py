@@ -330,11 +330,16 @@ def script_product(req: ProductScriptReq):
     if not (req.product_url.strip() or images or req.manual_points.strip()):
         raise HTTPException(400, "product_url·product_images·manual_points 중 하나가 필요합니다.")
 
+    debug: list = []
+    debug.append(f"입력: url={'있음' if req.product_url.strip() else '없음'}, 이미지 {len(images)}장, "
+                 f"manual={'있음' if req.manual_points.strip() else '없음'}, "
+                 f"영상내용 {len(req.video_content or '')}자, combine={req.combine}")
     try:
         sp = extract_selling_points(
             url=req.product_url or None,
             images=images or None,
             manual=req.manual_points or None,
+            debug=debug,
         )
     except Exception as e:
         raise HTTPException(500, f"소구포인트 추출 실패: {str(e)[:300]}") from e
@@ -342,14 +347,16 @@ def script_product(req: ProductScriptReq):
     points = sp.get("points", "")
     if not points and sp.get("error"):
         # 크롤 차단 등 — 포인트 못 뽑음. 사유 그대로 전달(웹이 폴백 안내).
+        debug.append(f"■ 종료: 소구포인트 못 뽑음 (사유: {sp['error'][:140]})")
         return {"selling_points": "", "script": "", "source": sp.get("source", ""),
-                "site": sp.get("site", ""), "error": sp["error"]}
+                "site": sp.get("site", ""), "error": sp["error"], "debug": debug}
 
     script = ""
     if req.combine:
-        script = product_script(req.video_content, points)
+        script = product_script(req.video_content, points, debug=debug)
+    debug.append(f"■ 완료: 소구포인트 {len(points)}자, 대본 {len(script)}자")
     return {"selling_points": points, "script": script,
-            "source": sp.get("source", ""), "site": sp.get("site", ""), "error": ""}
+            "source": sp.get("source", ""), "site": sp.get("site", ""), "error": "", "debug": debug}
 
 
 def _decode_image_b64(s: str) -> bytes | None:

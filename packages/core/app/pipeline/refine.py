@@ -107,29 +107,39 @@ PRODUCT_SCRIPT_PROMPT = """너는 한국 쇼핑 숏츠 대본 작가다.
 """
 
 
-def product_script(video_content: str, selling_points: str) -> str:
+def product_script(video_content: str, selling_points: str, debug: list | None = None) -> str:
     """영상내용 + 제품 소구포인트 → 결합 대본(제품명 직접언급 회피).
 
     제품 상세페이지 정보를 의도적으로 주입하는 경로라 refine_script의
     '원문에 없는 속성 추가 금지' 안전필터를 적용하지 않는다(소구포인트는
-    실제 상세페이지 근거가 있는 사실).
+    실제 상세페이지 근거가 있는 사실). debug(list)면 단계 append.
     """
+    def _d(m):
+        if debug is not None:
+            debug.append(m)
+        print(f"[제품대본] {m}", flush=True)
+
     video_content = (video_content or "").strip()
     selling_points = (selling_points or "").strip()
     if not selling_points:
+        _d("대본 결합 생략: 소구포인트 없음 → 영상내용 그대로")
         return video_content
     key = _api_key()
     if not key:
+        _d("대본 결합 생략: Gemini 키 없음 → 영상내용 그대로")
         return video_content
+    _d(f"대본 결합(Gemini {MODEL}): 영상내용 {len(video_content)}자 + 소구포인트 {len(selling_points)}자")
     try:
         prompt = PRODUCT_SCRIPT_PROMPT.format(
             video=video_content or "(영상 내용 없음 — 소구포인트 중심으로 작성)",
             points=selling_points,
         )
         out = _call_gemini(prompt)
-        return _narration_only(out) or video_content
+        result = _narration_only(out) or video_content
+        _d(f"→ 결합 대본 생성 성공: {len(result)}자")
+        return result
     except Exception as e:
-        print(f"  [product_script failed, keeping video content: {str(e)[:120]}]")
+        _d(f"✗ 대본 생성 실패, 영상내용 유지: {str(e)[:120]}")
         return video_content
 
 

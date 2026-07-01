@@ -162,53 +162,77 @@ def points_from_text(text: str) -> str:
 def extract_selling_points(url: str | None = None,
                            image_bytes: bytes | None = None,
                            images: list[bytes] | None = None,
-                           manual: str | None = None) -> dict:
+                           manual: str | None = None,
+                           debug: list | None = None) -> dict:
     """제품 소구포인트 추출. {points, source, site, error} 반환.
 
     우선순위: manual(직접입력) > images(업로드 캡처, 여러 장 가능) > url(크롤).
     url 크롤 시 텍스트+스크린샷 둘 다 Gemini에 줘서 이미지 상세까지 반영.
+    debug(list)가 주어지면 각 단계를 append(웹 F12 콘솔용).
     """
-    out = {"points": "", "source": "", "site": "", "error": ""}
+    def _d(m):
+        if debug is not None:
+            debug.append(m)
+        print(f"[제품대본] {m}", flush=True)
 
-    if manual and manual.strip():
-        out["points"] = manual.strip()
-        out["source"] = "manual"
-        return out
+    out = {"points": "", "source": "", "site": "", "error": ""}
 
     imgs = list(images or [])
     if image_bytes:
         imgs.append(image_bytes)
     imgs = [i for i in imgs if i]
+    _d(f"소구포인트 입력: manual={'있음' if manual and manual.strip() else '없음'}, "
+       f"이미지 {len(imgs)}장, url={'있음' if url and url.strip() else '없음'}")
+
+    if manual and manual.strip():
+        out["points"] = manual.strip()
+        out["source"] = "manual"
+        _d(f"→ 직접 입력 소구포인트 사용({len(out['points'])}자, 크롤·Gemini 생략)")
+        return out
+
     if imgs:
+        _d(f"→ 업로드 이미지 {len(imgs)}장 Gemini 비전({VISION_MODEL}) 분석…")
         try:
             out["points"] = points_from_images(imgs)
             out["source"] = f"image x{len(imgs)}"
+            _d(f"→ 이미지 분석 성공: 소구포인트 {len(out['points'])}자")
             return out
         except Exception as e:
             out["error"] = f"이미지 분석 실패: {str(e)[:160]}"
+            _d(f"✗ 이미지 분석 실패: {str(e)[:160]}")
             return out
 
     if url and url.strip():
+        site = detect_site(url)
+        _d(f"→ URL 크롤 시도: site={site} (playwright stealth)")
         scraped = scrape_url(url.strip())
         out["site"] = scraped["site"]
         if scraped["ok"]:
+            _d(f"→ 크롤 성공: 텍스트 {len(scraped['text'])}자, "
+               f"스크린샷 {'있음' if scraped['image_bytes'] else '없음'}")
             try:
                 # 스크린샷(이미지 상세) 우선, 실패 시 텍스트
                 if scraped["image_bytes"]:
+                    _d("→ 스크린샷 Gemini 비전 분석…")
                     out["points"] = points_from_image(scraped["image_bytes"])
                     out["source"] = "url+vision"
                 else:
+                    _d("→ 텍스트 Gemini 분석…")
                     out["points"] = points_from_text(scraped["text"])
                     out["source"] = "url+text"
+                _d(f"→ 소구포인트 추출 성공: {len(out['points'])}자 (source={out['source']})")
                 return out
             except Exception as e:
                 out["error"] = f"소구포인트 추출 실패: {str(e)[:160]}"
+                _d(f"✗ Gemini 소구포인트 추출 실패: {str(e)[:160]}")
                 return out
         else:
             out["error"] = scraped["error"]
+            _d(f"✗ 크롤 실패/차단: {scraped['error'][:160]}")
             return out
 
     out["error"] = "제품 URL·이미지·수동입력 중 하나가 필요합니다."
+    _d("✗ 입력 없음")
     return out
 
 
