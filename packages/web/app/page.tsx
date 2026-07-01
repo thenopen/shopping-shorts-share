@@ -1368,7 +1368,7 @@ export default function Home() {
             {/* 캡처 업로드(여러 장) — 파일 선택 또는 Ctrl+V 붙여넣기. 쿠팡 등 차단 사이트 폴백 */}
             <div className="mt-2.5">
               {/* 캡쳐 버튼: 모바일선 위 '소구포인트→대본' 버튼과 같은 full-width */}
-              <label className="flex w-full cursor-pointer items-center justify-center whitespace-nowrap rounded-full bg-white/70 px-7 py-3 text-sm font-bold text-[var(--ink)] backdrop-blur transition hover:bg-white/90 md:w-auto md:justify-start md:py-2 md:text-[13px] md:font-semibold">
+              <label className={`flex w-full cursor-pointer items-center justify-center whitespace-nowrap rounded-full bg-white/70 px-7 py-3 text-sm font-bold text-[var(--ink)] backdrop-blur transition hover:bg-white/90 md:w-auto md:justify-start md:py-2 md:text-[13px] md:font-semibold ${productErr && productImages.length === 0 ? "ring-2 ring-amber-400" : ""}`}>
                 📷 캡쳐 이미지 올리기
                 <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImageFiles(e.target.files); e.target.value = ""; }} />
               </label>
@@ -1578,10 +1578,12 @@ export default function Home() {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <label className="text-sm font-bold text-[var(--ink)]">한국어 대본</label>
               <div className="flex flex-wrap gap-2">
-                <button onClick={genScript} disabled={!job?.id || scriptBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                <button onClick={genScript} disabled={!job?.id || scriptBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                  {scriptBusy && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
                   {scriptBusy ? "생성 중..." : "자동 대본 생성"}
                 </button>
-                <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                  {refineBusy && <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-fuchsia-300 border-t-fuchsia-600" />}
                   {refineBusy ? "가공 중..." : "AI로 가공"}
                 </button>
                 <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
