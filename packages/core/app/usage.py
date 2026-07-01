@@ -125,8 +125,11 @@ def _modal_cost(seconds: float, gpu: str) -> float:
     return float(seconds or 0) / 3600.0 * price
 
 
-def record_modal(seconds: float, gpu: str = "") -> None:
-    """Modal ProPainter 1건 집계(GPU초 + 추정 비용, 월 단위 = 크레딧 리셋 주기)."""
+def record_modal(seconds: float, gpu: str = "", account_id: str = "") -> None:
+    """Modal ProPainter 1건 집계(GPU초 + 추정 비용, 월 단위 = 크레딧 리셋 주기).
+
+    account_id가 주어지면 전체 집계와 함께 계정별 버킷에도 누적(로테이션 잔여 계산용).
+    """
     cost = _modal_cost(seconds, gpu)
     with _LOCK:
         d = _load()
@@ -139,7 +142,26 @@ def record_modal(seconds: float, gpu: str = "") -> None:
         mo["cost"] = round(mo.get("cost", 0.0) + cost, 4)
         if gpu:
             mo["gpu"] = gpu
+        if account_id:
+            accts = d.setdefault("modal_accts", {})
+            a = accts.setdefault(account_id, {})
+            if a.get("month") != _month():
+                a.clear()
+                a["month"] = _month()
+            a["jobs"] = a.get("jobs", 0) + 1
+            a["seconds"] = round(a.get("seconds", 0.0) + float(seconds or 0), 1)
+            a["cost"] = round(a.get("cost", 0.0) + cost, 4)
         _save(d)
+
+
+def modal_account_cost(account_id: str) -> float:
+    """이번 달 해당 계정의 추정 사용액($). 지난달 버킷이면 0."""
+    with _LOCK:
+        d = _load()
+    a = (d.get("modal_accts", {}) or {}).get(account_id, {}) or {}
+    if a.get("month") != _month():
+        return 0.0
+    return float(a.get("cost", 0.0))
 
 
 def snapshot() -> dict:

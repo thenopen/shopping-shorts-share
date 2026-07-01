@@ -1,0 +1,111 @@
+"""Modal 멀티계정 풀 — 여러 계정을 돌려 자막제거(ProPainter)를 실행.
+
+계정마다 modal.Client.from_credentials로 별도 클라이언트를 만들어(스레드-세이프),
+Function.from_name(client=...)로 그 계정 워크스페이스의 배포 함수를 호출한다.
+- 선택: 이번 달 잔여 크레딧이 가장 많은 계정 우선(usage 집계 기반).
+- 페일오버: 크레딧 소진·오류 시 다음 계정으로 자동 재시도.
+- 계정별 사용량(GPU초·비용)을 usage에 계정 키로 기록.
+
+배포(deploy)는 '하나(대표) 계정'으로만 수행한다 — 여러 계정에 동시배포하지 않는다.
+  · 즉 `modal deploy infra/modal_propainter.py`는 대표 배포계정 1개에서 1회만.
+  · 런타임 호출만 풀에서 여러 계정을 로테이션한다(배포는 고정, 실행만 분산).
+  · 주의: Modal 워크스페이스는 계정별 독립이라, 배포가 없는 계정 클라이언트로
+    from_name 하면 그 계정은 실패→다음 계정으로 페일오버된다. 어떤 계정으로도
+    compute를 실제 분산하려면 그 계정 워크스페이스에도 배포가 있어야 함
+    (그 경우엔 활성계정을 전환해가며 계정별로 modal deploy).
+계정 목록은 설정(settings)에서 관리.
+
+주의(ToS): 무료 크레딧을 불리려 무료계정을 다수 돌리는 것은 provider 약관상
+멀티어카운팅에 걸릴 수 있음(계정 정지 위험). 사용자 책임.
+"""
+
+from __future__ import annotations
+
+import threading
+
+from app import settings, usage
+
+APP_NAME = "shorts-propainter"
+FN_NAME = "run_propainter"
+
+_CLIENTS: dict[str, object] = {}   # token_id -> modal.Client (재사용)
+_LOCK = threading.Lock()
+
+
+def _client(token_id: str, token_secret: str):
+    with _LOCK:
+        c = _CLIENTS.get(token_id)
+        if c is None:
+            import modal
+            c = modal.Client.from_credentials(token_id, token_secret)
+            _CLIENTS[token_id] = c
+        return c
+
+
+def _pick_order(accts: list[dict]) -> list[dict]:
+    """잔여 크레딧(한도 − 이번달 사용) 많은 순. 소진(≤0.5$ 남음)은 뒤로."""
+    limit = settings.get_limits().get("modal_credit", 30.0)
+
+    def remaining(a):
+        return limit - usage.modal_account_cost(a["token_id"])
+
+    ranked = sorted(accts, key=remaining, reverse=True)
+    live = [a for a in ranked if remaining(a) > 0.5]
+    return live + [a for a in ranked if a not in live]  # 소진분도 최후 시도용으로 유지
+
+
+def available() -> bool:
+    return bool(settings.get_modal_accounts())
+
+
+def run_propainter(frames_tar: bytes, masks_tar: bytes, **kwargs) -> dict:
+    """풀에서 계정을 골라 run_propainter 실행. 실패 시 다음 계정으로 페일오버.
+
+    계정 목록이 비면 기본 클라이언트(~/.modal.toml 활성 프로필)로 1회 시도.
+    """
+    import modal
+
+    accts = settings.get_modal_accounts()
+    if not accts:
+        fn = modal.Function.from_name(APP_NAME, FN_NAME)
+        res = fn.remote(frames_tar, masks_tar, **kwargs)
+        try:
+            usage.record_modal(res.get("seconds", 0), res.get("gpu", ""), account_id="default")
+        except Exception:
+            pass
+        return res
+
+    last_err = None
+    for acct in _pick_order(accts):
+        label = acct.get("label") or acct["token_id"][:8]
+        try:
+            cli = _client(acct["token_id"], acct["token_secret"])
+            fn = modal.Function.from_name(APP_NAME, FN_NAME, client=cli)
+            res = fn.remote(frames_tar, masks_tar, **kwargs)
+            try:
+                usage.record_modal(res.get("seconds", 0), res.get("gpu", ""),
+                                   account_id=acct["token_id"])
+            except Exception:
+                pass
+            print(f"[modal_pool] '{label}' 계정으로 처리 완료")
+            return res
+        except Exception as e:
+            last_err = e
+            print(f"[modal_pool] '{label}' 실패 → 다음 계정: {str(e)[:120]}")
+            continue
+    raise RuntimeError(f"모든 Modal 계정 실패: {str(last_err)[:200]}")
+
+
+def test_account(token_id: str, token_secret: str) -> dict:
+    """계정 하나 검증 — 토큰 + shorts-propainter 배포 확인(실행 안 함).
+
+    from_name은 지연(lazy)이라 핸들만 만든다 → hydrate로 서버 조회를 강제해야
+    토큰·배포 유효성이 실제로 검증된다(안 하면 가짜 토큰도 통과).
+    """
+    try:
+        import modal
+        cli = _client(token_id, token_secret)
+        modal.Function.from_name(APP_NAME, FN_NAME, client=cli).hydrate(client=cli)
+        return {"ok": True, "msg": "토큰·배포 확인"}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)[:160]}

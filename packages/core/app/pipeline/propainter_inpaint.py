@@ -148,16 +148,13 @@ def _run_propainter_modal(frames_dir, masks_dir, result_dir, resize_ratio,
                 t.add(str(p), arcname=p.name)
         return buf.getvalue()
 
-    fn = modal.Function.from_name("shorts-propainter", "run_propainter")
-    res = fn.remote(_tar(frames_dir), _tar(masks_dir), resize_ratio=resize_ratio,
-                    subvideo_length=subvideo_length, neighbor_length=neighbor_length,
-                    mask_dilation=mask_dilation)
-    # Modal GPU 사용량 집계(월 크레딧 소진 추정용): 처리 GPU초 + GPU 이름.
-    try:
-        from app import usage
-        usage.record_modal(res.get("seconds", 0), res.get("gpu", ""))
-    except Exception:
-        pass
+    # 멀티계정 풀에 위임 — 잔여 크레딧 많은 계정 우선 + 페일오버 + 계정별 사용량 집계.
+    # (계정 미설정 시 풀이 기본 클라이언트 1회로 폴백.)
+    from app import modal_pool
+    res = modal_pool.run_propainter(
+        _tar(frames_dir), _tar(masks_dir), resize_ratio=resize_ratio,
+        subvideo_length=subvideo_length, neighbor_length=neighbor_length,
+        mask_dilation=mask_dilation)
     Path(result_dir).mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(res["result_tar"]), mode="r:*") as t:
         t.extractall(str(result_dir))

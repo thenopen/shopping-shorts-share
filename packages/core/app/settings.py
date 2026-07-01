@@ -153,6 +153,62 @@ def _modal_status() -> dict:
     return {"set": bool(tid), "masked": _mask(tid), "profile": name if tid else None}
 
 
+def get_modal_accounts() -> list[dict]:
+    """멀티계정 로테이션 풀(token_id/token_secret/label). settings.json에 보관."""
+    try:
+        v = json.loads(LIMITS_PATH.read_text(encoding="utf-8")).get("modal_accounts")
+        if isinstance(v, list):
+            return [a for a in v if a.get("token_id") and a.get("token_secret")]
+    except Exception:
+        pass
+    return []
+
+
+def set_modal_accounts(accts: list) -> None:
+    clean = []
+    for a in (accts or []):
+        tid = (a.get("token_id") or "").strip()
+        tsec = (a.get("token_secret") or "").strip()
+        if tid and tsec:
+            clean.append({"token_id": tid, "token_secret": tsec,
+                          "label": (a.get("label") or "").strip()})
+    try:
+        cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        cur = {}
+    cur["modal_accounts"] = clean
+    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def modal_accounts_masked() -> list[dict]:
+    """계정 풀의 마스킹 상태(전체 토큰 미포함) — 라벨·끝4자리만."""
+    out = []
+    for a in get_modal_accounts():
+        out.append({"label": a.get("label", ""), "masked": _mask(a["token_id"])})
+    return out
+
+
+def add_modal_account(token_id: str, token_secret: str, label: str = "") -> None:
+    """계정 하나 추가(기존 시크릿 재전송 없이 서버측에서 append)."""
+    token_id, token_secret = (token_id or "").strip(), (token_secret or "").strip()
+    if not (token_id and token_secret):
+        raise ValueError("token_id/token_secret 필요")
+    accts = get_modal_accounts()
+    accts.append({"token_id": token_id, "token_secret": token_secret,
+                  "label": (label or "").strip()})
+    set_modal_accounts(accts)
+
+
+def remove_modal_account(index: int) -> bool:
+    accts = get_modal_accounts()
+    if 0 <= index < len(accts):
+        accts.pop(index)
+        set_modal_accounts(accts)
+        return True
+    return False
+
+
 def status() -> dict:
     """마스킹된 키 상태 + 현재 한도값(전체 키는 절대 미포함)."""
     gem = ""
@@ -172,6 +228,7 @@ def status() -> dict:
         "gemini": {"set": bool(gem), "masked": _mask(gem)},
         "google_tts": {"set": tts_set, "email": tts_email},  # email은 식별용(비밀 아님)
         "modal": _modal_status(),
+        "modal_accounts": modal_accounts_masked(),   # 로테이션 풀(마스킹)
         "limits": get_limits(),
         "download_dir": get_download_dir(),
     }
@@ -204,10 +261,11 @@ def test_tts() -> dict:
 
 
 def test_modal() -> dict:
-    """Modal 토큰 + 배포 확인(run_propainter lookup, 실행 안 함)."""
+    """Modal 토큰 + 배포 확인(hydrate로 서버 조회 강제, 실행은 안 함)."""
     try:
         import modal
-        modal.Function.from_name("shorts-propainter", "run_propainter")
+        # from_name은 지연이라 hydrate로 실제 조회(토큰·배포 유효성 검증).
+        modal.Function.from_name("shorts-propainter", "run_propainter").hydrate()
         return {"ok": True, "msg": "shorts-propainter 배포 확인"}
     except Exception as e:
         return {"ok": False, "msg": str(e)[:160]}

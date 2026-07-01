@@ -411,16 +411,19 @@ class SettingsReq(BaseModel):
     tts_json: str | None = None
     modal_token_id: str | None = None
     modal_token_secret: str | None = None
+    modal_accounts: list | None = None   # 로테이션 풀 [{token_id, token_secret, label}]
     limits: dict | None = None
     download_dir: str | None = None
 
 
-class PreviewUrlReq(BaseModel):
-    url: str
-
-
 class SettingsTestReq(BaseModel):
     service: str
+    token_id: str | None = None      # modal 개별 계정 테스트용(있으면 그 계정 검증)
+    token_secret: str | None = None
+
+
+class PreviewUrlReq(BaseModel):
+    url: str
 
 
 @app.get("/settings")
@@ -460,6 +463,11 @@ def save_settings(req: SettingsReq):
             settings.set_download_dir(req.download_dir)
         except Exception as e:
             errs["download_dir"] = str(e)[:140]
+    if req.modal_accounts is not None:
+        try:
+            settings.set_modal_accounts(req.modal_accounts)
+        except Exception as e:
+            errs["modal_accounts"] = str(e)[:140]
     return {"ok": not errs, "errors": errs, "status": settings.status()}
 
 
@@ -473,8 +481,52 @@ def test_settings(req: SettingsTestReq):
     if s == "tts":
         return settings.test_tts()
     if s == "modal":
+        if req.token_id and req.token_secret:
+            from app import modal_pool
+            return modal_pool.test_account(req.token_id, req.token_secret)
         return settings.test_modal()
     raise HTTPException(400, "unknown service")
+
+
+@app.get("/modal/accounts")
+def modal_accounts_status():
+    """로테이션 풀 각 계정의 마스킹 + 이번달 추정 사용액/잔여 크레딧."""
+    from app import settings, usage
+    lim = settings.get_limits().get("modal_credit", 30.0)
+    out = []
+    for a in settings.get_modal_accounts():
+        cost = usage.modal_account_cost(a["token_id"])
+        out.append({
+            "label": a.get("label", ""),
+            "masked": settings._mask(a["token_id"]),
+            "cost": round(cost, 2),
+            "remaining": round(max(0.0, lim - cost), 2),
+        })
+    return {"accounts": out, "limit": lim}
+
+
+class ModalAccountReq(BaseModel):
+    token_id: str
+    token_secret: str
+    label: str = ""
+
+
+@app.post("/modal/accounts/add")
+def modal_account_add(req: ModalAccountReq):
+    """계정 추가(기존 시크릿 재전송 없이). 성공 시 갱신된 목록 반환."""
+    from app import settings
+    try:
+        settings.add_modal_account(req.token_id, req.token_secret, req.label)
+    except Exception as e:
+        raise HTTPException(400, str(e)[:140]) from e
+    return modal_accounts_status()
+
+
+@app.delete("/modal/accounts/{index}")
+def modal_account_del(index: int):
+    """풀에서 index 계정 제거."""
+    from app import settings
+    return {"ok": settings.remove_modal_account(index), **modal_accounts_status()}
 
 
 @app.post("/preview_url")
@@ -634,27 +686,44 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                 nosub = None
                 engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
                 engine_note = ""       # 폴백 사유 등
-                # GPU 인페인트는 한 번에 하나만(동시 작업 시 8GB VRAM OOM 방지).
-                with gpu_slot(job, wait_stage="GPU 대기 중 (자막 제거 대기열)"):
-                    # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
-                    # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
-                    if segments and os.environ.get("PROPAINTER", "1") != "0":
-                        try:
-                            from app.pipeline.propainter_inpaint import inpaint_with_propainter
-                            job.update(stage="자막 제거 (AI 배경복원)", progress=45)
-                            nosub = inpaint_with_propainter(
-                                source, job_dir / "nosub.mp4", segments,
-                                backend=subtitle_backend, progress_cb=_ip_prog)
-                            engine = f"propainter_{subtitle_backend}"
-                            print(f"  [ProPainter({subtitle_backend}) 자막제거 성공]")
-                        except Exception as pe:
-                            engine_note = str(pe)[:200]
-                            print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
-                            nosub = None
-                    if nosub is None:
-                        nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
-                                                  fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
-                        engine = "lama_fallback" if engine_note else "lama"
+                use_pp = bool(segments) and os.environ.get("PROPAINTER", "1") != "0"
+
+                # 1순위 ProPainter(modal): 클라우드 GPU라 로컬 세마포어 없이 실행 →
+                # 여러 영상이 동시에 자막제거되고, 풀이 계정을 로테이션한다.
+                if use_pp and subtitle_backend == "modal":
+                    try:
+                        from app.pipeline.propainter_inpaint import inpaint_with_propainter
+                        job.update(stage="자막 제거 (클라우드 AI 배경복원)", progress=45)
+                        nosub = inpaint_with_propainter(
+                            source, job_dir / "nosub.mp4", segments,
+                            backend="modal", progress_cb=_ip_prog)
+                        engine = "propainter_modal"
+                        print("  [ProPainter(modal) 자막제거 성공]")
+                    except Exception as pe:
+                        engine_note = str(pe)[:200]
+                        print(f"  [ProPainter(modal) 실패, 로컬 폴백: {engine_note}]")
+                        nosub = None
+
+                # 로컬 GPU 구간(로컬 ProPainter 또는 LaMa)은 세마포어로 직렬화(8GB OOM 방지).
+                if nosub is None:
+                    with gpu_slot(job, wait_stage="GPU 대기 중 (자막 제거 대기열)"):
+                        if use_pp and subtitle_backend == "local":
+                            try:
+                                from app.pipeline.propainter_inpaint import inpaint_with_propainter
+                                job.update(stage="자막 제거 (AI 배경복원)", progress=45)
+                                nosub = inpaint_with_propainter(
+                                    source, job_dir / "nosub.mp4", segments,
+                                    backend="local", progress_cb=_ip_prog)
+                                engine = "propainter_local"
+                                print("  [ProPainter(local) 자막제거 성공]")
+                            except Exception as pe:
+                                engine_note = str(pe)[:200]
+                                print(f"  [ProPainter(local) 실패, LaMa 폴백: {engine_note}]")
+                                nosub = None
+                        if nosub is None:
+                            nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
+                                                      fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+                            engine = "lama_fallback" if engine_note else "lama"
                 job["subtitle_engine"] = engine
                 if engine_note:
                     job["subtitle_engine_note"] = engine_note

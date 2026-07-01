@@ -207,6 +207,7 @@ type LibraryEntry = {
 };
 
 type TestResult = { ok: boolean; msg: string } | "loading";
+type ModalAcct = { label: string; masked: string; cost: number; remaining: number };
 
 // 설정 패널 — API 키/토큰/한도를 사이트에서 입력·저장. 키는 서버에만 저장되고
 // 화면엔 마스킹(끝 4자리)만. 빈칸은 기존값 유지. 저장 시 배지도 갱신(onSaved).
@@ -220,6 +221,10 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   const [dlDir, setDlDir] = useState("");
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<Record<string, TestResult>>({});
+  const [modalAccts, setModalAccts] = useState<ModalAcct[]>([]);       // Modal 로테이션 풀
+  const [newAcct, setNewAcct] = useState({ label: "", token_id: "", token_secret: "" });
+  const [acctBusy, setAcctBusy] = useState(false);
+  const [acctTest, setAcctTest] = useState<TestResult | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -238,8 +243,53 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         setDlDir(j.download_dir || "");
       } catch {}
     })();
+    loadAccts();
     return () => { live = false; };
   }, []);
+
+  async function loadAccts() {
+    try {
+      const r = await fetch(`${apiBase()}/modal/accounts`);
+      if (!r.ok) return;
+      const j = await r.json();
+      setModalAccts(j.accounts || []);
+    } catch {}
+  }
+  async function addAcct() {
+    if (!newAcct.token_id.trim() || !newAcct.token_secret.trim() || acctBusy) return;
+    setAcctBusy(true);
+    try {
+      const j = await postJSON<{ accounts: ModalAcct[] }>("/modal/accounts/add", newAcct);
+      setModalAccts(j.accounts || []);
+      setNewAcct({ label: "", token_id: "", token_secret: "" });
+      setAcctTest(null);
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "계정 추가 실패");
+    } finally {
+      setAcctBusy(false);
+    }
+  }
+  async function delAcct(i: number) {
+    try {
+      const r = await fetch(`${apiBase()}/modal/accounts/${i}`, { method: "DELETE" });
+      const j = await r.json();
+      setModalAccts(j.accounts || []);
+      onSaved();
+    } catch {}
+  }
+  async function testNewAcct() {
+    if (!newAcct.token_id.trim() || !newAcct.token_secret.trim()) return;
+    setAcctTest("loading");
+    try {
+      const r = await postJSON<{ ok: boolean; msg: string }>("/settings/test", {
+        service: "modal", token_id: newAcct.token_id.trim(), token_secret: newAcct.token_secret.trim(),
+      });
+      setAcctTest(r);
+    } catch (e) {
+      setAcctTest({ ok: false, msg: e instanceof Error ? e.message : "실패" });
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -334,7 +384,7 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 
         <div className="mb-4">
           <div className="mb-1 flex items-center justify-between text-sm font-bold text-[var(--ink)]">
-            <span>Modal 토큰</span>
+            <span>Modal 토큰 <span className="font-medium text-[var(--ink-soft)]">(대표·배포 계정)</span></span>
             <span className="text-[11px] font-medium">{st ? badge(st.modal.set, st.modal.masked) : "…"}</span>
           </div>
           <div className="flex gap-2">
@@ -344,6 +394,38 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
             <button onClick={() => runTest("modal")} className={tBtn}>테스트</button>
             <TestView svc="modal" />
+          </div>
+        </div>
+
+        {/* Modal 계정 풀 — 여러 계정 로테이션(병렬 처리·크레딧 분산·페일오버) */}
+        <div className="mb-4 rounded-2xl bg-white/40 p-3">
+          <div className="mb-1 text-sm font-bold text-[var(--ink)]">Modal 계정 풀 · 로테이션 <span className="font-medium text-[var(--ink-soft)]">(여러 영상 병렬)</span></div>
+          <p className="mb-2 text-[11px] leading-relaxed text-amber-700">⚠ 무료계정 다수로 크레딧 불리기는 ToS 멀티어카운팅 위반 소지(정지 위험). 배포는 대표 계정 1개로만.</p>
+          {modalAccts.length > 0 ? (
+            <div className="mb-2 flex flex-col gap-1">
+              {modalAccts.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-[11px]">
+                  <span className="font-bold text-[var(--ink)]">{a.label || `계정 ${i + 1}`}</span>
+                  <span className="text-[var(--ink-soft)]">{a.masked}</span>
+                  <span className={`ml-auto font-semibold ${a.remaining <= 0 ? "text-rose-500" : "text-emerald-600"}`}>{`$${a.remaining} 남음`}</span>
+                  <button onClick={() => delAcct(i)} className="font-semibold text-rose-500 hover:underline">삭제</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mb-2 text-[11px] text-[var(--ink-soft)]">등록된 계정 없음 — 비어있으면 대표 계정 1개로 동작.</p>
+          )}
+          <div className="flex flex-col gap-1.5">
+            <input value={newAcct.label} onChange={(e) => setNewAcct({ ...newAcct, label: e.target.value })} placeholder="라벨(선택, 예: acctA)" className={inp} />
+            <div className="flex gap-1.5">
+              <input value={newAcct.token_id} onChange={(e) => setNewAcct({ ...newAcct, token_id: e.target.value })} placeholder="token_id (ak-…)" className={inp} />
+              <input type="password" value={newAcct.token_secret} onChange={(e) => setNewAcct({ ...newAcct, token_secret: e.target.value })} placeholder="token_secret (as-…)" className={inp} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <button onClick={testNewAcct} className={tBtn}>테스트</button>
+              <button onClick={addAcct} disabled={acctBusy || !newAcct.token_id.trim() || !newAcct.token_secret.trim()} className="btn-grad rounded-full px-3 py-1 font-bold disabled:opacity-50">+ 추가</button>
+              {acctTest && (acctTest === "loading" ? <span className="text-[var(--ink-soft)]">테스트 중…</span> : <span className={acctTest.ok ? "text-emerald-600" : "text-rose-500"}>{acctTest.ok ? "✓ " : "✗ "}{acctTest.msg}</span>)}
+            </div>
           </div>
         </div>
 
