@@ -115,9 +115,14 @@ _POINT_PROMPT = (
 
 
 def _gemini_generate(contents, retries: int = 3) -> str:
-    """Gemini(비전/텍스트, flash) 호출 — 공용 gemini.generate 래퍼(재시도·사용량 집계)."""
+    """Gemini(비전/텍스트, flash) 호출 — 공용 gemini.generate 래퍼.
+
+    원래 동작 보존: usage 미집계·백오프 2s·좁은 에러셋·최종실패 메시지 감쌈.
+    """
     from app import gemini
-    return gemini.generate(contents, model=VISION_MODEL, retries=retries)
+    return gemini.generate(contents, model=VISION_MODEL, retries=retries,
+                           record=False, backoff=2.0,
+                           transient=gemini.TRANSIENT_NARROW, wrap_error=True)
 
 
 def points_from_image(image_bytes: bytes) -> str:

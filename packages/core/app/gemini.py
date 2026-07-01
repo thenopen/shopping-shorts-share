@@ -27,8 +27,11 @@ def available() -> bool:
 
 
 # 일시오류(과부하·타임아웃·순간 quota) — 지수백오프 재시도 대상.
-_TRANSIENT = ("503", "UNAVAILABLE", "overloaded", "500", "INTERNAL",
-              "429", "RESOURCE_EXHAUSTED", "deadline", "timeout")
+# TRANSIENT_WIDE: refine 계열 기본. TRANSIENT_NARROW: product_scrape가 원래 쓰던 좁은 집합.
+TRANSIENT_WIDE = ("503", "UNAVAILABLE", "overloaded", "500", "INTERNAL",
+                  "429", "RESOURCE_EXHAUSTED", "deadline", "timeout")
+TRANSIENT_NARROW = ("503", "UNAVAILABLE", "overloaded", "429", "RESOURCE_EXHAUSTED")
+_TRANSIENT = TRANSIENT_WIDE   # 하위호환 별칭
 
 
 def _retry_seconds(e: Exception) -> float | None:
@@ -41,11 +44,17 @@ def _retry_seconds(e: Exception) -> float | None:
     return float(m.group(1)) if m else 30.0
 
 
-def generate(contents, model: str, retries: int = 3, record: bool = True) -> str:
-    """Gemini 호출(텍스트/비전 공용) + 일시오류 지수백오프 재시도 + 사용량 집계.
+def generate(contents, model: str, retries: int = 3, record: bool = True,
+             backoff: float = 1.5, transient: tuple = TRANSIENT_WIDE,
+             wrap_error: bool = False) -> str:
+    """Gemini 호출(텍스트/비전 공용) + 일시오류 지수백오프 재시도.
 
-    contents: 문자열(텍스트) 또는 parts 리스트(비전). record=True면 usage에 토큰 집계,
-    429면 쿨다운 기록. 끝까지 실패하면 예외(호출측이 폴백).
+    동작보존을 위해 호출부별 파라미터를 노출한다:
+    - record: usage 토큰/429쿨다운 집계 여부.
+    - backoff: 재시도 대기 base초(backoff*(i+1)).
+    - transient: 재시도할 에러 문자열 집합.
+    - wrap_error: 최종 실패를 'Gemini 호출 실패(재시도 N회): …'로 감쌀지.
+    끝까지 실패하면 예외(호출측이 폴백).
     """
     import time
 
@@ -75,8 +84,12 @@ def generate(contents, model: str, retries: int = 3, record: bool = True) -> str
                     usage.record_gemini_429(secs)
                 except Exception:
                     pass
-            if any(c in str(e) for c in _TRANSIENT) and i < retries - 1:
-                time.sleep(1.5 * (i + 1))
+            if any(c in str(e) for c in transient) and i < retries - 1:
+                time.sleep(backoff * (i + 1))
                 continue
+            if wrap_error:
+                raise RuntimeError(f"Gemini 호출 실패(재시도 {retries}회): {str(last)[:160]}") from e
             raise
+    if wrap_error:
+        raise RuntimeError(f"Gemini 호출 실패(재시도 {retries}회): {str(last)[:160]}")
     raise last if last else RuntimeError("gemini call failed")
