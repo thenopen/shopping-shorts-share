@@ -33,11 +33,24 @@ DEFAULT_LIMITS = {
 }
 
 
+def _load_settings() -> dict:
+    """settings.json 로드(없거나 깨지면 {})."""
+    try:
+        return json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_settings(cur: dict) -> None:
+    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def get_limits() -> dict:
     """기본값 위에 settings.json 저장값을 덮어 반환."""
     d = dict(DEFAULT_LIMITS)
     try:
-        saved = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
+        saved = _load_settings()
         for k in DEFAULT_LIMITS:
             if saved.get(k) is not None:
                 d[k] = type(DEFAULT_LIMITS[k])(saved[k])
@@ -47,10 +60,7 @@ def get_limits() -> dict:
 
 
 def set_limits(vals: dict) -> None:
-    try:
-        cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        cur = {}
+    cur = _load_settings()
     for k in DEFAULT_LIMITS:
         v = (vals or {}).get(k)
         if v not in (None, ""):
@@ -58,14 +68,13 @@ def set_limits(vals: dict) -> None:
                 cur[k] = type(DEFAULT_LIMITS[k])(v)
             except Exception:
                 pass
-    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    _save_settings(cur)
 
 
 def get_download_dir() -> str:
     """다운로드 영상 보관 폴더(서버측 경로). settings.json 값 > 기본값."""
     try:
-        v = json.loads(LIMITS_PATH.read_text(encoding="utf-8")).get("download_dir")
+        v = _load_settings().get("download_dir")
         if v and str(v).strip():
             return str(v).strip()
     except Exception:
@@ -75,13 +84,9 @@ def get_download_dir() -> str:
 
 def set_download_dir(path: str) -> None:
     path = (path or "").strip()
-    try:
-        cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        cur = {}
+    cur = _load_settings()
     cur["download_dir"] = path
-    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    _save_settings(cur)
 
 
 def _mask(s: str) -> str:
@@ -156,7 +161,7 @@ def _modal_status() -> dict:
 def get_modal_accounts() -> list[dict]:
     """멀티계정 로테이션 풀(token_id/token_secret/label). settings.json에 보관."""
     try:
-        v = json.loads(LIMITS_PATH.read_text(encoding="utf-8")).get("modal_accounts")
+        v = _load_settings().get("modal_accounts")
         if isinstance(v, list):
             return [a for a in v if a.get("token_id") and a.get("token_secret")]
     except Exception:
@@ -175,13 +180,9 @@ def set_modal_accounts(accts: list) -> None:
             if a.get("deployed"):          # 배포 성공 플래그 보존(재시작에도 유지)
                 entry["deployed"] = True
             clean.append(entry)
-    try:
-        cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        cur = {}
+    cur = _load_settings()
     cur["modal_accounts"] = clean
-    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+    _save_settings(cur)
 
 
 def set_account_deployed(token_id: str, deployed: bool = True) -> None:
