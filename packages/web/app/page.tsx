@@ -589,6 +589,10 @@ export default function Home() {
   const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
   const [previewBusy, setPreviewBusy] = useState(false);
   const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
+  // 자막 제거 품질 확인 — 군데군데 원본 vs 제거본 프레임
+  const [qFrames, setQFrames] = useState<{ t: number; source: string | null; nosub: string | null }[]>([]);
+  const [qBusy, setQBusy] = useState(false);
+  const [qEngine, setQEngine] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -884,10 +888,27 @@ export default function Home() {
     }
   }
 
+  // 자막 제거 품질 확인 — 여러 지점에서 원본/제거본 프레임 추출해 비교
+  async function checkQuality() {
+    if (!job?.id || qBusy) return;
+    setQBusy(true);
+    try {
+      const r = await postJSON<{ frames: typeof qFrames; engine: string | null }>(
+        "/quality/frames", { job_id: job.id, count: 8 });
+      setQFrames(r.frames || []);
+      setQEngine(r.engine ?? null);
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "품질 확인 실패");
+    } finally {
+      setQBusy(false);
+    }
+  }
+
   async function analyze() {
     if (!url.trim() || busy) return;
     setBusy(true);
     setJob(null);
+    setQFrames([]);                   // 새 분석 → 이전 품질 프레임 비움
     loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
     loggedDouyinRef.current = false;  // 새 분석 → 도우인 진단 다시 찍히게
     try {
@@ -1287,6 +1308,41 @@ export default function Home() {
                 {busy && <span>{job?.stage} · {job?.progress}%</span>}
               </div>
               <video key={previewUrl} src={previewUrl} controls className="max-h-[440px] rounded-2xl bg-black/80 shadow-lg" style={{ aspectRatio: "9/16" }} />
+
+              {/* 자막 제거 품질 확인 — 군데군데 원본 vs 제거본 비교(잔상·번짐 눈으로 잡기) */}
+              {job?.id && (
+                <div className="w-full">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={checkQuality}
+                      disabled={qBusy}
+                      className="rounded-full bg-white/70 px-4 py-2 text-xs font-semibold text-[var(--ink)] transition hover:bg-white/90 disabled:opacity-50"
+                    >
+                      {qBusy ? "프레임 추출 중…" : "🔍 자막 제거 품질 확인 (군데군데)"}
+                    </button>
+                    {qEngine && <span className="text-[11px] text-[var(--ink-soft)]">엔진: {qEngine}</span>}
+                  </div>
+                  {qFrames.length > 0 && (
+                    <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                      {qFrames.map((f, i) => (
+                        <div key={i} className="rounded-xl bg-white/40 p-1.5">
+                          <div className="mb-1 text-center text-[10px] font-semibold text-[var(--ink-soft)]">{fmtSec(f.t)}</div>
+                          <div className="grid grid-cols-2 gap-1">
+                            <figure className="m-0">
+                              {f.source ? <img src={`${apiBase()}${f.source}`} alt="원본" className="w-full rounded" /> : <div className="rounded bg-black/20" style={{ aspectRatio: "9/16" }} />}
+                              <figcaption className="mt-0.5 text-center text-[9px] text-[var(--ink-soft)]">원본</figcaption>
+                            </figure>
+                            <figure className="m-0">
+                              {f.nosub ? <img src={`${apiBase()}${f.nosub}`} alt="제거본" className="w-full rounded" /> : <div className="rounded bg-black/20" style={{ aspectRatio: "9/16" }} />}
+                              <figcaption className="mt-0.5 text-center text-[9px] font-semibold text-emerald-600">제거</figcaption>
+                            </figure>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

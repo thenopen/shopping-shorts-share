@@ -373,6 +373,58 @@ def get_job(jid: str):
     return JOBS[jid]
 
 
+class QualityReq(BaseModel):
+    job_id: str
+    count: int = 8
+
+
+@app.post("/quality/frames")
+def quality_frames(req: QualityReq):
+    """자막 제거 품질 확인 — 영상 여러 지점(군데군데)에서 원본 vs 제거본(nosub) 프레임 추출.
+
+    같은 타임스탬프의 원본/제거본을 나란히 보면 자막 잔상·번짐·복원 실패를 바로 눈으로 잡는다.
+    """
+    import subprocess
+    from app.config import FFMPEG
+
+    if req.job_id not in JOBS:
+        raise HTTPException(404, "job not found")
+    job = JOBS[req.job_id]
+    job_dir = WORKDIR / req.job_id
+    try:
+        src = _source_for_job(req.job_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "source not found") from None
+    nosub = job_dir / "nosub.mp4"
+    have_nosub = nosub.exists()
+    dur = _probe_dur(nosub if have_nosub else src) or 0.0
+    n = max(2, min(int(req.count or 8), 16))
+
+    def _grab(inp, out, t):
+        try:
+            subprocess.run([FFMPEG, "-hide_banner", "-y", "-ss", str(t), "-i", str(inp),
+                            "-frames:v", "1", "-vf", "scale=360:-2", str(out)],
+                           capture_output=True, text=True, timeout=60)
+        except Exception:
+            pass
+        return out.exists()
+
+    frames = []
+    for i in range(n):
+        t = dur * (i + 0.5) / n if dur else float(i)
+        sp = job_dir / f"q{i:02d}_src.jpg"
+        npj = job_dir / f"q{i:02d}_nosub.jpg"
+        s_ok = _grab(src, sp, t)
+        n_ok = have_nosub and _grab(nosub, npj, t)
+        frames.append({
+            "t": round(t, 1),
+            "source": f"/file/{req.job_id}/{sp.name}" if s_ok else None,
+            "nosub": f"/file/{req.job_id}/{npj.name}" if n_ok else None,
+        })
+    return {"frames": frames, "engine": job.get("subtitle_engine"),
+            "engine_note": job.get("subtitle_engine_note")}
+
+
 _SAFE_SEG = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 

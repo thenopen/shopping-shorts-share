@@ -4,7 +4,7 @@ const API = "http://127.0.0.1:8000";
 const API_PREFIXES = [
   "tts", "script", "jobs", "analyze", "transcribe",
   "captions", "refine", "agent", "render", "file", "usage", "settings",
-  "preview_url", "library", "modal",
+  "preview_url", "library", "modal", "quality",
 ];
 
 const nextConfig: NextConfig = {
