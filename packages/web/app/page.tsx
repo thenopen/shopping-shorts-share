@@ -96,6 +96,18 @@ function fmtK(n: number) {
   return `${n}`;
 }
 
+// 소구포인트 텍스트("카테고리: X\n소구포인트:\n- p1\n- p2") → {카테고리, 포인트[]}. 파싱 실패해도 안전.
+function parsePoints(t: string): { cat: string; points: string[] } {
+  const cat = ((t || "").match(/카테고리[:：]\s*(.+)/) || [])[1]?.trim() || "";
+  const points = (t || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => /^[-•*·]/.test(l))
+    .map((l) => l.replace(/^[-•*·]\s*/, "").trim())
+    .filter(Boolean);
+  return { cat, points };
+}
+
 // 재사용 진입점 표시 — 원본/자막제거/대본 중 어디까지 캐시되어 있는지(✓/○).
 function StageBadges({ stages }: { stages: Stages }) {
   const items: [keyof Stages, string][] = [["source", "원본"], ["nosub", "자막제거"], ["script", "대본"]];
@@ -710,6 +722,7 @@ export default function Home() {
   const [productBusy, setProductBusy] = useState(false);
   const [productErr, setProductErr] = useState("");
   const [productStage, setProductStage] = useState("");   // 제품 분석 진행 힌트(크롤 수십 초)
+  const [pointsEdit, setPointsEdit] = useState(false);    // 소구포인트 편집/보기 토글
   useEffect(() => {
     if (!productBusy) { setProductStage(""); return; }
     const steps = ["🔎 상세페이지 여는 중…", "📄 내용 읽는 중…", "✨ 소구포인트 뽑는 중…", "✍️ 대본 작성 중…"];
@@ -1395,27 +1408,51 @@ export default function Home() {
             </div>
 
             {productErr && <p className="mt-3 rounded-xl bg-rose-100/70 px-4 py-2.5 text-xs font-medium text-rose-600">⚠ {productErr}</p>}
-            {sellingPoints && (
-              <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs text-emerald-900">
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="font-bold">추출된 소구포인트 <span className="font-medium opacity-70">(수정 가능)</span></span>
-                  <button
-                    onClick={() => generateProductScript({ fromPoints: true })}
-                    disabled={productBusy}
-                    title="재크롤 없이 이 소구포인트로 대본만 다시 생성"
-                    className="flex-none rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    🔄 이 소구포인트로 대본 다시
-                  </button>
+            {sellingPoints && (() => {
+              const { cat, points } = parsePoints(sellingPoints);
+              return (
+                <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs text-emerald-900">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold">추출된 소구포인트</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button onClick={() => setPointsEdit((v) => !v)} className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 transition hover:bg-white">
+                        {pointsEdit ? "👁 보기" : "✏️ 편집"}
+                      </button>
+                      <button onClick={() => navigator.clipboard?.writeText(sellingPoints).catch(() => {})} className="rounded-full bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 transition hover:bg-white">
+                        📋 복사
+                      </button>
+                      <button
+                        onClick={() => generateProductScript({ fromPoints: true })}
+                        disabled={productBusy}
+                        title="재크롤 없이 이 소구포인트로 대본만 다시 생성"
+                        className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        🔄 대본 다시
+                      </button>
+                    </div>
+                  </div>
+                  {pointsEdit ? (
+                    <textarea
+                      value={sellingPoints}
+                      onChange={(e) => setSellingPoints(e.target.value)}
+                      rows={6}
+                      className="w-full rounded-lg bg-white/70 px-3 py-2 font-sans text-xs leading-relaxed text-emerald-950 outline-none"
+                    />
+                  ) : points.length ? (
+                    <>
+                      {cat && <span className="mb-1.5 inline-block rounded-full bg-emerald-600/15 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">{cat}</span>}
+                      <ul className="space-y-1">
+                        {points.map((p, i) => (
+                          <li key={i} className="flex gap-1.5"><span className="mt-px flex-none text-emerald-500">✓</span><span className="leading-relaxed">{p}</span></li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <pre className="whitespace-pre-wrap font-sans leading-relaxed">{sellingPoints}</pre>
+                  )}
                 </div>
-                <textarea
-                  value={sellingPoints}
-                  onChange={(e) => setSellingPoints(e.target.value)}
-                  rows={5}
-                  className="w-full rounded-lg bg-white/70 px-3 py-2 font-sans text-xs leading-relaxed text-emerald-950 outline-none"
-                />
-              </div>
-            )}
+              );
+            })()}
 
             {/* 음성 생성 전 대본 확인 및 수정 */}
             <details className="mt-3" open={!!script}>
@@ -1594,6 +1631,11 @@ export default function Home() {
                 </button>
               </div>
             </div>
+            {job?.status === "transcribed" && job?.has_speech === false && (
+              <div className="mb-2 rounded-xl bg-amber-50/70 px-3 py-2 text-[13px] font-medium text-amber-700">
+                🔇 이 영상엔 음성이 없어요. 대본을 직접 입력하거나 아래 <b>제품 링크</b>로 만들어보세요.
+              </div>
+            )}
             <textarea
               value={script}
               onChange={(e) => { scriptDirtyRef.current = true; setScript(e.target.value); }}
