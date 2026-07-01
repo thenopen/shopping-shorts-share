@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import CaptionEditor, { CaptionStyle, DEFAULT_STYLE } from "./CaptionEditor";
 import CaptionTimeline, { CaptionLineData } from "./CaptionTimeline";
-import { Spinner } from "./ui";
+import { Spinner, Switch } from "./ui";
 
 const VOICES: { name: string; gender: "F" | "M" }[] = [
   { name: "소담", gender: "F" },
@@ -107,6 +107,11 @@ function parsePoints(t: string): { cat: string; points: string[] } {
     .map((l) => l.replace(/^[-•*·]\s*/, "").trim())
     .filter(Boolean);
   return { cat, points };
+}
+
+// 서버가 준 자막 줄 배열 → CaptionLineData[] 정규화(text/start/end/style만).
+function normLines(arr: CaptionLineData[] | undefined | null): CaptionLineData[] {
+  return (arr || []).map((l) => ({ text: l.text, start: l.start, end: l.end, style: l.style ?? null }));
 }
 
 // 재사용 진입점 표시 — 원본/자막제거/대본 중 어디까지 캐시되어 있는지(✓/○).
@@ -1063,12 +1068,7 @@ export default function Home() {
         return;
       }
       const data = await r.json();
-      const lines: CaptionLineData[] = (data.lines || []).map((l: CaptionLineData) => ({
-        text: l.text,
-        start: l.start,
-        end: l.end,
-        style: l.style ?? null,
-      }));
+      const lines: CaptionLineData[] = normLines(data.lines);
       setCaptionLines(lines);
       setCapEditPrev(null);
     } catch {
@@ -1091,12 +1091,7 @@ export default function Home() {
         direction,
         caption_style: captionStyle,
       });
-      const next: CaptionLineData[] = (d.lines || []).map((l: CaptionLineData) => ({
-        text: l.text,
-        start: l.start,
-        end: l.end,
-        style: l.style ?? null,
-      }));
+      const next: CaptionLineData[] = normLines(d.lines);
       if (!next.length) { alert("다듬기 결과가 비었습니다."); return; }
       setCapEditPrev(prev);
       setCaptionLines(next);
@@ -1576,7 +1571,7 @@ export default function Home() {
               disabled={!script.trim() || ttsBusy}
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
             >
-              {ttsBusy && <Spinner className="h-4 w-4 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+              {ttsBusy && <Spinner />}
               {ttsBusy ? "음성 생성 중..." : `🔊 '${voice}' 목소리로 대본 들어보기`}
             </button>
             {ttsUrl && (
@@ -1685,26 +1680,14 @@ export default function Home() {
               <div className="text-sm font-bold text-[var(--ink)]">얼굴샷 컷 제거</div>
               <div className="text-xs text-[var(--ink-soft)]">인물 얼굴이 크게 잡힌 구간을 자동으로 잘라내고 제품샷 위주로 이어붙입니다. (남길 분량이 너무 짧으면 자동으로 컷을 생략합니다.)</div>
             </div>
-            <button
-              onClick={() => setFaceCutOn((v) => !v)}
-              className={`relative h-7 w-12 flex-none rounded-full transition-colors ${faceCutOn ? "btn-grad" : "bg-white/60"}`}
-              aria-label="얼굴샷 컷 제거 토글"
-            >
-              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${faceCutOn ? "left-[22px]" : "left-0.5"}`} />
-            </button>
+            <Switch on={faceCutOn} onToggle={() => setFaceCutOn((v) => !v)} ariaLabel="얼굴샷 컷 제거 토글" />
           </div>
           <div className="mb-8 flex items-center justify-between rounded-3xl glass px-6 py-4">
             <div>
               <div className="text-sm font-bold text-[var(--ink)]">자동 자막</div>
               <div className="text-xs text-[var(--ink-soft)]">TTS 대본을 타임코드에 맞춰 자막으로 입힙니다. 아래는 기본 스타일이며, 타임라인에서 줄별로 바꿀 수 있습니다.</div>
             </div>
-            <button
-              onClick={() => setCaptionsOn((v) => !v)}
-              className={`relative h-7 w-12 flex-none rounded-full transition-colors ${captionsOn ? "btn-grad" : "bg-white/60"}`}
-              aria-label="자동 자막 토글"
-            >
-              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${captionsOn ? "left-[22px]" : "left-0.5"}`} />
-            </button>
+            <Switch on={captionsOn} onToggle={() => setCaptionsOn((v) => !v)} ariaLabel="자동 자막 토글" />
           </div>
           <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
           <div className="mt-4">

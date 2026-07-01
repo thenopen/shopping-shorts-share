@@ -210,22 +210,13 @@ export default function CaptionEditor({
       </div>
       {/* 배경 토글 — 투명(기본) + 영상톤별로 자막 가독성 확인 */}
       <div className="mb-5 flex gap-2">
-        <button
-          onClick={() => setPreviewBg("none")}
-          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === "none" ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
-        >투명</button>
-        <button
-          onClick={() => setPreviewBg("mid")}
-          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === "mid" ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
-        >중간</button>
-        <button
-          onClick={() => setPreviewBg("light")}
-          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === "light" ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
-        >밝게</button>
-        <button
-          onClick={() => setPreviewBg("dark")}
-          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === "dark" ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
-        >어둡게</button>
+        {([["none", "투명"], ["mid", "중간"], ["light", "밝게"], ["dark", "어둡게"]] as const).map(([v, lbl]) => (
+          <button
+            key={v}
+            onClick={() => setPreviewBg(v)}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === v ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
+          >{lbl}</button>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

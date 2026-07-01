@@ -9,3 +9,16 @@ export function Spinner({
 }) {
   return <span className={`inline-block animate-spin rounded-full border-2 ${className}`} />;
 }
+
+// on/off 알약 스위치(슬라이딩 노브).
+export function Switch({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel: string }) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`relative h-7 w-12 flex-none rounded-full transition-colors ${on ? "btn-grad" : "bg-white/60"}`}
+      aria-label={ariaLabel}
+    >
+      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+    </button>
+  );
+}
