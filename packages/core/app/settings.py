@@ -22,6 +22,7 @@ GEMINI_KEY_PATH = AUTH_DIR / "gemini_key.txt"
 GTTS_KEY_PATH = AUTH_DIR / "google_tts_key.json"
 LIMITS_PATH = WORKDIR / "settings.json"
 MODAL_TOML = Path.home() / ".modal.toml"
+DEFAULT_DOWNLOAD_DIR = BACKEND_ROOT / "downloads"   # 다운로드 영상 라이브러리 기본 위치
 
 # 한도 기본값(env로도 조정 가능). settings.json이 있으면 그 값이 우선.
 DEFAULT_LIMITS = {
@@ -57,6 +58,28 @@ def set_limits(vals: dict) -> None:
                 cur[k] = type(DEFAULT_LIMITS[k])(v)
             except Exception:
                 pass
+    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def get_download_dir() -> str:
+    """다운로드 영상 보관 폴더(서버측 경로). settings.json 값 > 기본값."""
+    try:
+        v = json.loads(LIMITS_PATH.read_text(encoding="utf-8")).get("download_dir")
+        if v and str(v).strip():
+            return str(v).strip()
+    except Exception:
+        pass
+    return str(DEFAULT_DOWNLOAD_DIR)
+
+
+def set_download_dir(path: str) -> None:
+    path = (path or "").strip()
+    try:
+        cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        cur = {}
+    cur["download_dir"] = path
     LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
     LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -150,6 +173,7 @@ def status() -> dict:
         "google_tts": {"set": tts_set, "email": tts_email},  # email은 식별용(비밀 아님)
         "modal": _modal_status(),
         "limits": get_limits(),
+        "download_dir": get_download_dir(),
     }
 
 

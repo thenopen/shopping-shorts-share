@@ -98,10 +98,12 @@ class AnalyzeReq(BaseModel):
     # 자막제거 ProPainter 백엔드: modal(클라우드)만 서비스. local(로컬 GPU)은 제품에서
     # 제외됨 — 외부 요청으론 선택 불가, 서버 env ALLOW_LOCAL_GPU=1 일 때만 허용(디버깅용).
     subtitle_backend: str = "modal"
+    reuse_nosub: bool = True   # 캐시된 자막제거본이 있으면 재사용(False=강제 재처리)
 
 
 class TranscribeReq(BaseModel):
     job_id: str
+    reuse_script: bool = True   # 캐시된 대본이 있으면 재사용(False=강제 재생성)
 
 
 class RefineReq(BaseModel):
@@ -154,7 +156,7 @@ def analyze(req: AnalyzeReq):
     backend = req.subtitle_backend
     if backend != "modal" and os.environ.get("ALLOW_LOCAL_GPU") != "1":
         backend = "modal"
-    threading.Thread(target=_analyze_worker, args=(jid, req.url, backend),
+    threading.Thread(target=_analyze_worker, args=(jid, req.url, backend, req.reuse_nosub),
                      daemon=True).start()
     return {"job_id": jid}
 
@@ -163,7 +165,8 @@ def analyze(req: AnalyzeReq):
 def transcribe(req: TranscribeReq):
     if req.job_id not in JOBS:
         raise HTTPException(404, "job not found")
-    threading.Thread(target=_transcribe_worker, args=(req.job_id,), daemon=True).start()
+    threading.Thread(target=_transcribe_worker, args=(req.job_id, req.reuse_script),
+                     daemon=True).start()
     return {"job_id": req.job_id}
 
 
@@ -409,6 +412,11 @@ class SettingsReq(BaseModel):
     modal_token_id: str | None = None
     modal_token_secret: str | None = None
     limits: dict | None = None
+    download_dir: str | None = None
+
+
+class PreviewUrlReq(BaseModel):
+    url: str
 
 
 class SettingsTestReq(BaseModel):
@@ -447,6 +455,11 @@ def save_settings(req: SettingsReq):
             settings.set_limits(req.limits)
         except Exception as e:
             errs["limits"] = str(e)[:140]
+    if req.download_dir is not None:
+        try:
+            settings.set_download_dir(req.download_dir)
+        except Exception as e:
+            errs["download_dir"] = str(e)[:140]
     return {"ok": not errs, "errors": errs, "status": settings.status()}
 
 
@@ -464,7 +477,69 @@ def test_settings(req: SettingsTestReq):
     raise HTTPException(400, "unknown service")
 
 
-def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
+@app.post("/preview_url")
+def preview_url(req: PreviewUrlReq):
+    """확인(미리보기) — 제목·썸네일. 라이브러리에 있으면 재사용 표시, 없으면 yt-dlp 메타.
+    도우인은 yt-dlp 미지원이라 분석(다운로드) 후 썸네일이 보인다."""
+    from app import library
+    url = extract_url(req.url) or (req.url or "").strip()
+    if not url:
+        raise HTTPException(400, "url is empty")
+    ent = library.find(url)
+    if ent:
+        return {
+            "url": url, "in_library": True, "reused": True,
+            "title": ent.get("title") or "", "duration": ent.get("duration"),
+            "platform": ent.get("platform", ""),
+            "stages": ent.get("stages"),
+            "thumb": f"/library/thumb/{ent['key']}" if ent.get("has_thumb") else None,
+        }
+    platform = "douyin" if "douyin" in url else ("tiktok" if "tiktok" in url else "")
+    if platform == "douyin":
+        return {"url": url, "in_library": False, "reused": False, "platform": "douyin",
+                "title": None, "thumb": None,
+                "note": "도우인은 분석(다운로드) 후 썸네일이 보여요. 다음부터 자동 재사용됩니다."}
+    try:
+        from app.pipeline.download import probe_preview
+        info = probe_preview(url)
+        return {"url": url, "in_library": False, "reused": False, "platform": platform, **info}
+    except Exception as e:
+        return {"url": url, "in_library": False, "reused": False, "platform": platform,
+                "title": None, "thumb": None, "error": str(e)[:200]}
+
+
+_HEX_KEY = re.compile(r"^[0-9a-f]{6,40}$")
+
+
+@app.get("/library")
+def library_list():
+    """다운로드 보관 영상 목록(최근순) — 재사용용."""
+    from app import library
+    return {"entries": library.list_entries()}
+
+
+@app.get("/library/thumb/{key}")
+def library_thumb(key: str):
+    from app import library
+    if not _HEX_KEY.match(key or ""):
+        raise HTTPException(400, "bad key")
+    p = library.thumb_path(key)
+    if not p:
+        raise HTTPException(404, "thumb not found")
+    return FileResponse(str(p))
+
+
+@app.delete("/library/{key}")
+def library_delete(key: str):
+    """보관 영상 삭제."""
+    from app import library
+    if not _HEX_KEY.match(key or ""):
+        raise HTTPException(400, "bad key")
+    return {"ok": library.delete(key)}
+
+
+def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
+                    reuse_nosub: bool = True):
     job = JOBS[jid]
     try:
         from app.pipeline.download import download_video
@@ -478,76 +553,119 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
         url = extract_url(raw_url) or raw_url
         job_dir = WORKDIR / jid
         job_dir.mkdir(parents=True, exist_ok=True)
+        job["meta"]["url"] = url   # transcribe 등 후속 단계가 라이브러리 키로 사용
 
+        from app import library
+        from app.pipeline.download import probe_info
+
+        platform = "douyin" if "douyin" in url else ("tiktok" if "tiktok" in url else "")
         job.update(status="downloading", stage="영상 다운로드", progress=10, error=None)
-        if "douyin" in url:
-            # diag 리스트를 먼저 job에 걸어두면 다운로드가 실패(raise)해도
-            # 그때까지 수집된 후보/트랙 진단이 job에 남아 웹 F12 콘솔에 표시됨.
-            douyin_diag: list = []
-            job["douyin_diag"] = douyin_diag
-            source = download_douyin(url, jid, diag=douyin_diag)
+        job_src = job_dir / "source.mp4"
+
+        # 이미 받은 영상이면 재사용(다운로드 생략) — 라이브러리 보관본을 job으로 링크/복사.
+        if library.reuse_into(url, job_src):
+            source = job_src
+            ent = library.find(url) or {}
+            job["reused"] = True
+            job["title"] = ent.get("title") or ""
+            job["meta"]["title"] = ent.get("title") or ""
+            job.update(stage="이미 받은 영상 재사용", progress=38)
         else:
-            source = download_video(url, jid)
+            info: dict = {}
+            if platform == "douyin":
+                # diag 리스트를 먼저 job에 걸어두면 다운로드가 실패(raise)해도
+                # 그때까지 수집된 후보/트랙 진단이 job에 남아 웹 F12 콘솔에 표시됨.
+                douyin_diag: list = []
+                job["douyin_diag"] = douyin_diag
+                source = download_douyin(url, jid, diag=douyin_diag)
+            else:
+                source = download_video(url, jid)
+                try:
+                    info = probe_info(url)
+                except Exception:
+                    info = {}
+            # 라이브러리 등록: 다음부터 재사용 + 썸네일(ffmpeg 프레임)·메타 저장.
+            try:
+                meta = library.register(
+                    url, source, title=(info.get("title") or ""),
+                    duration=info.get("duration"), width=info.get("width"),
+                    height=info.get("height"), platform=platform)
+                job["title"] = meta.get("title") or ""
+                job["meta"]["title"] = meta.get("title") or ""
+            except Exception as e:
+                print(f"  [library register 실패: {str(e)[:120]}]")
+            job["reused"] = False
         job["meta"]["source"] = str(source)
 
         job.update(status="removing_subtitle", stage="자막·워터마크 제거", progress=40)
-        # 화면 전체 OCR로 자막+워터마크 글자 모두 탐지(언어 무관, 하단제한 해제).
-        # require_center=True: 가로로 긴 중앙정렬 자막 형태만 → 상품 패키지/배경 글자 과제거 방지.
-        # interval 0.25s: 짧게 뜨는 자막·라벨도 놓치지 않게.
-        try:
-            segments = detect_segments(source, interval_sec=0.25, full_frame=True,
-                                       require_center=True, pad=14)
-        except Exception as e:
-            print(f"  [subtitle segment detection failed: {str(e)[:120]}]")
-            segments = []
+        job_nosub = job_dir / "nosub.mp4"
 
-        # 도우인/틱톡 고정 UI영역(우측 버튼열·좌하단 아이디·상단 탭) 항상 inpaint.
-        # OVERLAY_FIXED_UI=0 환경변수로 끔(클린 추출본에서 본체 손상 방지용).
-        platform = "douyin" if "douyin" in url else ("tiktok" if "tiktok" in url else "")
-        ui_enabled = platform != "" and os.environ.get("OVERLAY_FIXED_UI", "1") != "0"
-        fixed_boxes = []
-        if ui_enabled:
-            cap = _cv2.VideoCapture(str(source))
-            w = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT))
-            cap.release()
-            fixed_boxes = fixed_overlay_boxes(w, h, platform=platform, enabled=True)
-
-        if segments or fixed_boxes:
-            def _ip_prog(frac):
-                # inpaint 40~90% 구간 매핑
-                job.update(progress=40 + int(frac * 50),
-                           stage=f"자막·워터마크 제거 ({int(frac*100)}%)")
-            nosub = None
-            engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
-            engine_note = ""       # 폴백 사유 등
-            # GPU 인페인트는 한 번에 하나만(동시 작업 시 8GB VRAM OOM 방지).
-            with gpu_slot(job, wait_stage="GPU 대기 중 (자막 제거 대기열)"):
-                # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
-                # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
-                if segments and os.environ.get("PROPAINTER", "1") != "0":
-                    try:
-                        from app.pipeline.propainter_inpaint import inpaint_with_propainter
-                        job.update(stage="자막 제거 (AI 배경복원)", progress=45)
-                        nosub = inpaint_with_propainter(
-                            source, job_dir / "nosub.mp4", segments,
-                            backend=subtitle_backend, progress_cb=_ip_prog)
-                        engine = f"propainter_{subtitle_backend}"
-                        print(f"  [ProPainter({subtitle_backend}) 자막제거 성공]")
-                    except Exception as pe:
-                        engine_note = str(pe)[:200]
-                        print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
-                        nosub = None
-                if nosub is None:
-                    nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
-                                              fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
-                    engine = "lama_fallback" if engine_note else "lama"
-            job["subtitle_engine"] = engine
-            if engine_note:
-                job["subtitle_engine_note"] = engine_note
+        # 이미 만든 자막제거본이 있으면 재사용(자막탐지·GPU 인페인트 전부 생략).
+        if reuse_nosub and library.reuse_nosub_into(url, job_nosub):
+            job["subtitle_engine"] = "cached"
+            job.update(stage="자막 제거본 재사용", progress=95)
         else:
-            nosub = remove_subtitle(source, job_dir / "nosub.mp4", use_ocr=False)
-            job["subtitle_engine"] = "none"
+            # 화면 전체 OCR로 자막+워터마크 글자 모두 탐지(언어 무관, 하단제한 해제).
+            # require_center=True: 가로로 긴 중앙정렬 자막 형태만 → 상품 패키지/배경 글자 과제거 방지.
+            # interval 0.25s: 짧게 뜨는 자막·라벨도 놓치지 않게.
+            try:
+                segments = detect_segments(source, interval_sec=0.25, full_frame=True,
+                                           require_center=True, pad=14)
+            except Exception as e:
+                print(f"  [subtitle segment detection failed: {str(e)[:120]}]")
+                segments = []
+
+            # 도우인/틱톡 고정 UI영역(우측 버튼열·좌하단 아이디·상단 탭) 항상 inpaint.
+            # OVERLAY_FIXED_UI=0 환경변수로 끔(클린 추출본에서 본체 손상 방지용).
+            ui_enabled = platform != "" and os.environ.get("OVERLAY_FIXED_UI", "1") != "0"
+            fixed_boxes = []
+            if ui_enabled:
+                cap = _cv2.VideoCapture(str(source))
+                w = int(cap.get(_cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(cap.get(_cv2.CAP_PROP_FRAME_HEIGHT))
+                cap.release()
+                fixed_boxes = fixed_overlay_boxes(w, h, platform=platform, enabled=True)
+
+            if segments or fixed_boxes:
+                def _ip_prog(frac):
+                    # inpaint 40~90% 구간 매핑
+                    job.update(progress=40 + int(frac * 50),
+                               stage=f"자막·워터마크 제거 ({int(frac*100)}%)")
+                nosub = None
+                engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
+                engine_note = ""       # 폴백 사유 등
+                # GPU 인페인트는 한 번에 하나만(동시 작업 시 8GB VRAM OOM 방지).
+                with gpu_slot(job, wait_stage="GPU 대기 중 (자막 제거 대기열)"):
+                    # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
+                    # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
+                    if segments and os.environ.get("PROPAINTER", "1") != "0":
+                        try:
+                            from app.pipeline.propainter_inpaint import inpaint_with_propainter
+                            job.update(stage="자막 제거 (AI 배경복원)", progress=45)
+                            nosub = inpaint_with_propainter(
+                                source, job_dir / "nosub.mp4", segments,
+                                backend=subtitle_backend, progress_cb=_ip_prog)
+                            engine = f"propainter_{subtitle_backend}"
+                            print(f"  [ProPainter({subtitle_backend}) 자막제거 성공]")
+                        except Exception as pe:
+                            engine_note = str(pe)[:200]
+                            print(f"  [ProPainter 실패, LaMa 폴백: {engine_note}]")
+                            nosub = None
+                    if nosub is None:
+                        nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
+                                                  fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
+                        engine = "lama_fallback" if engine_note else "lama"
+                job["subtitle_engine"] = engine
+                if engine_note:
+                    job["subtitle_engine_note"] = engine_note
+            else:
+                remove_subtitle(source, job_dir / "nosub.mp4", use_ocr=False)
+                job["subtitle_engine"] = "none"
+            # 자막제거본을 라이브러리에 보관 → 다음부터 이 단계 생략.
+            try:
+                library.save_nosub(url, job_nosub)
+            except Exception as e:
+                print(f"  [library save_nosub 실패: {str(e)[:120]}]")
 
         job["preview"] = f"/file/{jid}/nosub.mp4"
         job.update(status="analyzed", stage="분석 완료", progress=100)
@@ -555,12 +673,29 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
         job.update(status="error", stage="오류", error=str(e)[:500])
 
 
-def _transcribe_worker(jid: str):
+def _transcribe_worker(jid: str, reuse_script: bool = True):
     job = JOBS[jid]
     try:
         from app.pipeline.transcribe import transcribe_to_korean
+        from app import library
 
         src = _source_for_job(jid)
+        url = (job.get("meta") or {}).get("url") or ""
+
+        # 이미 만든 대본이 있으면 재사용(STT/번역 생략).
+        cached = library.get_script(url) if (reuse_script and url) else None
+        if cached:
+            ko = (cached.get("ko_text") or "").strip()
+            job["script"] = ko
+            job["has_speech"] = bool(cached.get("has_speech", len(ko) >= 4))
+            job["meta"]["transcribe"] = {
+                "provider": cached.get("provider"),
+                "zh_text": cached.get("zh_text", ""),
+                "segments": cached.get("segments", []),
+            }
+            job.update(status="transcribed", stage="대본 재사용", progress=100)
+            return
+
         job.update(status="transcribing", stage="중국어 음성 인식/번역", progress=30, error=None)
 
         def _stt_prog(frac):
@@ -573,11 +708,22 @@ def _transcribe_worker(jid: str):
         ko = (result.get("ko_text") or "").strip()
         job["script"] = ko
         job["has_speech"] = len(ko) >= 4
-        job["meta"]["transcribe"] = {
+        payload = {
+            "ko_text": ko,
+            "has_speech": len(ko) >= 4,
             "provider": result.get("provider"),
             "zh_text": result.get("zh_text", ""),
             "segments": result.get("segments", []),
         }
+        job["meta"]["transcribe"] = {
+            "provider": payload["provider"], "zh_text": payload["zh_text"],
+            "segments": payload["segments"],
+        }
+        if url:  # 대본을 라이브러리에 보관 → 다음부터 STT 생략
+            try:
+                library.save_script(url, payload)
+            except Exception as e:
+                print(f"  [library save_script 실패: {str(e)[:120]}]")
         job.update(status="transcribed", stage="대본 생성 완료", progress=100)
     except Exception as e:
         job.update(status="error", stage="대본 생성 오류", error=str(e)[:500])

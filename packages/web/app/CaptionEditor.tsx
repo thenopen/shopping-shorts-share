@@ -256,7 +256,9 @@ export default function CaptionEditor({
         </Row>
 
         <Row label="스타일">
-          <div className="flex flex-wrap gap-1.5 sm:flex-nowrap">
+          {/* flex-wrap 유지(sm:flex-nowrap 제거) — 좁은 칸(비율 조정 등)에서 버튼이
+              옆 칸(글자색) 침범하지 않게 항상 줄바꿈. */}
+          <div className="flex flex-wrap gap-1.5">
             <Toggle on={value.bold} onClick={() => set("bold", !value.bold)} label="굵게" />
             <Toggle on={value.italic} onClick={() => set("italic", !value.italic)} label="기울임" />
             <Toggle on={value.outline} onClick={() => set("outline", !value.outline)} label="외곽선" />

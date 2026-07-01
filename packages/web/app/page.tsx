@@ -95,6 +95,20 @@ function fmtK(n: number) {
   return `${n}`;
 }
 
+// 재사용 진입점 표시 — 원본/자막제거/대본 중 어디까지 캐시되어 있는지(✓/○).
+function StageBadges({ stages }: { stages: Stages }) {
+  const items: [keyof Stages, string][] = [["source", "원본"], ["nosub", "자막제거"], ["script", "대본"]];
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {items.map(([k, l]) => (
+        <span key={k} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${stages[k] ? "bg-emerald-100 text-emerald-700" : "bg-white/50 text-[var(--ink-soft)]/60"}`}>
+          {stages[k] ? "✓" : "○"} {l}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // 헤더 우측 API 잔여 한도 배지 — /usage 8초 폴링. 무료티어는 잔여 quota API가 없어
 // '한도 − 우리 사용량'으로 남은 양을 계산(이 키를 이 앱만 쓸 때 정확). 리셋시각은 (?)에.
 function QuotaBadge({ refreshKey }: { refreshKey: number }) {
@@ -175,6 +189,21 @@ type SettingsStatus = {
   google_tts: { set: boolean; email: string };
   modal: { set: boolean; masked: string; profile: string | null };
   limits: { gemini_rpd: number; gemini_tpm: number; tts_chars: number; modal_credit: number };
+  download_dir: string;
+};
+
+// URL 확인(미리보기) 결과 + 라이브러리 항목
+type Stages = { source: boolean; nosub: boolean; script: boolean };
+type PreviewInfo = {
+  url: string; in_library: boolean; reused: boolean;
+  title?: string | null; duration?: number | null; platform?: string;
+  thumb?: string | null; thumbnail?: string | null; stages?: Stages;
+  note?: string; error?: string;
+};
+type LibraryEntry = {
+  key: string; url: string; title: string; duration?: number | null;
+  platform: string; downloaded_at: number; size: number;
+  has_thumb: boolean; stages: Stages;
 };
 
 type TestResult = { ok: boolean; msg: string } | "loading";
@@ -188,6 +217,7 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   const [modalId, setModalId] = useState("");
   const [modalSecret, setModalSecret] = useState("");
   const [lim, setLim] = useState({ gemini_rpd: "", tts_chars: "", modal_credit: "" });
+  const [dlDir, setDlDir] = useState("");
   const [saving, setSaving] = useState(false);
   const [test, setTest] = useState<Record<string, TestResult>>({});
 
@@ -205,6 +235,7 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           tts_chars: String(j.limits.tts_chars),
           modal_credit: String(j.limits.modal_credit),
         });
+        setDlDir(j.download_dir || "");
       } catch {}
     })();
     return () => { live = false; };
@@ -224,6 +255,7 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
       if (ttsJson.trim()) body.tts_json = ttsJson.trim();
       if (modalId.trim()) body.modal_token_id = modalId.trim();
       if (modalSecret.trim()) body.modal_token_secret = modalSecret.trim();
+      body.download_dir = dlDir.trim();
       const r = await postJSON<{ ok: boolean; errors: Record<string, string>; status: SettingsStatus }>("/settings", body);
       setSt(r.status);
       setGeminiKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
@@ -322,6 +354,11 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <label className="flex flex-col gap-1">TTS 글자/월<input value={lim.tts_chars} onChange={(e) => setLim({ ...lim, tts_chars: e.target.value })} inputMode="numeric" className="rounded-lg bg-white/85 px-2 py-1.5 text-sm text-[var(--ink)] outline-none" /></label>
             <label className="flex flex-col gap-1">Modal $/월<input value={lim.modal_credit} onChange={(e) => setLim({ ...lim, modal_credit: e.target.value })} inputMode="numeric" className="rounded-lg bg-white/85 px-2 py-1.5 text-sm text-[var(--ink)] outline-none" /></label>
           </div>
+        </div>
+
+        <div className="mb-5">
+          <div className="mb-1 text-sm font-bold text-[var(--ink)]">다운로드 폴더 <span className="font-medium text-[var(--ink-soft)]">(서버 경로 · 영상 재사용 보관 위치)</span></div>
+          <input value={dlDir} onChange={(e) => setDlDir(e.target.value)} placeholder="비우면 기본값 (packages/core/downloads)" className={`${inp} font-mono text-[12px]`} />
         </div>
 
         <button onClick={save} disabled={saving} className="btn-grad w-full rounded-full py-3 text-sm font-bold transition disabled:opacity-50">{saving ? "저장 중…" : "저장"}</button>
@@ -466,6 +503,9 @@ export default function Home() {
   const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
   const bumpUsage = () => setUsageRefresh((n) => n + 1);
   const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
+  const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
 
   useEffect(() => {
     try {
@@ -712,6 +752,33 @@ export default function Home() {
     }, 1200);
   }
 
+  // 다운로드 라이브러리(최근 재사용 목록) 로드
+  async function loadLibrary() {
+    try {
+      const r = await fetch(`${apiBase()}/library`);
+      if (!r.ok) return;
+      const j = await r.json();
+      setLibEntries(j.entries || []);
+    } catch {}
+  }
+  useEffect(() => { loadLibrary(); }, []);
+
+  // '확인' — 다운로드 없이 제목/썸네일 미리보기. 이미 받은 영상이면 재사용·단계 표시.
+  async function checkUrl(u?: string) {
+    const target = (u ?? url).trim();
+    if (!target || previewBusy) return;
+    setPreviewBusy(true);
+    setPreview(null);
+    try {
+      const p = await postJSON<PreviewInfo>("/preview_url", { url: target });
+      setPreview(p);
+    } catch (e) {
+      setPreview({ url: target, in_library: false, reused: false, error: e instanceof Error ? e.message : "확인 실패" });
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
   async function analyze() {
     if (!url.trim() || busy) return;
     setBusy(true);
@@ -721,7 +788,8 @@ export default function Home() {
     try {
       const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim(), subtitle_backend: subtitleBackend });
       if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
-      pollJob(job_id, ["analyzed", "error"]);
+      // 분석 끝나면 라이브러리 갱신(새 다운로드/자막제거본 등록 반영) + 미리보기 갱신
+      pollJob(job_id, ["analyzed", "error"], () => { loadLibrary(); checkUrl(url); });
     } catch {
       setBusy(false);
       alert("서버 연결 실패. 8000 포트 백엔드를 확인하세요.");
@@ -941,6 +1009,13 @@ export default function Home() {
               붙여넣기
             </button>
             <button
+              onClick={() => checkUrl()}
+              disabled={previewBusy || !url.trim()}
+              className="rounded-full bg-white/70 px-5 py-3 text-sm font-semibold text-[var(--ink)] backdrop-blur transition hover:bg-white/90 disabled:opacity-50"
+            >
+              {previewBusy ? "확인 중..." : "확인"}
+            </button>
+            <button
               onClick={analyze}
               disabled={busy || !url.trim()}
               className="btn-grad rounded-full px-7 py-3 text-sm font-bold transition"
@@ -948,6 +1023,53 @@ export default function Home() {
               {busy && job?.status !== "done" ? "분석 중..." : "분석"}
             </button>
           </div>
+
+          {/* 확인(미리보기) 카드 — 제목·썸네일. 이미 받은 영상이면 재사용·단계 표시 */}
+          {preview && (
+            <div className="mt-3 flex gap-3 rounded-2xl glass-soft p-3">
+              {preview.thumb || preview.thumbnail ? (
+                <img
+                  src={preview.thumb ? `${apiBase()}${preview.thumb}` : preview.thumbnail || ""}
+                  alt="썸네일"
+                  className="h-24 w-auto flex-none rounded-lg bg-black/20 object-cover"
+                  style={{ aspectRatio: "9/16" }}
+                />
+              ) : (
+                <div className="flex h-24 w-14 flex-none items-center justify-center rounded-lg bg-white/40 text-2xl">🎬</div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {preview.in_library && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">♻ 이미 다운로드됨 · 재사용</span>}
+                  {preview.platform && <span className="rounded-full bg-white/60 px-2 py-0.5 text-[10px] font-semibold text-[var(--ink-soft)]">{preview.platform}</span>}
+                </div>
+                <div className="mt-1 line-clamp-2 text-sm font-bold text-[var(--ink)]">
+                  {preview.title || (preview.error ? "확인 실패" : preview.note ? "미리보기 제한" : "제목 없음")}
+                </div>
+                {preview.duration ? <div className="text-[11px] text-[var(--ink-soft)]">{fmtSec(preview.duration)}</div> : null}
+                {preview.stages && <StageBadges stages={preview.stages} />}
+                {preview.note && <div className="mt-1 text-[11px] text-amber-600">{preview.note}</div>}
+                {preview.error && <div className="mt-1 text-[11px] text-rose-500">{preview.error}</div>}
+              </div>
+            </div>
+          )}
+
+          {/* 최근 다운로드 — 클릭하면 URL 채우고 확인(재사용). 단계 캐시는 확인 카드에 표시 */}
+          {libEntries.length > 0 && (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-semibold text-[var(--ink-soft)]">📁 최근 다운로드 · 클릭해 재사용 ({libEntries.length})</summary>
+              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                {libEntries.map((e) => (
+                  <button key={e.key} onClick={() => { setUrl(e.url); checkUrl(e.url); }} title={e.title || e.url} className="flex-none transition hover:opacity-80">
+                    {e.has_thumb ? (
+                      <img src={`${apiBase()}/library/thumb/${e.key}`} alt="" className="h-20 w-[45px] rounded-lg object-cover ring-1 ring-white/50" style={{ aspectRatio: "9/16" }} />
+                    ) : (
+                      <div className="flex h-20 w-[45px] items-center justify-center rounded-lg bg-white/40 text-lg">🎬</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
 
           {/* [로컬 GPU 자막제거 제거 — 서비스는 Modal만 사용. 디버깅 시 이 토글 복원 + setSubtitleBackend 복원 + 백엔드 env ALLOW_LOCAL_GPU=1]
           <div className="mt-3 flex items-center gap-2.5 text-[13px]">

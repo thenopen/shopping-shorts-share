@@ -66,3 +66,30 @@ def probe_info(url: str, cookiefile: str | None = None,
         "height": i.get("height"),
         "ext": i.get("ext"),
     }
+
+
+def probe_preview(url: str, cookiefile: str | None = None,
+                  cookies_from_browser: str | None = None) -> dict:
+    """확인(미리보기)용 — 제목 + 썸네일 URL(원격) + 길이/해상도. 다운로드 안 함."""
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+    elif cookies_from_browser:
+        opts["cookiesfrombrowser"] = (cookies_from_browser,)
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        # process=False: 포맷 해상(다운로드 준비) 생략 → 구버전 yt-dlp의 포맷추출 실패와
+        # 무관하게 제목/썸네일/길이 메타만 안정적으로 가져옴(미리보기 전용).
+        i = ydl.extract_info(url, download=False, process=False)
+    thumb = i.get("thumbnail")
+    if not thumb:
+        thumbs = i.get("thumbnails") or []
+        thumb = thumbs[-1].get("url") if thumbs else None
+    return {
+        "title": i.get("title"),
+        "duration": i.get("duration"),
+        "width": i.get("width"),
+        "height": i.get("height"),
+        "thumbnail": thumb,
+        "uploader": i.get("uploader"),
+        "extractor": i.get("extractor_key") or i.get("extractor"),
+    }
