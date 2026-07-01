@@ -701,10 +701,10 @@ export default function Home() {
     try {
       const d = await postJSON<{ audio?: string }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate });
       if (d.audio) {
-        const u = `${apiBase()}${d.audio}?t=${renderSeq}-${voice}`;
-        setTtsUrl(u);
+        // 보이는 <audio controls autoPlay>로 재생(다시듣기·스크럽 가능). 숨은 audioRef는 보이스 미리듣기 전용.
         const el = audioRef.current;
-        if (el) { el.pause(); el.src = u; el.currentTime = 0; el.play().catch(() => {}); }
+        if (el && playing) { el.pause(); setPlaying(null); }   // 보이스 미리듣기 중이면 정지(겹침 방지)
+        setTtsUrl(`${apiBase()}${d.audio}?t=${renderSeq}-${voice}`);
       } else {
         alert("음성 생성 실패.");
       }
@@ -1571,11 +1571,17 @@ export default function Home() {
             <button
               onClick={previewTts}
               disabled={!script.trim() || ttsBusy}
-              className="mt-3 w-full rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
             >
+              {ttsBusy && <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
               {ttsBusy ? "음성 생성 중..." : `🔊 '${voice}' 목소리로 대본 들어보기`}
             </button>
-            {ttsUrl && <p className="mt-1.5 text-center text-[11px] text-[var(--ink-soft)]">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>}
+            {ttsUrl && (
+              <div className="mt-2">
+                <audio key={ttsUrl} src={ttsUrl} controls autoPlay className="w-full" />
+                <p className="mt-1 text-center text-[11px] text-[var(--ink-soft)]">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>
+              </div>
+            )}
           </div>
 
           <div className="mt-7">
