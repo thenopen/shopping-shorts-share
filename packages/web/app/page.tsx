@@ -709,6 +709,15 @@ export default function Home() {
   const [sellingPoints, setSellingPoints] = useState("");
   const [productBusy, setProductBusy] = useState(false);
   const [productErr, setProductErr] = useState("");
+  const [productStage, setProductStage] = useState("");   // 제품 분석 진행 힌트(크롤 수십 초)
+  useEffect(() => {
+    if (!productBusy) { setProductStage(""); return; }
+    const steps = ["🔎 상세페이지 여는 중…", "📄 내용 읽는 중…", "✨ 소구포인트 뽑는 중…", "✍️ 대본 작성 중…"];
+    let i = 0;
+    setProductStage(steps[0]);
+    const id = setInterval(() => { i = Math.min(i + 1, steps.length - 1); setProductStage(steps[i]); }, 7000);
+    return () => clearInterval(id);
+  }, [productBusy]);
 
   function addImageFiles(files: FileList | File[] | null) {
     const list = Array.from(files || []).filter((f) => f.type.startsWith("image/"));
@@ -1342,11 +1351,19 @@ export default function Home() {
               <button
                 onClick={generateProductScript}
                 disabled={productBusy}
-                className="btn-grad rounded-full px-7 py-3 text-sm font-bold transition disabled:opacity-50"
+                className="btn-grad flex items-center justify-center gap-2 rounded-full px-7 py-3 text-sm font-bold transition disabled:opacity-50"
               >
+                {productBusy && <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />}
                 {productBusy ? "분석 중..." : "소구포인트 → 대본"}
               </button>
             </div>
+
+            {productBusy && productStage && (
+              <div className="mt-2.5 flex items-center gap-2 rounded-xl bg-white/55 px-3 py-2 text-[13px] font-medium text-[var(--ink)]">
+                <span className="inline-block h-3.5 w-3.5 flex-none animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
+                {productStage} <span className="text-[var(--ink-soft)]">· 상세페이지가 크면 수십 초 걸려요</span>
+              </div>
+            )}
 
             {/* 캡처 업로드(여러 장) — 파일 선택 또는 Ctrl+V 붙여넣기. 쿠팡 등 차단 사이트 폴백 */}
             <div className="mt-2.5">
