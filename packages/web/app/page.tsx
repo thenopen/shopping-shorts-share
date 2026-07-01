@@ -721,6 +721,7 @@ export default function Home() {
   const [sellingPoints, setSellingPoints] = useState("");
   const [productBusy, setProductBusy] = useState(false);
   const [productErr, setProductErr] = useState("");
+  const [productMsg, setProductMsg] = useState("");       // 제품 대본 생성 완료 안내
   const [productStage, setProductStage] = useState("");   // 제품 분석 진행 힌트(크롤 수십 초)
   const [pointsEdit, setPointsEdit] = useState(false);    // 소구포인트 편집/보기 토글
   useEffect(() => {
@@ -763,6 +764,7 @@ export default function Home() {
     }
     setProductBusy(true);
     setProductErr("");
+    setProductMsg("");
     try {
       const body = fromPoints
         ? { manual_points: sellingPoints, video_content: script, combine: true }
@@ -774,7 +776,10 @@ export default function Home() {
         if (d.selling_points) setSellingPoints(d.selling_points);
       } else {
         setSellingPoints(d.selling_points || "");
-        if (d.script) commitScript(d.script);
+        if (d.script) {
+          commitScript(d.script);
+          setProductMsg("✅ 대본이 만들어졌어요 — 아래 '한국어 대본'에서 확인·수정하세요.");
+        }
       }
     } catch (e) {
       setProductErr(e instanceof Error && e.message ? e.message : "대본 생성 실패. 서버 상태를 확인하세요.");
@@ -1351,7 +1356,11 @@ export default function Home() {
           {/* 제품 소구포인트 — 상세페이지 링크/캡처/수동 → 대본 결합 */}
           <div className="mt-6 rounded-2xl glass-soft p-5" onPaste={onProductPaste}>
             <label className="mb-1 block text-sm font-bold text-[var(--ink)]">제품 링크 <span className="font-medium text-[var(--ink-soft)]">(선택 · 영상에 맞는 상품 상세페이지)</span></label>
-            <p className="mb-3 text-[13px] text-[var(--ink-soft)]">상세페이지를 읽고 소구포인트를 뽑아 영상 내용에 맞는 대본을 만들어요. 제품명은 직접 말하지 않아요.</p>
+            <p className="mb-3 text-[13px] text-[var(--ink-soft)]">
+              {script.trim()
+                ? "위 영상 내용 + 제품 소구포인트를 결합해 대본을 만들어요. 제품명은 직접 말하지 않아요."
+                : "제품 소구포인트만으로 대본을 만들어요. (영상을 먼저 분석하면 영상 내용과 결합돼요.) 제품명은 직접 말하지 않아요."}
+            </p>
             <div className="flex flex-col gap-2.5 md:flex-row">
               <div className="grad-ring min-w-0 flex-1">
                 <input
@@ -1408,6 +1417,7 @@ export default function Home() {
             </div>
 
             {productErr && <p className="mt-3 rounded-xl bg-rose-100/70 px-4 py-2.5 text-xs font-medium text-rose-600">⚠ {productErr}</p>}
+            {productMsg && !productErr && <p className="mt-3 rounded-xl bg-emerald-100/70 px-4 py-2.5 text-xs font-semibold text-emerald-700">{productMsg}</p>}
             {sellingPoints && (() => {
               const { cat, points } = parsePoints(sellingPoints);
               return (
