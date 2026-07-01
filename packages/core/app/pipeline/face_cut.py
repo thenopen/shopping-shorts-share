@@ -22,7 +22,8 @@ from pathlib import Path
 
 import cv2
 
-from app.config import FFMPEG, FFPROBE
+from app.config import FFMPEG
+from app.media_util import probe_duration, has_audio
 from app.pipeline.subtitle_inpaint import _resolve_ffmpeg
 
 _cascade = None
@@ -38,27 +39,11 @@ def _get_cascade():
 
 
 def _probe_duration(path) -> float:
-    try:
-        r = subprocess.run(
-            [FFPROBE, "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-            capture_output=True, text=True,
-        )
-        return float((r.stdout or "").strip())
-    except Exception:
-        return 0.0
+    return probe_duration(path, default=0.0)
 
 
 def _has_audio(path) -> bool:
-    try:
-        r = subprocess.run(
-            [FFPROBE, "-v", "error", "-select_streams", "a",
-             "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True,
-        )
-        return bool((r.stdout or "").strip())
-    except Exception:
-        return False
+    return has_audio(path, default=False)
 
 
 def detect_face_segments(video_path: Path, face_ratio_threshold: float = 0.25,

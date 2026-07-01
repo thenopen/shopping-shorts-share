@@ -2,7 +2,8 @@
 import subprocess
 from pathlib import Path
 
-from app.config import FFMPEG, FFPROBE, TARGET_W, TARGET_H, DEFAULT_FONT
+from app.config import FFMPEG, TARGET_W, TARGET_H, DEFAULT_FONT
+from app.media_util import probe_duration
 
 
 def _ff_path(p: str) -> str:
@@ -11,13 +12,8 @@ def _ff_path(p: str) -> str:
 
 
 def _probe_duration(path: Path) -> float:
-    """미디어 길이(초)."""
-    out = subprocess.run(
-        [FFPROBE, "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        capture_output=True, text=True, check=True,
-    )
-    return float(out.stdout.strip())
+    """미디어 길이(초). 실패 시 예외 전파(기존 check=True 동작)."""
+    return probe_duration(path)
 
 
 def _escape_drawtext(s: str) -> str:

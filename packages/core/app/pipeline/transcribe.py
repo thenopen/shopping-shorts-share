@@ -55,17 +55,9 @@ def transcribe_to_korean(
 
 
 def _media_has_audio(path: Path) -> bool:
-    """ffprobe로 오디오 스트림 존재 확인. 없으면 whisper가 PyAV IndexError로 크래시하므로 사전 차단."""
-    import subprocess
-    from app.config import FFPROBE
-    try:
-        r = subprocess.run(
-            [FFPROBE, "-v", "error", "-select_streams", "a",
-             "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
-            capture_output=True, text=True)
-        return bool((r.stdout or "").strip())
-    except Exception:
-        return True   # 불확실하면 일단 시도
+    """오디오 스트림 존재 확인. 없으면 whisper가 PyAV IndexError로 크래시하므로 사전 차단."""
+    from app.media_util import has_audio
+    return has_audio(path, default=True)   # 불확실하면 일단 시도
 
 
 def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool,

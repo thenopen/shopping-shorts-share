@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import WORKDIR
-from app.media_util import grab_frame
+from app.media_util import grab_frame, probe_duration
 from app.url_extract import extract_url
 
 app = FastAPI(title="쇼핏 쇼츠 메이커 API")
@@ -1070,17 +1070,7 @@ def _render_worker(jid: str, req: RenderReq):
 
 
 def _probe_dur(path) -> float | None:
-    try:
-        import subprocess
-        from app.config import FFPROBE
-        r = subprocess.run(
-            [FFPROBE, "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-            capture_output=True, text=True,
-        )
-        return float(r.stdout.strip())
-    except Exception:
-        return None
+    return probe_duration(path, default=None)
 
 
 def _source_for_job(jid: str):
