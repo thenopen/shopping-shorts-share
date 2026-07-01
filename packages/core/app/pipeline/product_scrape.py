@@ -65,8 +65,8 @@ def scrape_url(url: str, shot_path: Path | None = None) -> dict:
             if use_profile:
                 if not COUPANG_PROFILE.exists():
                     result["error"] = (
-                        "쿠팡은 봇 차단(Akamai)되어 전용 크롬 프로필이 필요합니다. "
-                        "setup_coupang_login()으로 1회 로그인하거나, 상세페이지 캡처 이미지를 올려주세요."
+                        "쿠팡은 봇 차단이 심해 링크로는 못 읽어요. "
+                        "아래 '📷 캡쳐 이미지 올리기'로 상세페이지 스크린샷을 올려주시면 소구포인트를 뽑아드려요."
                     )
                     return result
                 ctx = p.chromium.launch_persistent_context(
@@ -86,8 +86,12 @@ def scrape_url(url: str, shot_path: Path | None = None) -> dict:
             pg.goto(url, wait_until="domcontentloaded", timeout=35000)
             pg.wait_for_timeout(3000)
             body = pg.inner_text("body")
-            if "Access Denied" in body or "권한이 없" in body or len(body) < 200:
-                result["error"] = f"{site} 페이지 접근 차단 또는 빈 페이지(len={len(body)})"
+            if "Access Denied" in body or "권한이 없" in body:
+                result["error"] = f"{site} 페이지 접근이 차단됐어요. 상세페이지 캡처 이미지를 올려주세요."
+                ctx.close()
+                return result
+            if len(body) < 200:
+                result["error"] = f"{site} 페이지 내용을 못 읽었어요(빈 페이지). 링크를 확인하거나 캡처 이미지를 올려주세요."
                 ctx.close()
                 return result
 
