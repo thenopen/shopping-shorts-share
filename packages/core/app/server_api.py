@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import WORKDIR
+from app.media_util import grab_frame
 from app.url_extract import extract_url
 
 app = FastAPI(title="쇼핏 쇼츠 메이커 API")
@@ -409,13 +410,7 @@ def quality_frames(req: QualityReq):
     n = max(2, min(int(req.count or 8), 16))
 
     def _grab(inp, out, t):
-        try:
-            subprocess.run([FFMPEG, "-hide_banner", "-y", "-ss", str(t), "-i", str(inp),
-                            "-frames:v", "1", "-vf", "scale=360:-2", str(out)],
-                           capture_output=True, text=True, timeout=60)
-        except Exception:
-            pass
-        return out.exists()
+        return grab_frame(inp, out, t)
 
     frames = []
     for i in range(n):

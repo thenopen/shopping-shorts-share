@@ -11,11 +11,10 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import time
 from pathlib import Path
 
-from app.config import FFMPEG
+from app.media_util import grab_frame
 from app import settings as _settings
 from app.url_extract import extract_url
 
@@ -51,14 +50,7 @@ def _link_or_copy(src: Path, dst: Path) -> None:
 
 def _make_thumb(src: Path, dst: Path) -> bool:
     """영상 첫 부분(1s) 프레임 1장 → 썸네일 jpg(가로 360)."""
-    try:
-        subprocess.run(
-            [FFMPEG, "-hide_banner", "-y", "-ss", "1", "-i", str(src),
-             "-frames:v", "1", "-vf", "scale=360:-2", str(dst)],
-            capture_output=True, text=True, timeout=60)
-    except Exception:
-        pass
-    return Path(dst).exists()
+    return grab_frame(src, dst, 1)
 
 
 def find(url: str) -> dict | None:
