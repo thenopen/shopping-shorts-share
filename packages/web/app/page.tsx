@@ -904,15 +904,22 @@ export default function Home() {
     }
   }
 
-  async function analyze() {
-    if (!url.trim() || busy) return;
+  // opts.reuseNosub=false → 다운로드는 재사용하되 자막제거만 다시 실행(캐시 무시).
+  // opts.url → 그 URL로 분석(재실행이 미리보기 URL을 정확히 쓰게).
+  async function analyze(opts?: { reuseNosub?: boolean; url?: string }) {
+    const target = (opts?.url ?? url).trim();
+    if (!target || busy) return;
+    if (opts?.url) setUrl(opts.url);
     setBusy(true);
     setJob(null);
     setQFrames([]);                   // 새 분석 → 이전 품질 프레임 비움
     loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
     loggedDouyinRef.current = false;  // 새 분석 → 도우인 진단 다시 찍히게
     try {
-      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim(), subtitle_backend: subtitleBackend });
+      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", {
+        url: target, subtitle_backend: subtitleBackend,
+        reuse_nosub: opts?.reuseNosub ?? true,
+      });
       if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
       // 분석 끝나면 라이브러리 갱신(새 다운로드/자막제거본 등록 반영) + 미리보기 갱신
       pollJob(job_id, ["analyzed", "error"], () => { loadLibrary(); checkUrl(url); });
@@ -1142,7 +1149,7 @@ export default function Home() {
               {previewBusy ? "확인 중..." : "확인"}
             </button>
             <button
-              onClick={analyze}
+              onClick={() => analyze()}
               disabled={busy || !url.trim()}
               className="btn-grad rounded-full px-7 py-3 text-sm font-bold transition"
             >
@@ -1174,12 +1181,24 @@ export default function Home() {
                 {preview.duration ? <div className="text-[11px] text-[var(--ink-soft)]">{fmtSec(preview.duration)}</div> : null}
                 {preview.stages && <StageBadges stages={preview.stages} />}
                 {preview.in_library && (
-                  <button
-                    onClick={() => resumeFromLibrary(preview.url)}
-                    className="btn-grad mt-2 rounded-full px-4 py-1.5 text-xs font-bold transition"
-                  >
-                    ▶ 이어하기 {preview.stages ? `(${preview.stages.script ? "대본까지" : preview.stages.nosub ? "자막제거본까지" : "원본"} 불러오기)` : ""}
-                  </button>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => resumeFromLibrary(preview.url)}
+                      className="btn-grad rounded-full px-4 py-1.5 text-xs font-bold transition"
+                    >
+                      ▶ 이어하기 {preview.stages ? `(${preview.stages.script ? "대본까지" : preview.stages.nosub ? "자막제거본까지" : "원본"} 불러오기)` : ""}
+                    </button>
+                    {preview.stages?.nosub && (
+                      <button
+                        onClick={() => analyze({ reuseNosub: false, url: preview.url })}
+                        disabled={busy}
+                        title="다운로드는 재사용하고 자막제거만 다시 실행(지금은 ProPainter). 캐시 덮어씀"
+                        className="rounded-full bg-white/70 px-4 py-1.5 text-xs font-semibold text-[var(--ink)] transition hover:bg-white/90 disabled:opacity-50"
+                      >
+                        🔄 자막제거 다시
+                      </button>
+                    )}
+                  </div>
                 )}
                 {preview.note && <div className="mt-1 text-[11px] text-amber-600">{preview.note}</div>}
                 {preview.error && <div className="mt-1 text-[11px] text-rose-500">{preview.error}</div>}
