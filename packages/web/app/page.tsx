@@ -126,10 +126,10 @@ function QuotaBadge({ refreshKey, active }: { refreshKey: number; active: boolea
         setCool(j.gemini?.cooldown ?? 0);
       } catch {}
     };
-    load();  // active 토글(작업 시작/종료) 시 즉시 1회 → 완료 직후 최종 사용량 반영
-    // 처리 중엔 2.5s로 빠르게(사용량 실시간 반영), 유휴 시 8s.
-    const id = setInterval(load, active ? 2500 : 8000);
-    return () => { live = false; clearInterval(id); };
+    load();  // 마운트·active 토글·버튼(refreshKey) 시 1회 로드(완료 직후 최종 사용량 반영)
+    // 사용량은 작업 중에만 변함 → 처리 중(active)에만 2.5s 폴링. 유휴 땐 폴링 안 함.
+    const id = active ? setInterval(load, 2500) : null;
+    return () => { live = false; if (id) clearInterval(id); };
   }, [refreshKey, active]);
   // 소진 쿨다운은 1초씩 로컬 감소(폴링 사이에도 부드럽게).
   useEffect(() => {
