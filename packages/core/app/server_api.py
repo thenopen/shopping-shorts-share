@@ -800,9 +800,20 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
         job.update(status="removing_subtitle", stage="자막·워터마크 제거", progress=0)
         job_nosub = job_dir / "nosub.mp4"
 
+        # 자막제거 판단/폴백 과정을 DEBUG로 남긴다 → job에 쌓아 웹 F12 콘솔에 노출 + 서버 로그.
+        dbg = job.setdefault("subtitle_debug", [])
+
+        def _dbg(m):
+            dbg.append(m)
+            print(f"[자막제거] {m}", flush=True)
+
+        _dbg(f"입력: reuse_nosub={reuse_nosub}, backend={subtitle_backend}, "
+             f"PROPAINTER={os.environ.get('PROPAINTER', '1')}, platform={platform or '-'}")
+
         # 이미 만든 자막제거본이 있으면 재사용(자막탐지·GPU 인페인트 전부 생략).
         if reuse_nosub and library.reuse_nosub_into(url, job_nosub):
             job["subtitle_engine"] = "cached"
+            _dbg("→ 자막제거본 캐시 재사용(다시 처리 안 함). '자막제거 다시'로 강제 재실행 가능")
             job.update(stage="자막 제거본 재사용", progress=100)
         else:
             # 화면 전체 OCR로 자막+워터마크 글자 모두 탐지(언어 무관, 하단제한 해제).
@@ -812,7 +823,7 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                 segments = detect_segments(source, interval_sec=0.25, full_frame=True,
                                            require_center=True, pad=14)
             except Exception as e:
-                print(f"  [subtitle segment detection failed: {str(e)[:120]}]")
+                _dbg(f"자막 탐지 실패: {str(e)[:150]}")
                 segments = []
 
             # 도우인/틱톡 고정 UI영역(우측 버튼열·좌하단 아이디·상단 탭) 항상 inpaint.
@@ -826,6 +837,7 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                 cap.release()
                 fixed_boxes = fixed_overlay_boxes(w, h, platform=platform, enabled=True)
 
+            _dbg(f"탐지 결과: 자막 세그먼트 {len(segments)}개, 고정 UI박스 {len(fixed_boxes)}개")
             if segments or fixed_boxes:
                 def _ip_prog(frac):
                     # 자막제거 단계 자체 0~100 (LaMa 등 프레임 콜백 기준)
@@ -835,6 +847,8 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                 engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
                 engine_note = ""       # 폴백 사유 등
                 use_pp = bool(segments) and os.environ.get("PROPAINTER", "1") != "0"
+                _dbg(f"엔진 판단: use_pp={use_pp} → "
+                     f"{'ProPainter 시도(세그먼트 있음+PROPAINTER 켜짐)' if use_pp else 'ProPainter 건너뜀 → LaMa/고정박스'}")
 
                 # 1순위 ProPainter(modal): 클라우드 GPU라 로컬 세마포어 없이 실행 →
                 # 여러 영상이 동시에 자막제거되고, 풀이 계정을 로테이션한다.
@@ -842,14 +856,15 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                     try:
                         from app.pipeline.propainter_inpaint import inpaint_with_propainter
                         job.update(stage="자막 제거 (클라우드 AI 배경복원)", progress=0)
+                        _dbg("ProPainter(modal) 시도 — Modal 청크 병렬 fan-out")
                         nosub = inpaint_with_propainter(
                             source, job_dir / "nosub.mp4", segments,
                             backend="modal", progress_cb=_ip_prog)
                         engine = "propainter_modal"
-                        print("  [ProPainter(modal) 자막제거 성공]")
+                        _dbg("→ ProPainter(modal) 성공")
                     except Exception as pe:
-                        engine_note = str(pe)[:200]
-                        print(f"  [ProPainter(modal) 실패, 로컬 폴백: {engine_note}]")
+                        engine_note = str(pe)[:300]
+                        _dbg(f"→ ProPainter(modal) 실패, LaMa 폴백. 사유: {engine_note}")
                         nosub = None
 
                 # 로컬 GPU 구간(로컬 ProPainter 또는 LaMa)은 세마포어로 직렬화(8GB OOM 방지).
@@ -859,25 +874,30 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "modal",
                             try:
                                 from app.pipeline.propainter_inpaint import inpaint_with_propainter
                                 job.update(stage="자막 제거 (AI 배경복원)", progress=0)
+                                _dbg("ProPainter(local) 시도 — 로컬 GPU")
                                 nosub = inpaint_with_propainter(
                                     source, job_dir / "nosub.mp4", segments,
                                     backend="local", progress_cb=_ip_prog)
                                 engine = "propainter_local"
-                                print("  [ProPainter(local) 자막제거 성공]")
+                                _dbg("→ ProPainter(local) 성공")
                             except Exception as pe:
-                                engine_note = str(pe)[:200]
-                                print(f"  [ProPainter(local) 실패, LaMa 폴백: {engine_note}]")
+                                engine_note = str(pe)[:300]
+                                _dbg(f"→ ProPainter(local) 실패, LaMa 폴백. 사유: {engine_note}")
                                 nosub = None
                         if nosub is None:
+                            reason = "ProPainter 실패 폴백" if engine_note else "ProPainter 미시도(기본)"
+                            _dbg(f"LaMa 실행 ({reason})")
                             nosub = inpaint_subtitles(source, job_dir / "nosub.mp4", segments,
                                                       fixed_boxes=fixed_boxes, progress_cb=_ip_prog)
                             engine = "lama_fallback" if engine_note else "lama"
                 job["subtitle_engine"] = engine
                 if engine_note:
                     job["subtitle_engine_note"] = engine_note
+                _dbg(f"■ 최종 엔진: {engine}")
             else:
                 remove_subtitle(source, job_dir / "nosub.mp4", use_ocr=False)
                 job["subtitle_engine"] = "none"
+                _dbg("탐지된 자막/고정박스 없음 → 자막제거 안 함(원본 유지). 엔진: none")
             # 자막제거본을 라이브러리에 보관 → 다음부터 이 단계 생략.
             try:
                 library.save_nosub(url, job_nosub)

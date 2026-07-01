@@ -68,8 +68,9 @@ type JobState = {
   output: string | null;
   has_speech: boolean | null;
   error: string | null;
-  subtitle_engine?: string | null;       // "propainter" | "lama" | "lama_fallback" | "none"
+  subtitle_engine?: string | null;       // "propainter_modal" | "lama" | "lama_fallback" | "cached" | "none"
   subtitle_engine_note?: string | null;  // 폴백 사유 등
+  subtitle_debug?: string[] | null;      // 자막제거 판단/폴백 과정(F12 콘솔용)
   douyin_diag?: string[] | null;         // 도우인 다운로드 미디어 후보/트랙 진단(F12 콘솔용)
 };
 
@@ -799,6 +800,7 @@ export default function Home() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loggedEngineRef = useRef<string | null>(null);  // 자막제거 엔진 콘솔 1회 기록용
   const loggedDouyinRef = useRef(false);                // 도우인 다운로드 진단 콘솔 1회 기록용
+  const loggedDebugRef = useRef(false);                 // 자막제거 판단/폴백 DEBUG 1회 기록용
 
   function stopPoll() {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -844,6 +846,11 @@ export default function Home() {
             `[자막제거 엔진] ${label[j.subtitle_engine] ?? j.subtitle_engine}` +
               (j.subtitle_engine_note ? ` | 사유: ${j.subtitle_engine_note}` : "")
           );
+        }
+        // 자막제거 판단/폴백 전체 과정을 콘솔에 1회 기록(왜 그 엔진이 됐는지).
+        if (j.subtitle_debug && j.subtitle_debug.length && j.subtitle_engine && !loggedDebugRef.current) {
+          loggedDebugRef.current = true;
+          console.log("[자막제거 DEBUG] 판단·폴백 과정 ↓\n" + j.subtitle_debug.join("\n"));
         }
         // 도우인 다운로드 미디어 후보/트랙 진단을 브라우저 콘솔에 1회 기록.
         // diag는 다운로드 중 점진적으로 쌓이므로(요약 → 후보별 ffprobe 결과 순),
@@ -978,6 +985,7 @@ export default function Home() {
     setQFrames([]);                   // 새 분석 → 이전 품질 프레임 비움
     loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
     loggedDouyinRef.current = false;  // 새 분석 → 도우인 진단 다시 찍히게
+    loggedDebugRef.current = false;   // 새 분석 → 자막제거 DEBUG 다시 찍히게
     try {
       const { job_id } = await postJSON<{ job_id?: string }>("/analyze", {
         url: target, subtitle_backend: subtitleBackend,
