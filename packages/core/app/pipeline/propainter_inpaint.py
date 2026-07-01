@@ -152,6 +152,12 @@ def _run_propainter_modal(frames_dir, masks_dir, result_dir, resize_ratio,
     res = fn.remote(_tar(frames_dir), _tar(masks_dir), resize_ratio=resize_ratio,
                     subvideo_length=subvideo_length, neighbor_length=neighbor_length,
                     mask_dilation=mask_dilation)
+    # Modal GPU 사용량 집계(월 크레딧 소진 추정용): 처리 GPU초 + GPU 이름.
+    try:
+        from app import usage
+        usage.record_modal(res.get("seconds", 0), res.get("gpu", ""))
+    except Exception:
+        pass
     Path(result_dir).mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(res["result_tar"]), mode="r:*") as t:
         t.extractall(str(result_dir))

@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const API = "http://127.0.0.1:8000";
 const API_PREFIXES = [
   "tts", "script", "jobs", "analyze", "transcribe",
-  "captions", "refine", "agent", "render", "file",
+  "captions", "refine", "agent", "render", "file", "usage", "settings",
 ];
 
 const nextConfig: NextConfig = {

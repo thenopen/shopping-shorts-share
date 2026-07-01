@@ -43,16 +43,19 @@ def transcribe_to_korean(
     model_size: str = "large-v3",
     keep_segments: bool = True,
     provider: str | None = None,
+    progress_cb=None,
 ) -> dict:
     provider = (provider or os.environ.get("STT_PROVIDER") or "local").lower()
     if provider == "local":
-        return _transcribe_local(media_path, model_size=model_size, keep_segments=keep_segments)
+        return _transcribe_local(media_path, model_size=model_size,
+                                 keep_segments=keep_segments, progress_cb=progress_cb)
     if provider == "google":
         raise NotImplementedError("Google STT provider is reserved for service rollout. Use STT_PROVIDER=local for now.")
     raise ValueError(f"Unsupported STT_PROVIDER: {provider}")
 
 
-def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool) -> dict:
+def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool,
+                      progress_cb=None) -> dict:
     media_path = Path(media_path)
     if not media_path.exists():
         raise FileNotFoundError(f"Media file not found: {media_path}")
@@ -60,14 +63,21 @@ def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool) ->
     # GPU 있으면 cuda+float16(정확·빠름), 없으면 cpu+int8 폴백. 모델은 캐시 재사용.
     model = load_whisper_auto(model_size)
     # beam_size↑·vad_filter로 무음구간 환청('0,,입자' 류) 억제 → 정확도 개선.
+    # faster-whisper의 segments는 지연 제너레이터 → 순회하며 seg.end/전체길이로 진행률 산출.
     segments, _info = model.transcribe(
         str(media_path), language="zh", beam_size=5,
         vad_filter=True, vad_parameters={"min_silence_duration_ms": 500},
     )
+    total_dur = float(getattr(_info, "duration", 0) or 0)
 
     seg_list = []
     zh_parts = []
     for seg in segments:
+        if progress_cb and total_dur:
+            try:
+                progress_cb(min(float(seg.end) / total_dur, 0.99))
+            except Exception:
+                pass
         zh = (seg.text or "").strip()
         if not zh:
             continue

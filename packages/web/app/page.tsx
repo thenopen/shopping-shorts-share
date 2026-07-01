@@ -73,13 +73,385 @@ type JobState = {
   douyin_diag?: string[] | null;         // 도우인 다운로드 미디어 후보/트랙 진단(F12 콘솔용)
 };
 
+type Usage = {
+  gemini: { calls: number; tokens: number; model?: string | null; cooldown: number; limit: number; remaining: number; tpm_limit: number; reset: string };
+  tts: { chars: number; calls: number; limit: number; remaining: number; reset: string };
+  modal: { jobs: number; seconds: number; cost: number; gpu?: string | null; limit: number; remaining: number; reset: string };
+};
+
+// 리셋 시각/설명을 보여주는 (?) 도움말 아이콘 — 네이티브 title 툴팁(줄바꿈 포함).
+function HelpDot({ title }: { title: string }) {
+  return (
+    <span
+      title={title}
+      className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full bg-[var(--ink-soft)]/25 text-[9px] font-bold leading-none text-[var(--ink-soft)]"
+    >?</span>
+  );
+}
+
+function fmtK(n: number) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`;
+  return `${n}`;
+}
+
+// 헤더 우측 API 잔여 한도 배지 — /usage 8초 폴링. 무료티어는 잔여 quota API가 없어
+// '한도 − 우리 사용량'으로 남은 양을 계산(이 키를 이 앱만 쓸 때 정확). 리셋시각은 (?)에.
+function QuotaBadge({ refreshKey }: { refreshKey: number }) {
+  const [u, setU] = useState<Usage | null>(null);
+  const [cool, setCool] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      try {
+        const r = await fetch(`${apiBase()}/usage`);
+        if (!r.ok) return;
+        const j: Usage = await r.json();
+        if (!live) return;
+        setU(j);
+        setCool(j.gemini?.cooldown ?? 0);
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 8000);
+    return () => { live = false; clearInterval(id); };
+  }, [refreshKey]);
+  // 소진 쿨다운은 1초씩 로컬 감소(폴링 사이에도 부드럽게).
+  useEffect(() => {
+    if (cool <= 0) return;
+    const id = setInterval(() => setCool((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cool > 0]);
+  if (!u) return null;
+
+  const g = u.gemini, t = u.tts, m = u.modal;
+  const clr = (rem: number, lim: number) =>
+    rem <= 0 ? "text-rose-500" : rem < lim * 0.1 ? "text-amber-600" : "text-[var(--ink)]";
+
+  const rows = [
+    {
+      key: "gemini", icon: "🔹", label: "Gemini",
+      value: `${g.remaining.toLocaleString()}/${g.limit.toLocaleString()}`, unit: "요청",
+      cls: clr(g.remaining, g.limit),
+      help: `Gemini 무료 한도: 하루 ${g.limit.toLocaleString()}요청.\n남은 = 한도 − 오늘 사용 ${g.calls}회 (${g.tokens.toLocaleString()}토큰).\n리셋: 매일 ${g.reset} (KST) · 태평양 자정 기준.\n정확한 잔여는 AI Studio / Cloud Console.`,
+    },
+    {
+      key: "tts", icon: "🔸", label: "TTS",
+      value: `${fmtK(t.remaining)}/${fmtK(t.limit)}`, unit: "자",
+      cls: clr(t.remaining, t.limit),
+      help: `Google TTS(Chirp3-HD) 무료 한도: 월 ${t.limit.toLocaleString()}자.\n남은 = 한도 − 이번달 사용 ${t.chars.toLocaleString()}자.\n리셋: 매월 1일 ${t.reset} (KST).\n정확한 잔여는 Cloud Console 할당량.`,
+    },
+    {
+      key: "modal", icon: "☁️", label: "Modal",
+      value: `$${m.remaining}/$${m.limit}`, unit: "",
+      cls: clr(m.remaining, m.limit),
+      help: `Modal 무료 크레딧: 월 $${m.limit}.\n남은 = 한도 − 이번달 추정사용 $${m.cost} (자막제거 ${m.jobs}건, GPU ${Math.round(m.seconds)}s${m.gpu ? `, ${m.gpu}` : ""}).\nGPU초×단가 추정치 — 정확한 잔여는 Modal 대시보드.\n리셋: 매월 1일 ${m.reset} (KST).`,
+    },
+  ];
+
+  return (
+    <div className="hidden flex-col items-end gap-1 text-[11px] font-semibold sm:flex">
+      {cool > 0 && (
+        <span className="rounded-full bg-rose-100/80 px-2.5 py-1 text-rose-600 backdrop-blur">
+          ⚠ Gemini 한도 소진 · {cool}s 후 재시도
+        </span>
+      )}
+      <div className="flex flex-col gap-0.5 rounded-xl bg-white/55 px-3 py-1.5 text-[var(--ink-soft)] backdrop-blur">
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+            <span>{r.icon} {r.label}</span>
+            <span className={`font-bold ${r.cls}`}>{r.value}</span>
+            <span>{r.unit ? `${r.unit} 남음` : "남음"}</span>
+            <HelpDot title={r.help} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type SettingsStatus = {
+  gemini: { set: boolean; masked: string };
+  google_tts: { set: boolean; email: string };
+  modal: { set: boolean; masked: string; profile: string | null };
+  limits: { gemini_rpd: number; gemini_tpm: number; tts_chars: number; modal_credit: number };
+};
+
+type TestResult = { ok: boolean; msg: string } | "loading";
+
+// 설정 패널 — API 키/토큰/한도를 사이트에서 입력·저장. 키는 서버에만 저장되고
+// 화면엔 마스킹(끝 4자리)만. 빈칸은 기존값 유지. 저장 시 배지도 갱신(onSaved).
+function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [st, setSt] = useState<SettingsStatus | null>(null);
+  const [geminiKey, setGeminiKey] = useState("");
+  const [ttsJson, setTtsJson] = useState("");
+  const [modalId, setModalId] = useState("");
+  const [modalSecret, setModalSecret] = useState("");
+  const [lim, setLim] = useState({ gemini_rpd: "", tts_chars: "", modal_credit: "" });
+  const [saving, setSaving] = useState(false);
+  const [test, setTest] = useState<Record<string, TestResult>>({});
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const r = await fetch(`${apiBase()}/settings`);
+        if (!r.ok) return;
+        const j: SettingsStatus = await r.json();
+        if (!live) return;
+        setSt(j);
+        setLim({
+          gemini_rpd: String(j.limits.gemini_rpd),
+          tts_chars: String(j.limits.tts_chars),
+          modal_credit: String(j.limits.modal_credit),
+        });
+      } catch {}
+    })();
+    return () => { live = false; };
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        limits: {
+          gemini_rpd: Number(lim.gemini_rpd) || undefined,
+          tts_chars: Number(lim.tts_chars) || undefined,
+          modal_credit: Number(lim.modal_credit) || undefined,
+        },
+      };
+      if (geminiKey.trim()) body.gemini_key = geminiKey.trim();
+      if (ttsJson.trim()) body.tts_json = ttsJson.trim();
+      if (modalId.trim()) body.modal_token_id = modalId.trim();
+      if (modalSecret.trim()) body.modal_token_secret = modalSecret.trim();
+      const r = await postJSON<{ ok: boolean; errors: Record<string, string>; status: SettingsStatus }>("/settings", body);
+      setSt(r.status);
+      setGeminiKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
+      if (!r.ok) alert("일부 저장 실패:\n" + Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
+      onSaved();
+    } catch (e) {
+      alert(e instanceof Error && e.message ? e.message : "저장 실패");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function runTest(svc: string) {
+    setTest((t) => ({ ...t, [svc]: "loading" }));
+    try {
+      const r = await postJSON<{ ok: boolean; msg: string }>("/settings/test", { service: svc });
+      setTest((t) => ({ ...t, [svc]: r }));
+    } catch (e) {
+      setTest((t) => ({ ...t, [svc]: { ok: false, msg: e instanceof Error ? e.message : "실패" } }));
+    }
+  }
+
+  function onTtsFile(files: FileList | null) {
+    const f = files?.[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => setTtsJson(String(rd.result || ""));
+    rd.readAsText(f);
+  }
+
+  const badge = (set: boolean, info?: string) =>
+    set ? <span className="text-emerald-600">✓ 저장됨 {info}</span> : <span className="text-rose-500">✗ 없음</span>;
+  const TestView = ({ svc }: { svc: string }) => {
+    const v = test[svc];
+    if (!v) return null;
+    if (v === "loading") return <span className="text-[var(--ink-soft)]">테스트 중…</span>;
+    return <span className={v.ok ? "text-emerald-600" : "text-rose-500"}>{v.ok ? "✓ " : "✗ "}{v.msg}</span>;
+  };
+  const tBtn = "rounded-full bg-white/70 px-2.5 py-1 font-semibold text-[var(--ink)] hover:bg-white/90";
+  const inp = "w-full rounded-xl bg-white/85 px-3 py-2 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]/50";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="mt-8 mb-8 w-full max-w-lg rounded-3xl glass p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-extrabold text-[var(--ink)]">⚙️ 설정 · API 키 / 한도</h2>
+          <button onClick={onClose} className="rounded-full bg-white/60 px-3 py-1 text-sm font-bold text-[var(--ink-soft)] hover:bg-white/90">닫기 ✕</button>
+        </div>
+        <p className="mb-4 rounded-xl bg-amber-50/70 px-3 py-2 text-[11px] leading-relaxed text-amber-700">🔒 키는 서버에만 저장되고 화면엔 끝 4자리만 보여요. 바꿀 때만 새로 입력(빈칸이면 기존 유지). 개인망(Tailscale) 신뢰 전제.</p>
+
+        <div className="mb-4">
+          <div className="mb-1 flex items-center justify-between text-sm font-bold text-[var(--ink)]">
+            <span>Gemini API 키</span>
+            <span className="text-[11px] font-medium">{st ? badge(st.gemini.set, st.gemini.masked) : "…"}</span>
+          </div>
+          <input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIza… (새 키 입력 시에만)" className={inp} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+            <button onClick={() => runTest("gemini")} className={tBtn}>테스트</button>
+            <span className="text-[var(--ink-soft)]/70">(요청 1회 소모)</span>
+            <TestView svc="gemini" />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="mb-1 flex items-center justify-between text-sm font-bold text-[var(--ink)]">
+            <span>Google TTS 서비스계정 JSON</span>
+            <span className="max-w-[55%] truncate text-[11px] font-medium">{st ? badge(st.google_tts.set, st.google_tts.email) : "…"}</span>
+          </div>
+          <textarea value={ttsJson} onChange={(e) => setTtsJson(e.target.value)} placeholder={'{ "type": "service_account", ... }  붙여넣기'} rows={3} className={`${inp} font-mono text-[11px]`} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+            <label className={`${tBtn} cursor-pointer`}>📄 파일 선택<input type="file" accept="application/json,.json" className="hidden" onChange={(e) => { onTtsFile(e.target.files); e.target.value = ""; }} /></label>
+            <button onClick={() => runTest("tts")} className={tBtn}>테스트</button>
+            <TestView svc="tts" />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="mb-1 flex items-center justify-between text-sm font-bold text-[var(--ink)]">
+            <span>Modal 토큰</span>
+            <span className="text-[11px] font-medium">{st ? badge(st.modal.set, st.modal.masked) : "…"}</span>
+          </div>
+          <div className="flex gap-2">
+            <input value={modalId} onChange={(e) => setModalId(e.target.value)} placeholder="token_id (ak-…)" className={inp} />
+            <input type="password" value={modalSecret} onChange={(e) => setModalSecret(e.target.value)} placeholder="token_secret (as-…)" className={inp} />
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+            <button onClick={() => runTest("modal")} className={tBtn}>테스트</button>
+            <TestView svc="modal" />
+          </div>
+        </div>
+
+        <div className="mb-5">
+          <div className="mb-1.5 text-sm font-bold text-[var(--ink)]">API 한도 <span className="font-medium text-[var(--ink-soft)]">(배지 잔여 계산 기준)</span></div>
+          <div className="grid grid-cols-3 gap-2 text-[11px] text-[var(--ink-soft)]">
+            <label className="flex flex-col gap-1">Gemini 요청/일<input value={lim.gemini_rpd} onChange={(e) => setLim({ ...lim, gemini_rpd: e.target.value })} inputMode="numeric" className="rounded-lg bg-white/85 px-2 py-1.5 text-sm text-[var(--ink)] outline-none" /></label>
+            <label className="flex flex-col gap-1">TTS 글자/월<input value={lim.tts_chars} onChange={(e) => setLim({ ...lim, tts_chars: e.target.value })} inputMode="numeric" className="rounded-lg bg-white/85 px-2 py-1.5 text-sm text-[var(--ink)] outline-none" /></label>
+            <label className="flex flex-col gap-1">Modal $/월<input value={lim.modal_credit} onChange={(e) => setLim({ ...lim, modal_credit: e.target.value })} inputMode="numeric" className="rounded-lg bg-white/85 px-2 py-1.5 text-sm text-[var(--ink)] outline-none" /></label>
+          </div>
+        </div>
+
+        <button onClick={save} disabled={saving} className="btn-grad w-full rounded-full py-3 text-sm font-bold transition disabled:opacity-50">{saving ? "저장 중…" : "저장"}</button>
+      </div>
+    </div>
+  );
+}
+
+// 생성 파이프라인 진행 표시 — 단계 체크리스트 + 부드러운 크롤 보간 + 경과/ETA + GPU 대기.
+const PIPE_STEPS = ["다운로드", "자막제거", "대본", "더빙", "합성", "자막"];
+const STATUS_STEP: Record<string, number> = {
+  queued: 0, downloading: 0,
+  removing_subtitle: 1, analyzed: 1,
+  transcribing: 2, transcribed: 2,
+  face_cut: 3, dubbing: 3,
+  composing: 4,
+  captioning: 5, done: 5,
+};
+const STEP_NOMINAL = [15, 120, 70, 15, 25, 20]; // 단계별 대략 소요초(ETA 근사용)
+
+function fmtSec(s: number) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const ss = Math.floor(s % 60);
+  return `${m}:${ss.toString().padStart(2, "0")}`;
+}
+
+function PipelineProgress({ job }: { job: JobState | null }) {
+  const status = job?.status ?? "";
+  const stage = job?.stage ?? "";
+  const waiting = status === "waiting_gpu";
+
+  const [disp, setDisp] = useState(0);
+  const [, forceTick] = useState(0);          // disp가 정적일 때도 경과시간 갱신용 재렌더
+  const jobIdRef = useRef<string | undefined>(undefined);
+  const startRef = useRef(0);
+  const stageStartRef = useRef(0);
+  const lastStageRef = useRef("");
+  const lastStepRef = useRef(0);
+
+  const mapped = STATUS_STEP[status];
+  const stepIdx = mapped !== undefined ? mapped : lastStepRef.current;
+
+  // 새 job → 크롤/타이머 리셋
+  useEffect(() => {
+    if (job?.id !== jobIdRef.current) {
+      jobIdRef.current = job?.id;
+      setDisp(0);
+      startRef.current = Date.now();
+      stageStartRef.current = Date.now();
+      lastStageRef.current = stage;
+    }
+  }, [job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 단계(stage 텍스트) 전환 → 단계 타이머 리셋(ETA 재계산 기준)
+  useEffect(() => {
+    if (stage !== lastStageRef.current) {
+      lastStageRef.current = stage;
+      stageStartRef.current = Date.now();
+    }
+  }, [stage]);
+
+  useEffect(() => {
+    if (mapped !== undefined) lastStepRef.current = mapped;
+  }, [mapped]);
+
+  // 크롤 보간: 목표까지 이징 → 목표 정적이면 살살 전진(안 멈춰 보이게) → 대기 중엔 정지.
+  useEffect(() => {
+    const id = setInterval(() => {
+      forceTick((n) => (n + 1) & 1023);
+      setDisp((d) => {
+        const t = job?.progress ?? 0;
+        if (waiting) return d;
+        if (t > d) return Math.min(100, d + Math.max(0.5, (t - d) * 0.18));
+        const idle = !!status && !["done", "analyzed", "transcribed", "error"].includes(status);
+        if (idle && t < 99) return Math.min(d + 0.3, t + 6, 99);
+        return d;
+      });
+    }, 200);
+    return () => clearInterval(id);
+  }, [job?.progress, status, waiting]);
+
+  if (startRef.current === 0) startRef.current = Date.now(); // 최초 렌더 안전망
+  const elapsed = (Date.now() - startRef.current) / 1000;
+  const stageElapsed = (Date.now() - stageStartRef.current) / 1000;
+  const etaLeft = (STEP_NOMINAL[stepIdx] ?? 30) - stageElapsed;
+  const pct = Math.min(100, Math.round(disp));
+
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl glass-soft">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 pt-3 text-[12px] font-semibold">
+        {PIPE_STEPS.map((label, i) => {
+          const done = status === "done" || i < stepIdx;
+          const active = i === stepIdx && !done;
+          return (
+            <span key={label} className={done ? "text-[var(--accent-deep)]" : active ? "text-[var(--ink)]" : "text-[var(--ink-soft)]/50"}>
+              {done ? "✓" : active ? "⟳" : "○"} {label}
+            </span>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3 px-5 py-2.5 text-sm font-medium text-[var(--ink)]">
+        <span className={`inline-block h-4 w-4 animate-spin rounded-full border-2 ${waiting ? "border-amber-400/50 border-t-amber-500" : "border-[var(--accent)]/40 border-t-[var(--accent-deep)]"}`} />
+        {waiting ? (
+          <span className="text-amber-600">GPU 대기 중 · 앞 작업이 끝나면 시작돼요</span>
+        ) : (
+          <span>
+            {stage || "준비 중"} · {pct}%
+            <span className="ml-2 text-xs font-normal text-[var(--ink-soft)]">
+              {fmtSec(elapsed)} 경과{etaLeft > 3 ? ` · ~${fmtSec(etaLeft)} 남음` : stepIdx < 5 ? " · 마무리 중" : ""}
+            </span>
+          </span>
+        )}
+      </div>
+      <div className="h-1.5 w-full bg-white/40">
+        <div className={`h-full transition-all duration-300 ${waiting ? "bg-amber-300" : "btn-grad"}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [voice, setVoice] = useState("소담");
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [captionsOn, setCaptionsOn] = useState(true);
   const [faceCutOn, setFaceCutOn] = useState(false);  // 얼굴 전체샷 컷 제거(opt-in)
-  const [subtitleBackend, setSubtitleBackend] = useState<"local" | "modal">("local"); // 자막제거 GPU 위치(개발 토글, 기본 로컬)
+  // 자막제거는 클라우드(Modal)만 사용 — 로컬 GPU 옵션은 제품에서 제외(아래 토글 주석처리).
+  // 디버깅 때만 setter 복원 + 백엔드 env ALLOW_LOCAL_GPU=1. 값은 항상 "modal".
+  const [subtitleBackend] = useState<"local" | "modal">("modal");
   // 타임라인 편집기서 만든/수정한 자막 줄들. 비어있으면 render때 서버가 자동생성.
   const [captionLines, setCaptionLines] = useState<CaptionLineData[]>([]);
   const [capBusy, setCapBusy] = useState(false);
@@ -91,6 +463,9 @@ export default function Home() {
   const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
   const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
   const [ctaPos, setCtaPos] = useState(0.88);      // CTA 세로 위치(0~1)
+  const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
+  const bumpUsage = () => setUsageRefresh((n) => n + 1);
+  const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
 
   useEffect(() => {
     try {
@@ -289,6 +664,8 @@ export default function Home() {
           loggedEngineRef.current = j.subtitle_engine;
           const label: Record<string, string> = {
             propainter: "ProPainter (시간축 복원)",
+            propainter_local: "ProPainter · 로컬 GPU (시간축 복원)",
+            propainter_modal: "ProPainter · 클라우드 Modal (시간축 복원)",
             lama: "LaMa (프레임 인페인팅)",
             lama_fallback: "LaMa (ProPainter 실패 → 폴백)",
             none: "고정박스 제거 (자막 미감지)",
@@ -397,6 +774,7 @@ export default function Home() {
       alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
       setCapBusy(false);
+      bumpUsage();
     }
   }
 
@@ -425,6 +803,7 @@ export default function Home() {
       alert(e instanceof Error && e.message ? e.message : "자막 다듬기 실패.");
     } finally {
       setCapEditBusy(false);
+      bumpUsage();
     }
   }
 
@@ -453,6 +832,7 @@ export default function Home() {
       alert("AI 가공 실패.");
     } finally {
       setRefineBusy(false);
+      bumpUsage();
     }
   }
 
@@ -532,7 +912,17 @@ export default function Home() {
             <p className="mt-1 whitespace-nowrap text-xs text-[var(--ink-soft)]">유튜브·인스타·틱톡·도우인 링크를 한국어 쇼츠로</p>
           </div>
         </div>
+        <div className="flex items-center gap-2.5">
+          <QuotaBadge refreshKey={usageRefresh} />
+          <button
+            onClick={() => setSettingsOpen(true)}
+            title="설정 · API 키/한도"
+            aria-label="설정"
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-white/60 text-lg backdrop-blur transition hover:bg-white/90"
+          >⚙️</button>
+        </div>
       </header>
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} />}
 
       <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6">
         <section className="glass rounded-[28px] p-5 sm:p-8">
@@ -559,7 +949,7 @@ export default function Home() {
             </button>
           </div>
 
-          {/* 자막 제거 모델 선택 (개발용 토글) — 기본 로컬 GPU, 클라우드는 Modal 오프로드 */}
+          {/* [로컬 GPU 자막제거 제거 — 서비스는 Modal만 사용. 디버깅 시 이 토글 복원 + setSubtitleBackend 복원 + 백엔드 env ALLOW_LOCAL_GPU=1]
           <div className="mt-3 flex items-center gap-2.5 text-[13px]">
             <span className="font-semibold text-[var(--ink-soft)]">자막 제거 모델</span>
             <div className="inline-flex rounded-full bg-white/55 p-1 backdrop-blur">
@@ -577,6 +967,7 @@ export default function Home() {
               </button>
             </div>
           </div>
+          */}
 
           {/* 제품 소구포인트 — 상세페이지 링크/캡처/수동 → 대본 결합 */}
           <div className="mt-6 rounded-2xl glass-soft p-5" onPaste={onProductPaste}>
@@ -650,17 +1041,7 @@ export default function Home() {
             </details>
           </div>
 
-          {(busy || scriptBusy) && job?.status !== "done" && (
-            <div className="mt-5 overflow-hidden rounded-2xl glass-soft">
-              <div className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium text-[var(--ink)]">
-                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
-                {job?.stage || "준비 중"} · {job?.progress ?? 0}%
-              </div>
-              <div className="h-1.5 w-full bg-white/40">
-                <div className="h-full btn-grad transition-all duration-500" style={{ width: `${job?.progress ?? 0}%` }} />
-              </div>
-            </div>
-          )}
+          {(busy || scriptBusy) && job?.status !== "done" && <PipelineProgress job={job} />}
 
           {job?.error && <p className="mt-3 rounded-2xl bg-rose-100/70 px-4 py-3 text-xs font-medium text-rose-600 backdrop-blur">오류: {job.error}</p>}
 

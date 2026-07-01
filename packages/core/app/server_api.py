@@ -8,6 +8,7 @@ import shutil
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,26 @@ JOBS: dict[str, dict] = {}
 # GPU 작업(자막 인페인트·whisper STT/정렬) 직렬화 — 동시 실행 시 8GB VRAM OOM 방지.
 # HTTP 응답은 워커 스레드가 즉시 반환하고, GPU 구간만 이 세마포어로 한 번에 하나씩.
 GPU_SEM = threading.Semaphore(1)
+
+
+@contextmanager
+def gpu_slot(job: dict, wait_stage: str = "GPU 대기 중 (앞 작업 먼저 처리)"):
+    """GPU 슬롯 확보. 즉시 못 잡으면 job을 'waiting_gpu'로 표시했다가, 잡으면 원상복귀.
+
+    프론트가 얼어붙은 게 아니라 '대기열'임을 알 수 있게 함. with GPU_SEM 대체.
+    """
+    if GPU_SEM.acquire(blocking=False):
+        got_immediately = True
+    else:
+        got_immediately = False
+        prev_status, prev_stage = job.get("status"), job.get("stage")
+        job.update(status="waiting_gpu", stage=wait_stage)
+        GPU_SEM.acquire()  # 블로킹 대기
+        job.update(status=prev_status, stage=prev_stage)
+    try:
+        yield got_immediately
+    finally:
+        GPU_SEM.release()
 
 # 메모리(JOBS)·디스크(workdir) 무한 증가 방지용 TTL. 영속화는 아니며 정리만.
 _DONE_TTL = 6 * 3600       # 완료/오류 job: 6시간 후 정리
@@ -74,7 +95,9 @@ def _new_job() -> str:
 
 class AnalyzeReq(BaseModel):
     url: str
-    subtitle_backend: str = "local"   # 자막제거 ProPainter 백엔드: local(개발) | modal(클라우드)
+    # 자막제거 ProPainter 백엔드: modal(클라우드)만 서비스. local(로컬 GPU)은 제품에서
+    # 제외됨 — 외부 요청으론 선택 불가, 서버 env ALLOW_LOCAL_GPU=1 일 때만 허용(디버깅용).
+    subtitle_backend: str = "modal"
 
 
 class TranscribeReq(BaseModel):
@@ -126,7 +149,12 @@ class ProductScriptReq(BaseModel):
 @app.post("/analyze")
 def analyze(req: AnalyzeReq):
     jid = _new_job()
-    threading.Thread(target=_analyze_worker, args=(jid, req.url, req.subtitle_backend),
+    # 로컬 GPU 자막제거는 서비스에서 제외 — 외부 요청이 subtitle_backend로 로컬 GPU를
+    # 트리거하지 못하게 modal로 강제. 디버깅 시에만 서버 env ALLOW_LOCAL_GPU=1로 허용.
+    backend = req.subtitle_backend
+    if backend != "modal" and os.environ.get("ALLOW_LOCAL_GPU") != "1":
+        backend = "modal"
+    threading.Thread(target=_analyze_worker, args=(jid, req.url, backend),
                      daemon=True).start()
     return {"job_id": jid}
 
@@ -368,6 +396,74 @@ def root():
     return {"ok": True, "service": "쇼핏 쇼츠 메이커 API"}
 
 
+@app.get("/usage")
+def usage_stats():
+    """API 사용량(quota 근사) — Gemini 오늘 호출/토큰, TTS 이번달 글자수, 429 쿨다운."""
+    from app import usage
+    return usage.snapshot()
+
+
+class SettingsReq(BaseModel):
+    gemini_key: str | None = None
+    tts_json: str | None = None
+    modal_token_id: str | None = None
+    modal_token_secret: str | None = None
+    limits: dict | None = None
+
+
+class SettingsTestReq(BaseModel):
+    service: str
+
+
+@app.get("/settings")
+def get_settings():
+    """마스킹된 키 상태 + 현재 한도값(전체 키는 절대 미포함)."""
+    from app import settings
+    return settings.status()
+
+
+@app.post("/settings")
+def save_settings(req: SettingsReq):
+    """제공된 항목만 저장(빈칸은 기존 유지). 키는 서버 auth/·~/.modal.toml, 한도는 settings.json."""
+    from app import settings
+    errs: dict = {}
+    if req.gemini_key:
+        try:
+            settings.save_gemini_key(req.gemini_key)
+        except Exception as e:
+            errs["gemini"] = str(e)[:140]
+    if req.tts_json:
+        try:
+            settings.save_tts_json(req.tts_json)
+        except Exception as e:
+            errs["google_tts"] = str(e)[:140]
+    if req.modal_token_id or req.modal_token_secret:
+        try:
+            settings.save_modal_token(req.modal_token_id or "", req.modal_token_secret or "")
+        except Exception as e:
+            errs["modal"] = str(e)[:140]
+    if req.limits:
+        try:
+            settings.set_limits(req.limits)
+        except Exception as e:
+            errs["limits"] = str(e)[:140]
+    return {"ok": not errs, "errors": errs, "status": settings.status()}
+
+
+@app.post("/settings/test")
+def test_settings(req: SettingsTestReq):
+    """설정 패널 '테스트' — 서비스별 유효성 확인(gemini는 요청 1회 소모)."""
+    from app import settings
+    s = (req.service or "").lower()
+    if s == "gemini":
+        return settings.test_gemini()
+    if s == "tts":
+        return settings.test_tts()
+    if s == "modal":
+        return settings.test_modal()
+    raise HTTPException(400, "unknown service")
+
+
 def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
     job = JOBS[jid]
     try:
@@ -426,7 +522,7 @@ def _analyze_worker(jid: str, raw_url: str, subtitle_backend: str = "local"):
             engine = None          # 실제 자막제거에 쓴 엔진 (웹 콘솔 기록용)
             engine_note = ""       # 폴백 사유 등
             # GPU 인페인트는 한 번에 하나만(동시 작업 시 8GB VRAM OOM 방지).
-            with GPU_SEM:
+            with gpu_slot(job, wait_stage="GPU 대기 중 (자막 제거 대기열)"):
                 # 1순위: ProPainter(시간축 복원, 자연스러움). OCR 박스가 있을 때만 시도.
                 # OVERLAY_FIXED_UI/PROPAINTER=0 로 끔. 실패(OOM·가중치·CLI오류)면 LaMa 폴백.
                 if segments and os.environ.get("PROPAINTER", "1") != "0":
@@ -466,8 +562,14 @@ def _transcribe_worker(jid: str):
 
         src = _source_for_job(jid)
         job.update(status="transcribing", stage="중국어 음성 인식/번역", progress=30, error=None)
-        with GPU_SEM:  # whisper STT GPU 직렬화
-            result = transcribe_to_korean(src, model_size="small")
+
+        def _stt_prog(frac):
+            # STT 30~95% 구간 매핑(faster-whisper 세그먼트 진행 기반)
+            job.update(progress=30 + int(frac * 65),
+                       stage=f"중국어 음성 인식/번역 ({int(frac*100)}%)")
+
+        with gpu_slot(job, wait_stage="GPU 대기 중 (대본 생성 대기열)"):  # whisper STT GPU 직렬화
+            result = transcribe_to_korean(src, model_size="small", progress_cb=_stt_prog)
         ko = (result.get("ko_text") or "").strip()
         job["script"] = ko
         job["has_speech"] = len(ko) >= 4
@@ -519,7 +621,8 @@ def _render_worker(jid: str, req: RenderReq):
             # 자막 싱크 정확도 확보(없으면 caption이 글자수 균등분할로 폴백).
             if not stamps and dub:
                 from app.pipeline.align import word_timestamps
-                with GPU_SEM:
+                job.update(stage="자막 싱크 정렬", progress=55)
+                with gpu_slot(job, wait_stage="GPU 대기 중 (자막 정렬 대기열)"):
                     stamps = word_timestamps(dub, language="ko")
 
         job.update(status="composing", stage="영상 합성", progress=70)

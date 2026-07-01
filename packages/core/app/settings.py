@@ -1,0 +1,189 @@
+"""설정 저장/조회 — API 키(auth/), 한도(settings.json), Modal 토큰(~/.modal.toml).
+
+보안 원칙: 키는 서버 파일로만 저장하고, 조회 시 전체 키를 절대 반환하지 않는다(끝 4자리만
+마스킹). 코어가 0.0.0.0로 노출되므로 개인망(Tailscale, WireGuard 암호화) 신뢰를 전제로 한다.
+
+- Gemini 키: auth/gemini_key.txt (refine._api_key가 매 호출 읽음 → 저장 즉시 반영)
+- Google TTS: auth/google_tts_key.json (google_tts._client가 매 호출 읽음)
+- Modal 토큰: ~/.modal.toml 프로필(token_id/token_secret). 기존 프로필 보존, 우리 것만 active.
+- 한도값: workdir/settings.json (usage.snapshot이 매 호출 읽음 → 배지에 즉시 반영)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from app.config import BACKEND_ROOT, WORKDIR
+
+AUTH_DIR = BACKEND_ROOT / "auth"
+GEMINI_KEY_PATH = AUTH_DIR / "gemini_key.txt"
+GTTS_KEY_PATH = AUTH_DIR / "google_tts_key.json"
+LIMITS_PATH = WORKDIR / "settings.json"
+MODAL_TOML = Path.home() / ".modal.toml"
+
+# 한도 기본값(env로도 조정 가능). settings.json이 있으면 그 값이 우선.
+DEFAULT_LIMITS = {
+    "gemini_rpd": int(os.environ.get("GEMINI_RPD_LIMIT", "1000")),
+    "gemini_tpm": int(os.environ.get("GEMINI_TPM_LIMIT", "250000")),
+    "tts_chars": int(os.environ.get("TTS_CHARS_LIMIT", "1000000")),
+    "modal_credit": float(os.environ.get("MODAL_CREDIT_LIMIT", "30")),
+}
+
+
+def get_limits() -> dict:
+    """기본값 위에 settings.json 저장값을 덮어 반환."""
+    d = dict(DEFAULT_LIMITS)
+    try:
+        saved = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
+        for k in DEFAULT_LIMITS:
+            if saved.get(k) is not None:
+                d[k] = type(DEFAULT_LIMITS[k])(saved[k])
+    except Exception:
+        pass
+    return d
+
+
+def set_limits(vals: dict) -> None:
+    try:
+        cur = json.loads(LIMITS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        cur = {}
+    for k in DEFAULT_LIMITS:
+        v = (vals or {}).get(k)
+        if v not in (None, ""):
+            try:
+                cur[k] = type(DEFAULT_LIMITS[k])(v)
+            except Exception:
+                pass
+    LIMITS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LIMITS_PATH.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _mask(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    return "•" * len(s) if len(s) <= 6 else "••••" + s[-4:]
+
+
+def save_gemini_key(key: str) -> None:
+    key = (key or "").strip()
+    if not key:
+        return
+    AUTH_DIR.mkdir(parents=True, exist_ok=True)
+    GEMINI_KEY_PATH.write_text(key, encoding="utf-8")
+
+
+def save_tts_json(raw: str) -> None:
+    raw = (raw or "").strip()
+    if not raw:
+        return
+    obj = json.loads(raw)  # 유효 JSON 검증
+    if "private_key" not in obj or "client_email" not in obj:
+        raise ValueError("서비스계정 JSON이 아님(private_key/client_email 필요)")
+    AUTH_DIR.mkdir(parents=True, exist_ok=True)
+    GTTS_KEY_PATH.write_text(json.dumps(obj, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_modal() -> tuple[str, dict]:
+    """(활성 프로필명, 전체 프로필 dict). 파일 없으면 ('default', {})."""
+    if not MODAL_TOML.exists():
+        return "default", {}
+    try:
+        import tomllib
+        data = tomllib.loads(MODAL_TOML.read_text(encoding="utf-8"))
+    except Exception:
+        return "default", {}
+    active = next((n for n, p in data.items() if isinstance(p, dict) and p.get("active")), None)
+    if not active and data:
+        active = next(iter(data))
+    return active or "default", data
+
+
+def save_modal_token(token_id: str, token_secret: str) -> None:
+    """기존 프로필 보존, 활성 프로필의 토큰만 교체(우리 프로필만 active=true)."""
+    token_id, token_secret = (token_id or "").strip(), (token_secret or "").strip()
+    if not (token_id and token_secret):
+        return
+    name, data = _read_modal()
+    profiles: dict = {n: dict(p) for n, p in data.items() if isinstance(p, dict)}
+    prof = dict(profiles.get(name, {}))
+    prof.update(token_id=token_id, token_secret=token_secret, active=True)
+    for n in profiles:                       # 다른 프로필은 비활성화(활성 하나 보장)
+        profiles[n]["active"] = False
+    profiles[name] = prof
+    lines: list[str] = []
+    for n, p in profiles.items():
+        lines.append(f"[{n}]")
+        for k, v in p.items():
+            lines.append(f"{k} = {'true' if v else 'false'}" if isinstance(v, bool) else f'{k} = "{v}"')
+        lines.append("")
+    MODAL_TOML.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _modal_status() -> dict:
+    name, data = _read_modal()
+    prof = data.get(name, {}) if data else {}
+    tid = prof.get("token_id", "")
+    return {"set": bool(tid), "masked": _mask(tid), "profile": name if tid else None}
+
+
+def status() -> dict:
+    """마스킹된 키 상태 + 현재 한도값(전체 키는 절대 미포함)."""
+    gem = ""
+    try:
+        gem = os.environ.get("GEMINI_API_KEY") or (
+            GEMINI_KEY_PATH.read_text(encoding="utf-8").strip() if GEMINI_KEY_PATH.exists() else "")
+    except Exception:
+        pass
+    tts_set, tts_email = False, ""
+    try:
+        if GTTS_KEY_PATH.exists():
+            obj = json.loads(GTTS_KEY_PATH.read_text(encoding="utf-8"))
+            tts_set, tts_email = True, obj.get("client_email", "")
+    except Exception:
+        pass
+    return {
+        "gemini": {"set": bool(gem), "masked": _mask(gem)},
+        "google_tts": {"set": tts_set, "email": tts_email},  # email은 식별용(비밀 아님)
+        "modal": _modal_status(),
+        "limits": get_limits(),
+    }
+
+
+# ---- 유효성 테스트(설정 패널 '테스트' 버튼) ----
+
+def test_gemini() -> dict:
+    """Gemini 키 검증 — 아주 짧은 실호출 1회(요청 1개 소모)."""
+    from app.pipeline.refine import available, _call_gemini
+    if not available():
+        return {"ok": False, "msg": "키 없음"}
+    try:
+        out = _call_gemini("한 단어로만 답: OK")
+        return {"ok": True, "msg": f"응답: {(out or '')[:30]}"}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)[:140]}
+
+
+def test_tts() -> dict:
+    """TTS 자격증명 로드 검증(합성 안 함 → 글자수 0)."""
+    from app.pipeline import google_tts
+    if not google_tts.available():
+        return {"ok": False, "msg": "키 없음"}
+    try:
+        google_tts._client()
+        return {"ok": True, "msg": "인증 로드 OK"}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)[:140]}
+
+
+def test_modal() -> dict:
+    """Modal 토큰 + 배포 확인(run_propainter lookup, 실행 안 함)."""
+    try:
+        import modal
+        modal.Function.from_name("shorts-propainter", "run_propainter")
+        return {"ok": True, "msg": "shorts-propainter 배포 확인"}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)[:160]}

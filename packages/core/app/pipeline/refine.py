@@ -37,16 +37,49 @@ def available() -> bool:
     return bool(_api_key())
 
 
+def _retry_seconds(e: Exception) -> float | None:
+    """429 RESOURCE_EXHAUSTED면 재시도까지 초, 아니면 None."""
+    s = str(e)
+    if "RESOURCE_EXHAUSTED" not in s and "429" not in s:
+        return None
+    import re
+    m = re.search(r"retry.?delay\D*(\d+)", s, re.I)
+    return float(m.group(1)) if m else 30.0
+
+
+def _call_gemini(prompt: str) -> str:
+    """Gemini 1회 호출 + 사용량 집계. 실패 시 예외(호출측이 원문 폴백).
+
+    429면 usage에 소진 쿨다운 기록 → 웹 배지가 '재시도 N초' 표시.
+    """
+    from google import genai
+
+    from app import usage
+
+    key = _api_key()
+    if not key:
+        raise RuntimeError("no gemini key")
+    client = genai.Client(api_key=key)
+    try:
+        res = client.models.generate_content(model=MODEL, contents=prompt)
+    except Exception as e:
+        secs = _retry_seconds(e)
+        if secs is not None:
+            usage.record_gemini_429(secs)
+        raise
+    try:
+        usage.record_gemini(MODEL, getattr(res, "usage_metadata", None))
+    except Exception:
+        pass
+    return (res.text or "").strip()
+
+
 def refine_script(script: str) -> str:
     script = (script or "").strip()
     if not script:
         return ""
     try:
-        from google import genai
-
-        client = genai.Client(api_key=_api_key())
-        res = client.models.generate_content(model=MODEL, contents=REFINE_PROMPT.format(script=script))
-        out = (res.text or "").strip()
+        out = _call_gemini(REFINE_PROMPT.format(script=script))
         return _safe_refined_output(script, out) or script
     except Exception as e:
         print(f"  [Gemini refine failed, keeping original: {str(e)[:120]}]")
@@ -89,14 +122,11 @@ def product_script(video_content: str, selling_points: str) -> str:
     if not key:
         return video_content
     try:
-        from google import genai
-        client = genai.Client(api_key=key)
         prompt = PRODUCT_SCRIPT_PROMPT.format(
             video=video_content or "(영상 내용 없음 — 소구포인트 중심으로 작성)",
             points=selling_points,
         )
-        res = client.models.generate_content(model=MODEL, contents=prompt)
-        out = (res.text or "").strip()
+        out = _call_gemini(prompt)
         return _narration_only(out) or video_content
     except Exception as e:
         print(f"  [product_script failed, keeping video content: {str(e)[:120]}]")
@@ -138,12 +168,8 @@ def rewrite_caption_text(text: str, direction: str = "natural") -> str:
     if not key:
         return text
     try:
-        from google import genai
-
-        client = genai.Client(api_key=key)
         prompt = CAPTION_REWRITE_PROMPT.format(instruction=instr, text=text)
-        res = client.models.generate_content(model=MODEL, contents=prompt)
-        out = _narration_only((res.text or "").strip())
+        out = _narration_only(_call_gemini(prompt))
         return out or text
     except Exception as e:
         print(f"  [caption rewrite failed, keeping original: {str(e)[:120]}]")
