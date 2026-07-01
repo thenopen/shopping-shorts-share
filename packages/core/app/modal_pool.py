@@ -103,6 +103,43 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes, **kwargs) -> dict:
     raise RuntimeError(f"모든 Modal 계정 실패: {str(last_err)[:200]}")
 
 
+def run_propainter_parallel(payloads: list) -> list:
+    """청크 payload들을 run_chunk.map으로 동시 실행 → 결과(입력 순서). 계정 페일오버.
+
+    한 계정의 동시성 한도(무료 10 GPU)까지 청크가 병렬로 돈다. 계정 실패 시 다음 계정에
+    전체 배치 재시도.
+    """
+    import modal
+
+    if not payloads:
+        return []
+    accts = settings.effective_accounts()
+    last_err = None
+    for acct in (_pick_order(accts) if accts else [None]):   # None = 기본 클라이언트(ambient)
+        label = "default" if acct is None else (acct.get("label") or acct["token_id"][:8])
+        try:
+            if acct is None:
+                fn = modal.Function.from_name(APP_NAME, "run_chunk")
+                acct_key = "default"
+            else:
+                cli = _client(acct["token_id"], acct["token_secret"])
+                fn = modal.Function.from_name(APP_NAME, "run_chunk", client=cli)
+                acct_key = acct["token_id"]
+            results = list(fn.map(payloads))          # 동시 실행, 입력 순서 유지
+            for r in results:
+                try:
+                    usage.record_modal(r.get("seconds", 0), r.get("gpu", ""), account_id=acct_key)
+                except Exception:
+                    pass
+            print(f"[modal_pool] '{label}'로 {len(payloads)}청크 병렬 처리 완료")
+            return results
+        except Exception as e:
+            last_err = e
+            print(f"[modal_pool] '{label}' 병렬 실패 → 다음: {str(e)[:120]}")
+            continue
+    raise RuntimeError(f"모든 Modal 계정 병렬 실패: {str(last_err)[:200]}")
+
+
 # ---- 계정 활성화(배포) — 사용자가 추가한 계정 워크스페이스에 shorts-propainter를
 #      서버가 대신 `modal deploy`. 첫 배포는 이미지 빌드(torch+가중치)로 수 분.
 _DEPLOY: dict[str, dict] = {}   # token_id -> {"state": queued|deploying|done|error, "msg"}

@@ -256,6 +256,93 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes,
     }
 
 
+@app.function(gpu=PP_GPU, timeout=3600)
+def run_chunk(payload: dict) -> dict:
+    """청크 1개(프레임+마스크 tar) → ProPainter 복원 tar. 병렬 fan-out(run_chunk.map)용.
+
+    청크당 별 컨테이너/GPU라 여러 청크가 동시에 돈다(계정 동시성 한도까지). 각 청크는
+    짧아(≤chunk 프레임) OOM 없이 맞는다.
+    """
+    import subprocess
+    import sys
+    import glob
+    import threading
+
+    frames_tar = payload["frames"]
+    masks_tar = payload["masks"]
+    resize_ratio = payload.get("resize_ratio", 1.0)
+    subvideo_length = payload.get("subvideo_length", 80)
+    neighbor_length = payload.get("neighbor_length", 10)
+    mask_dilation = payload.get("mask_dilation", 4)
+
+    work = "/tmp/pp_chunk"
+    frames_dir, masks_dir, out_dir = f"{work}/frames", f"{work}/masks", f"{work}/out"
+    subprocess.run(["rm", "-rf", work], check=False)
+    nf = _untar_to(frames_tar, frames_dir)
+    _untar_to(masks_tar, masks_dir)
+
+    gpu_name = ""
+    try:
+        gpu_name = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True).stdout.strip().splitlines()[0]
+    except Exception:
+        pass
+
+    peak = {"mb": 0.0}
+    stop = threading.Event()
+
+    def _sampler():
+        while not stop.is_set():
+            try:
+                r = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True)
+                peak["mb"] = max(peak["mb"], float(r.stdout.strip().splitlines()[0]))
+            except Exception:
+                pass
+            stop.wait(0.4)
+
+    th = threading.Thread(target=_sampler, daemon=True)
+    th.start()
+
+    env = dict(os.environ)
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+    cmd = [
+        sys.executable, "inference_propainter.py",
+        "-i", frames_dir, "-m", masks_dir, "-o", out_dir,
+        "--fp16",
+        "--resize_ratio", str(resize_ratio),
+        "--subvideo_length", str(subvideo_length),
+        "--neighbor_length", str(neighbor_length),
+        "--mask_dilation", str(mask_dilation),
+        "--save_frames",
+    ]
+    t0 = time.monotonic()
+    r = subprocess.run(cmd, cwd=_PP_DIR, capture_output=True, text=True,
+                       errors="replace", env=env)
+    secs = time.monotonic() - t0
+    stop.set()
+    th.join(timeout=2)
+
+    if r.returncode != 0:
+        raise RuntimeError(f"ProPainter 실패(code {r.returncode}): {(r.stderr or '')[-1500:]}")
+    all_png = glob.glob(f"{out_dir}/**/*.png", recursive=True)
+    if not all_png:
+        raise RuntimeError("ProPainter 출력 프레임 없음")
+    by_dir: dict = {}
+    for p in all_png:
+        by_dir.setdefault(os.path.dirname(p), []).append(p)
+    best = max(by_dir, key=lambda d: len(by_dir[d]))
+    return {
+        "result_tar": _tar_dir(best),
+        "seconds": round(secs, 2),
+        "gpu": gpu_name,
+        "peak_vram_mb": round(peak["mb"], 1),
+        "n_frames": nf,
+    }
+
+
 @app.local_entrypoint()
 def measure(video: str, out: str = "", segments: str = "",
             resize_ratio: float = 1.0, subvideo_length: int = 80,

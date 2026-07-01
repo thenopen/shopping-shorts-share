@@ -136,28 +136,64 @@ def _run_propainter_modal(frames_dir, masks_dir, result_dir, resize_ratio,
     """
     import io
     import tarfile
+    import shutil
     try:
-        import modal
+        import modal  # noqa: F401  (설치 확인용)
     except ImportError as e:
         raise RuntimeError("PROPAINTER_BACKEND=modal 인데 modal 미설치 (pip install modal)") from e
 
-    def _tar(d):
+    from app import modal_pool
+
+    frame_files = sorted(Path(frames_dir).glob("*.png"))
+    mask_files = sorted(Path(masks_dir).glob("*.png"))
+    n = len(frame_files)
+    chunk = int(os.environ.get("PROPAINTER_CHUNK", "200"))
+    overlap = int(os.environ.get("PROPAINTER_OVERLAP", "12"))
+
+    def _tar_files(files):
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode="w") as t:
-            for p in sorted(Path(d).glob("*.png")):
+            for p in files:
                 t.add(str(p), arcname=p.name)
         return buf.getvalue()
 
-    # 멀티계정 풀에 위임 — 잔여 크레딧 많은 계정 우선 + 페일오버 + 계정별 사용량 집계.
-    # (계정 미설정 시 풀이 기본 클라이언트 1회로 폴백.)
-    from app import modal_pool
-    res = modal_pool.run_propainter(
-        _tar(frames_dir), _tar(masks_dir), resize_ratio=resize_ratio,
-        subvideo_length=subvideo_length, neighbor_length=neighbor_length,
-        mask_dilation=mask_dilation)
+    # 청크 경계(오버랩). 각 청크를 별 GPU에 동시 분산 → 긴 영상도 빠르게.
+    if n <= chunk:
+        spans = [(0, n)]
+    else:
+        step = max(1, chunk - overlap)
+        spans = []
+        for s in range(0, n, step):
+            e = min(s + chunk, n)
+            spans.append((s, e))
+            if e >= n:
+                break
+
+    common = dict(resize_ratio=resize_ratio, subvideo_length=subvideo_length,
+                  neighbor_length=neighbor_length, mask_dilation=mask_dilation)
+    payloads = [{"frames": _tar_files(frame_files[s:e]),
+                 "masks": _tar_files(mask_files[s:e]), **common} for (s, e) in spans]
+
+    results = modal_pool.run_propainter_parallel(payloads)   # 동시 실행, 입력 순서 유지
+
+    # 스티치: 각 청크 결과에서 채택구간(오버랩 절반씩 이웃과 분담)만 이름순 배치.
     Path(result_dir).mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(res["result_tar"]), mode="r:*") as t:
-        t.extractall(str(result_dir))
+    for ci, ((s, e), res) in enumerate(zip(spans, results)):
+        cdir = Path(result_dir).parent / f"_ppchunk{ci}"
+        if cdir.exists():
+            shutil.rmtree(cdir, ignore_errors=True)
+        cdir.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=io.BytesIO(res["result_tar"]), mode="r:*") as t:
+            t.extractall(str(cdir))
+        outs = sorted(cdir.glob("*.png"))
+        keep_s = s if ci == 0 else s + overlap // 2
+        keep_e = e if e >= n else e - (overlap - overlap // 2)
+        for j in range(keep_s, keep_e):
+            oi = j - s
+            if 0 <= oi < len(outs):
+                shutil.copy(str(outs[oi]), str(Path(result_dir) / f"{j:05d}.png"))
+        shutil.rmtree(cdir, ignore_errors=True)
+
     return sorted(Path(result_dir).glob("*.png"))
 
 
