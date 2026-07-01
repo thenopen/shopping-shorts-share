@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from app import gemini
 from app.gemini import api_key as _api_key, available  # noqa: F401 (재export: 다른 모듈이 refine.available 사용)
 
 MODEL = os.environ.get("GEMINI_REFINE_MODEL", "gemini-2.5-flash-lite")
@@ -23,55 +24,9 @@ REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대�
 """
 
 
-def _retry_seconds(e: Exception) -> float | None:
-    """429 RESOURCE_EXHAUSTED면 재시도까지 초, 아니면 None."""
-    s = str(e)
-    if "RESOURCE_EXHAUSTED" not in s and "429" not in s:
-        return None
-    import re
-    m = re.search(r"retry.?delay\D*(\d+)", s, re.I)
-    return float(m.group(1)) if m else 30.0
-
-
-_TRANSIENT = ("503", "UNAVAILABLE", "overloaded", "500", "INTERNAL",
-              "429", "RESOURCE_EXHAUSTED", "deadline", "timeout")
-
-
 def _call_gemini(prompt: str, retries: int = 3) -> str:
-    """Gemini 호출 + 사용량 집계. 일시오류(503 과부하·429·타임아웃)는 지수백오프 재시도.
-
-    끝까지 실패하면 예외(호출측이 원문 폴백). 429면 usage에 쿨다운 기록.
-    """
-    import time
-
-    from google import genai
-
-    from app import usage
-
-    key = _api_key()
-    if not key:
-        raise RuntimeError("no gemini key")
-    client = genai.Client(api_key=key)
-    last = None
-    for i in range(max(1, retries)):
-        try:
-            res = client.models.generate_content(model=MODEL, contents=prompt)
-            try:
-                usage.record_gemini(MODEL, getattr(res, "usage_metadata", None))
-            except Exception:
-                pass
-            return (res.text or "").strip()
-        except Exception as e:
-            last = e
-            secs = _retry_seconds(e)
-            if secs is not None:               # 429 → 쿨다운 기록
-                usage.record_gemini_429(secs)
-            transient = any(c in str(e) for c in _TRANSIENT)
-            if transient and i < retries - 1:
-                time.sleep(1.5 * (i + 1))       # 1.5s, 3s, …
-                continue
-            raise
-    raise last if last else RuntimeError("gemini call failed")
+    """Gemini(텍스트, flash-lite) 호출 — 공용 gemini.generate 래퍼(재시도·사용량 집계)."""
+    return gemini.generate(prompt, model=MODEL, retries=retries)
 
 
 def refine_script(script: str) -> str:

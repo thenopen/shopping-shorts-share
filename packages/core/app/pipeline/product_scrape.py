@@ -15,7 +15,6 @@ import base64
 from pathlib import Path
 
 from app.config import BACKEND_ROOT
-from app.gemini import api_key as _api_key
 
 # 쿠팡 전용 크롬 프로필(메인 크롬과 격리). 최초 1회 수동 로그인 필요.
 COUPANG_PROFILE = BACKEND_ROOT / "auth" / "coupang_profile"
@@ -116,23 +115,9 @@ _POINT_PROMPT = (
 
 
 def _gemini_generate(contents, retries: int = 3) -> str:
-    """Gemini 호출 + 503/일시오류 재시도(지수 백오프)."""
-    import time
-    from google import genai
-    client = genai.Client(api_key=_api_key())
-    last = None
-    for i in range(retries):
-        try:
-            r = client.models.generate_content(model=VISION_MODEL, contents=contents)
-            return (r.text or "").strip()
-        except Exception as e:
-            last = e
-            msg = str(e)
-            if any(c in msg for c in ("503", "UNAVAILABLE", "overloaded", "429", "RESOURCE_EXHAUSTED")):
-                time.sleep(2 * (i + 1))
-                continue
-            raise
-    raise RuntimeError(f"Gemini 호출 실패(재시도 {retries}회): {str(last)[:160]}")
+    """Gemini(비전/텍스트, flash) 호출 — 공용 gemini.generate 래퍼(재시도·사용량 집계)."""
+    from app import gemini
+    return gemini.generate(contents, model=VISION_MODEL, retries=retries)
 
 
 def points_from_image(image_bytes: bytes) -> str:

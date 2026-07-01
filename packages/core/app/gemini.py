@@ -24,3 +24,59 @@ def api_key() -> str | None:
 
 def available() -> bool:
     return bool(api_key())
+
+
+# 일시오류(과부하·타임아웃·순간 quota) — 지수백오프 재시도 대상.
+_TRANSIENT = ("503", "UNAVAILABLE", "overloaded", "500", "INTERNAL",
+              "429", "RESOURCE_EXHAUSTED", "deadline", "timeout")
+
+
+def _retry_seconds(e: Exception) -> float | None:
+    """429 RESOURCE_EXHAUSTED면 retryDelay 초, 아니면 None."""
+    s = str(e)
+    if "RESOURCE_EXHAUSTED" not in s and "429" not in s:
+        return None
+    import re
+    m = re.search(r"retry.?delay\D*(\d+)", s, re.I)
+    return float(m.group(1)) if m else 30.0
+
+
+def generate(contents, model: str, retries: int = 3, record: bool = True) -> str:
+    """Gemini 호출(텍스트/비전 공용) + 일시오류 지수백오프 재시도 + 사용량 집계.
+
+    contents: 문자열(텍스트) 또는 parts 리스트(비전). record=True면 usage에 토큰 집계,
+    429면 쿨다운 기록. 끝까지 실패하면 예외(호출측이 폴백).
+    """
+    import time
+
+    from google import genai
+
+    key = api_key()
+    if not key:
+        raise RuntimeError("no gemini key")
+    client = genai.Client(api_key=key)
+    last = None
+    for i in range(max(1, retries)):
+        try:
+            res = client.models.generate_content(model=model, contents=contents)
+            if record:
+                try:
+                    from app import usage          # 지연 import(순환 회피)
+                    usage.record_gemini(model, getattr(res, "usage_metadata", None))
+                except Exception:
+                    pass
+            return (res.text or "").strip()
+        except Exception as e:
+            last = e
+            secs = _retry_seconds(e)
+            if secs is not None and record:
+                try:
+                    from app import usage
+                    usage.record_gemini_429(secs)
+                except Exception:
+                    pass
+            if any(c in str(e) for c in _TRANSIENT) and i < retries - 1:
+                time.sleep(1.5 * (i + 1))
+                continue
+            raise
+    raise last if last else RuntimeError("gemini call failed")
