@@ -54,11 +54,31 @@ def transcribe_to_korean(
     raise ValueError(f"Unsupported STT_PROVIDER: {provider}")
 
 
+def _media_has_audio(path: Path) -> bool:
+    """ffprobe로 오디오 스트림 존재 확인. 없으면 whisper가 PyAV IndexError로 크래시하므로 사전 차단."""
+    import subprocess
+    from app.config import FFPROBE
+    try:
+        r = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True)
+        return bool((r.stdout or "").strip())
+    except Exception:
+        return True   # 불확실하면 일단 시도
+
+
 def _transcribe_local(media_path: Path, model_size: str, keep_segments: bool,
                       progress_cb=None) -> dict:
     media_path = Path(media_path)
     if not media_path.exists():
         raise FileNotFoundError(f"Media file not found: {media_path}")
+
+    # 오디오 없는 영상(무음/BGM 제거본 등)은 whisper가 PyAV IndexError로 죽음 → graceful 처리.
+    if not _media_has_audio(media_path):
+        print("  [transcribe: 오디오 스트림 없음 → 대본 없음(무음 영상)]", flush=True)
+        return {"provider": "local", "zh_text": "", "ko_text": "",
+                "segments": [], "no_audio": True}
 
     # GPU 있으면 cuda+float16(정확·빠름), 없으면 cpu+int8 폴백. 모델은 캐시 재사용.
     model = load_whisper_auto(model_size)

@@ -953,6 +953,16 @@ def _transcribe_worker(jid: str, reuse_script: bool = True):
 
         with gpu_slot(job, wait_stage="GPU 대기 중 (대본 생성 대기열)"):  # whisper STT GPU 직렬화
             result = transcribe_to_korean(src, model_size="small", progress_cb=_stt_prog)
+
+        # 오디오 없는 영상(무음/BGM 제거본) → 대본 없음. 크래시 대신 안내.
+        if result.get("no_audio"):
+            job["script"] = ""
+            job["has_speech"] = False
+            job["meta"]["transcribe"] = {"provider": result.get("provider"), "no_audio": True}
+            job.update(status="transcribed",
+                       stage="음성이 없어요 — 대본은 직접 입력하거나 제품 링크로 만드세요", progress=100)
+            return
+
         ko = (result.get("ko_text") or "").strip()
         job["script"] = ko
         job["has_speech"] = len(ko) >= 4
