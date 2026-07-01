@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-from app.config import BACKEND_ROOT
+from app.gemini import api_key as _api_key, available  # noqa: F401 (재export: 다른 모듈이 refine.available 사용)
 
-GEMINI_KEY_PATH = BACKEND_ROOT / "auth" / "gemini_key.txt"
 MODEL = os.environ.get("GEMINI_REFINE_MODEL", "gemini-2.5-flash-lite")
 
 REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대본입니다.
@@ -23,18 +21,6 @@ REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대�
 원본 대본:
 {script}
 """
-
-
-def _api_key() -> str | None:
-    if os.environ.get("GEMINI_API_KEY"):
-        return os.environ["GEMINI_API_KEY"].strip()
-    if GEMINI_KEY_PATH.exists():
-        return GEMINI_KEY_PATH.read_text(encoding="utf-8").strip()
-    return None
-
-
-def available() -> bool:
-    return bool(_api_key())
 
 
 def _retry_seconds(e: Exception) -> float | None:

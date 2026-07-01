@@ -16,9 +16,9 @@ import os
 from pathlib import Path
 
 from app.config import BACKEND_ROOT, WORKDIR
+from app.gemini import KEY_PATH as GEMINI_KEY_PATH, api_key as _gemini_api_key   # Gemini 키 단일 소스
 
 AUTH_DIR = BACKEND_ROOT / "auth"
-GEMINI_KEY_PATH = AUTH_DIR / "gemini_key.txt"
 GTTS_KEY_PATH = AUTH_DIR / "google_tts_key.json"
 LIMITS_PATH = WORKDIR / "settings.json"
 MODAL_TOML = Path.home() / ".modal.toml"
@@ -244,12 +244,10 @@ def remove_modal_account(index: int) -> bool:
 
 def status() -> dict:
     """마스킹된 키 상태 + 현재 한도값(전체 키는 절대 미포함)."""
-    gem = ""
     try:
-        gem = os.environ.get("GEMINI_API_KEY") or (
-            GEMINI_KEY_PATH.read_text(encoding="utf-8").strip() if GEMINI_KEY_PATH.exists() else "")
+        gem = _gemini_api_key() or ""
     except Exception:
-        pass
+        gem = ""
     tts_set, tts_email = False, ""
     try:
         if GTTS_KEY_PATH.exists():

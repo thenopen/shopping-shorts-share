@@ -15,23 +15,14 @@ import base64
 from pathlib import Path
 
 from app.config import BACKEND_ROOT
+from app.gemini import api_key as _api_key
 
-GEMINI_KEY_PATH = BACKEND_ROOT / "auth" / "gemini_key.txt"
 # 쿠팡 전용 크롬 프로필(메인 크롬과 격리). 최초 1회 수동 로그인 필요.
 COUPANG_PROFILE = BACKEND_ROOT / "auth" / "coupang_profile"
 VISION_MODEL = "gemini-2.5-flash"
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-
-
-def _api_key() -> str | None:
-    import os
-    if os.environ.get("GEMINI_API_KEY"):
-        return os.environ["GEMINI_API_KEY"].strip()
-    if GEMINI_KEY_PATH.exists():
-        return GEMINI_KEY_PATH.read_text(encoding="utf-8").strip()
-    return None
 
 
 def detect_site(url: str) -> str:
