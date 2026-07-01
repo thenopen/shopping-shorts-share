@@ -1649,14 +1649,14 @@ export default function Home() {
           <div className="mb-4 flex items-center justify-between rounded-3xl glass px-6 py-4">
             <div>
               <div className="text-sm font-bold text-[var(--ink)]">얼굴샷 컷 제거</div>
-              <div className="text-xs text-[var(--ink-soft)]">인물 얼굴이 크게 잡힌 구간을 자동으로 잘라내고 제품샷 위주로 이어붙입니다. (남길 분량이 너무 짧으면 자동으로 컷을 생략합니다.)</div>
+              <div className="text-xs text-[var(--ink-soft)]">얼굴 큰 구간을 잘라 제품샷 위주로 이어붙여요. (남길 분량이 짧으면 자동 생략)</div>
             </div>
             <Switch on={faceCutOn} onToggle={() => setFaceCutOn((v) => !v)} ariaLabel="얼굴샷 컷 제거 토글" />
           </div>
           <div className="mb-8 flex items-center justify-between rounded-3xl glass px-6 py-4">
             <div>
               <div className="text-sm font-bold text-[var(--ink)]">자동 자막</div>
-              <div className="text-xs text-[var(--ink-soft)]">TTS 대본을 타임코드에 맞춰 자막으로 입힙니다. 아래는 기본 스타일이며, 타임라인에서 줄별로 바꿀 수 있습니다.</div>
+              <div className="text-xs text-[var(--ink-soft)]">대본을 타임코드에 맞춰 자막으로. 스타일·줄별 편집은 켜면 아래에.</div>
             </div>
             <Switch on={captionsOn} onToggle={() => setCaptionsOn((v) => !v)} ariaLabel="자동 자막 토글" />
           </div>
