@@ -472,7 +472,7 @@ def _style_row(name: str, st, margin_v: int) -> str:
 
 
 def render_ass(lines: list, out_ass: Path, video_w: int, video_h: int,
-               margin_v: int = 210) -> Path:
+               margin_v: int = 346) -> Path:  # 1920 기준 18% — 쇼츠 하단 UI 위, 프리뷰 bottom-[18%]와 일치
     """CaptionLine 리스트 → .ass 자막 파일(libass burn-in용).
 
     구간(줄)별로 다른 스타일 지원 — 줄마다 ln.style 보고 ASS Style를 만들어

@@ -16,6 +16,7 @@ import { ScriptStage } from "./components/workspace/ScriptStage";
 import { VoiceStage } from "./components/workspace/VoiceStage";
 import { CaptionStage } from "./components/workspace/CaptionStage";
 import { RenderStage } from "./components/workspace/RenderStage";
+import { StageFooter } from "./components/workspace/StageFooter";
 import { useCtas } from "./hooks/useCtas";
 import { useScriptHistory } from "./hooks/useScriptHistory";
 import { useModalDeploy } from "./hooks/useModalDeploy";
@@ -404,8 +405,9 @@ export default function Home() {
           onCtaPos={setCtaPos}
         />
 
-        {/* 중앙: 스테이지별 작업 패널 */}
-        <main className="thin-scroll min-w-0 flex-1 overflow-y-auto px-5 py-5">
+        {/* 중앙: 스테이지별 작업 패널 + 하단 이전/다음 바 */}
+        <div className="flex min-w-0 flex-1 flex-col">
+        <main className="thin-scroll min-h-0 flex-1 overflow-y-auto px-5 py-5">
           {stage === "source" && (
             <SourceStage
               url={url} setUrl={setUrl}
@@ -479,6 +481,8 @@ export default function Home() {
             />
           )}
         </main>
+        <StageFooter stage={stage} onStage={setStage} />
+        </div>
 
         {/* 우: 자막 스테이지 전용 스타일 인스펙터 — 스타일 조정 여지 크게(440/xl 480) */}
         {stage === "caption" && (
