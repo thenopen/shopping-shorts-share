@@ -64,6 +64,8 @@ export default function Home() {
     if (v) v.currentTime = t;
     setCurrentTime(t);
   };
+  // 자막 스테이지 진입 시 대본으로 자막 1회 자동생성했는지 서명((job,script)). TTS 낭비 방지.
+  const autoCapRef = useRef("");
 
   const {
     script, setScript, scriptDirtyRef,
@@ -125,6 +127,18 @@ export default function Home() {
     } catch {}
   }
   useEffect(() => { loadLibrary(); }, []);
+
+  // 대본 생성하면 자막 생성 — 자막 스테이지 처음 들어갈 때(대본·job 있고 자막 아직 없음) 1회 자동생성.
+  // 소스에서 '이어하기'로 대본까지 불러온 경우도 여기로 이어짐. 자막이 이미 있으면 건드리지 않음.
+  useEffect(() => {
+    if (stage !== "caption" || !captionsOn) return;
+    if (!job?.id || !script.trim() || capBusy || captionLines.length > 0) return;
+    const sig = `${job.id}:${script}`;
+    if (autoCapRef.current === sig) return;   // 이 (job,대본)으론 이미 시도(빈 결과여도 재시도 안 함)
+    autoCapRef.current = sig;
+    genCaptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, captionsOn, job?.id, script, capBusy, captionLines.length]);
 
   // '확인' — 다운로드 없이 제목/썸네일 미리보기. 이미 받은 영상이면 재사용·단계 표시.
   async function checkUrl(u?: string) {
