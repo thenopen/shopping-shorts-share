@@ -187,6 +187,17 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  // 대본을 고치면 1.2초 유휴 뒤 자동저장(디바운스) — 스테이지 안 옮겨도, 새로고침 전에도 반영.
+  // 불러오기 직후엔 lastSavedScriptRef=로드값이라 skip(불필요 저장 안 함).
+  useEffect(() => {
+    if (!job?.id) return;
+    const s = script.trim();
+    if (!s || s === lastSavedScriptRef.current) return;
+    const id = setTimeout(() => { saveScriptToLibrary(); }, 1200);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [script, job?.id]);
+
   // 대본 생성하면 자막 생성 — 자막 스테이지 처음 들어갈 때(대본·job 있고 자막 아직 없음) 1회 자동생성.
   // 소스에서 '이어하기'로 대본까지 불러온 경우도 여기로 이어짐. 자막이 이미 있으면 건드리지 않음.
   useEffect(() => {
