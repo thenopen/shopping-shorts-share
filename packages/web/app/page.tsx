@@ -13,14 +13,8 @@ import { StageBadges } from "./components/StageBadges";
 import { QuotaBadge } from "./components/QuotaBadge";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { PipelineProgress } from "./components/PipelineProgress";
-
-// 기본 제공 CTA 문구(텍스트 자체를 값으로 사용 — 서버가 커스텀 문구도 그대로 받음)
-const DEFAULT_CTAS = [
-  "제품 정보는 고정 댓글에서 확인하세요!",
-  "구매처는 프로필 링크에 있어요.",
-  "자세한 내용은 하단 링크를 눌러주세요.",
-];
-const CTA_STORAGE_KEY = "custom_ctas";
+import { useCtas } from "./hooks/useCtas";
+import { useScriptHistory } from "./hooks/useScriptHistory";
 
 
 
@@ -41,9 +35,7 @@ export default function Home() {
   const [capBusy, setCapBusy] = useState(false);
   const [capEditBusy, setCapEditBusy] = useState(false);            // AI 자막 다듬기 진행중
   const [capEditPrev, setCapEditPrev] = useState<CaptionLineData[] | null>(null); // 다듬기 직전(되돌리기용)
-  // CTA 문구 목록(기본3 + 사용자 추가 통합. 기본도 삭제 가능). localStorage 저장.
-  const [ctaList, setCtaList] = useState<string[]>(DEFAULT_CTAS);
-  const [cta, setCta] = useState(DEFAULT_CTAS[1]); // 선택된 CTA 문구(텍스트)
+  const { ctaList, cta, setCta, addCustomCta, deleteCta } = useCtas();
   const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
   const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
   const [ctaPos, setCtaPos] = useState(0.88);      // CTA 세로 위치(0~1)
@@ -60,45 +52,13 @@ export default function Home() {
   const [qBusy, setQBusy] = useState(false);
   const [qEngine, setQEngine] = useState<string | null>(null);
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(CTA_STORAGE_KEY);
-      if (saved) {
-        const arr = JSON.parse(saved);
-        if (Array.isArray(arr)) {
-          const list = arr.filter((s) => typeof s === "string");
-          setCtaList(list);
-          setCta(list[0] ?? "");
-        }
-      }
-    } catch {}
-  }, []);
   // 언마운트 시 폴링 인터벌 정리(메모리 누수/유령 폴링 방지).
   useEffect(() => stopPoll, []);
-  function persistCtas(list: string[]) {
-    setCtaList(list);
-    try { localStorage.setItem(CTA_STORAGE_KEY, JSON.stringify(list)); } catch {}
-  }
-  function addCustomCta() {
-    const v = window.prompt("추가할 CTA 문구를 입력하세요");
-    const t = (v || "").trim();
-    if (!t) return;
-    if (!ctaList.includes(t)) persistCtas([...ctaList, t]);
-    setCta(t);
-  }
-  function deleteCta(text: string) {
-    const next = ctaList.filter((c) => c !== text);
-    persistCtas(next);
-    if (cta === text) setCta(next[0] ?? "");
-  }
-  const [script, setScript] = useState("");
-  // 대본 버전기록(되돌리기/다시실행). past=이전버전들, future=redo스택.
-  const [scriptPast, setScriptPast] = useState<string[]>([]);
-  const [scriptFuture, setScriptFuture] = useState<string[]>([]);
-  // 사용자가 대본을 건드렸으면(타이핑/AI수정) 폴링이 서버값으로 덮어쓰지 않음.
-  const scriptDirtyRef = useRef(false);
-  // textarea focus 시점 대본(blur 때 비교해 변경됐으면 1버전으로 기록).
-  const lastSnapshotRef = useRef("");
+  const {
+    script, setScript, scriptDirtyRef,
+    commitScript, undoScript, redoScript, canUndo, canRedo,
+    beginSnapshot, commitSnapshotIfChanged,
+  } = useScriptHistory();
   const [rate, setRate] = useState(1.0);
   const [renderSeq, setRenderSeq] = useState(0); // 재렌더 시 결과영상 캐시버스터 카운터
   const [ttsBusy, setTtsBusy] = useState(false);
@@ -201,35 +161,6 @@ export default function Home() {
     }
   }
 
-  // 현재 대본을 기록에 push하고 새 값으로 교체(되돌리기 가능). future는 초기화.
-  function commitScript(next: string) {
-    setScriptPast((p) => (script === next ? p : [...p, script].slice(-50)));
-    if (script !== next) setScriptFuture([]);
-    scriptDirtyRef.current = true;
-    setScript(next);
-  }
-
-  function undoScript() {
-    setScriptPast((p) => {
-      if (!p.length) return p;
-      const prev = p[p.length - 1];
-      setScriptFuture((f) => [script, ...f].slice(0, 50));
-      setScript(prev);
-      scriptDirtyRef.current = true;
-      return p.slice(0, -1);
-    });
-  }
-
-  function redoScript() {
-    setScriptFuture((f) => {
-      if (!f.length) return f;
-      const nextVal = f[0];
-      setScriptPast((p) => [...p, script].slice(-50));
-      setScript(nextVal);
-      scriptDirtyRef.current = true;
-      return f.slice(1);
-    });
-  }
   const [playing, setPlaying] = useState<string | null>(null);
   const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
@@ -1115,10 +1046,10 @@ export default function Home() {
                     {refineBusy && <Spinner className="h-3 w-3 border-fuchsia-300 border-t-fuchsia-600" />}
                     {refineBusy ? "가공 중..." : "AI로 가공"}
                   </button>
-                  <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
+                  <button onClick={undoScript} disabled={!canUndo} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
                     ↶ 되돌리기
                   </button>
-                  <button onClick={redoScript} disabled={!scriptFuture.length} title="다시실행 (Ctrl+Shift+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
+                  <button onClick={redoScript} disabled={!canRedo} title="다시실행 (Ctrl+Shift+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
                     ↷ 다시실행
                   </button>
                 </div>
@@ -1131,8 +1062,8 @@ export default function Home() {
               <textarea
                 value={script}
                 onChange={(e) => { scriptDirtyRef.current = true; setScript(e.target.value); }}
-                onFocus={() => { lastSnapshotRef.current = script; }}
-                onBlur={() => { if (lastSnapshotRef.current !== script) { setScriptPast((p) => [...p, lastSnapshotRef.current].slice(-50)); setScriptFuture([]); } }}
+                onFocus={beginSnapshot}
+                onBlur={commitSnapshotIfChanged}
                 onKeyDown={(e) => {
                   const mod = e.ctrlKey || e.metaKey;
                   if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undoScript(); }
