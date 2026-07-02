@@ -3,21 +3,18 @@
 // Vrew식 자막 세그먼트 리스트(워크스페이스 중앙) — 기존 CaptionTimeline의 편집 로직을
 // proto-vrew 룩으로 이식. 프리뷰 currentTime과 활성 줄 싱크 + 줄 클릭 시 시크.
 import { useEffect, useRef, useState } from "react";
-import { Captions, Plus, RefreshCw, Sparkles, Undo2, X } from "lucide-react";
+import { Captions, ChevronsDownUp, ChevronsUpDown, Info, Plus, RefreshCw, Undo2, X } from "lucide-react";
 import { CaptionStyle, styleToCss, emphasizeNodes } from "../../caption/style";
 import { CaptionLineData } from "../../caption/types";
 import { FONTS } from "../../data/fonts";
 import { Spinner, Switch } from "../../ui";
 import { Toggle } from "../ui/Toggle";
 
-// AI 자막 다듬기 방향. ai=false는 결정형(즉시·무료), ai=true는 Gemini 재작성.
-const EDIT_DIRECTIONS: { key: string; label: string; ai: boolean; hint: string }[] = [
-  { key: "shorter", label: "더 짧게", ai: false, hint: "규칙으로 즉시 더 짧게 재분할" },
-  { key: "longer", label: "더 길게", ai: false, hint: "규칙으로 즉시 더 길게 재분할" },
-  { key: "natural", label: "자연스럽게", ai: true, hint: "AI가 번역투를 자연스러운 구어체로" },
-  { key: "impact", label: "임팩트", ai: true, hint: "AI가 짧고 강한 후킹 문장으로" },
-  { key: "friendly", label: "친근하게", ai: true, hint: "AI가 친근한 구어체 톤으로" },
-  { key: "concise", label: "핵심만", ai: true, hint: "AI가 핵심만 압축" },
+// 줄 나누기(재분할) — 같은 단어를 줄바꿈만 다시(음성과 안 어긋남, 즉시·무료).
+// 문구·톤 재작성은 대본 단계 다이얼로 이동함(자막을 AI로 바꾸면 성우 음성과 desync).
+const SPLIT_DIRECTIONS: { key: string; label: string; icon: typeof ChevronsDownUp; hint: string }[] = [
+  { key: "shorter", label: "촘촘히", icon: ChevronsDownUp, hint: "같은 문장을 더 짧은 줄로 재분할" },
+  { key: "longer", label: "넓게", icon: ChevronsUpDown, hint: "같은 문장을 더 긴 줄로 재분할" },
 ];
 
 function fmt(t: number) {
@@ -110,33 +107,36 @@ export function CaptionStage({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
-          {aiEditBusy && <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-500" />}
-          {lines.length > 0 && EDIT_DIRECTIONS.map((d) => (
-            <button
-              key={d.key}
-              onClick={() => onAiEdit(d.key)}
-              disabled={aiEditBusy}
-              title={d.hint}
-              className={
-                d.ai
-                  ? "flex items-center gap-1 rounded-lg bg-pink-500/15 px-2.5 py-1.5 text-pink-400 ring-1 ring-pink-500/30 transition hover:bg-pink-500/25 disabled:opacity-40"
-                  : "btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1.5 transition"
-              }
-            >
-              {d.ai && <Sparkles className="h-3.5 w-3.5" />}
-              {d.label}
-            </button>
-          ))}
           {lines.length > 0 && (
-            <button
-              onClick={onUndoEdit}
-              disabled={!canUndoEdit || aiEditBusy}
-              title="직전 자막으로 되돌리기"
-              className="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1.5 transition"
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              직전으로
-            </button>
+            <>
+              <span className="text-slate-500">줄 나누기</span>
+              {SPLIT_DIRECTIONS.map((d) => {
+                const Icon = d.icon;
+                return (
+                  <button
+                    key={d.key}
+                    onClick={() => onAiEdit(d.key)}
+                    disabled={aiEditBusy}
+                    title={d.hint}
+                    className="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1.5 transition disabled:opacity-40"
+                  >
+                    <Icon className="h-3.5 w-3.5 text-slate-400" />
+                    {d.label}
+                  </button>
+                );
+              })}
+              {aiEditBusy && <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-500" />}
+              <button
+                onClick={onUndoEdit}
+                disabled={!canUndoEdit || aiEditBusy}
+                title="직전 자막으로 되돌리기"
+                className="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1.5 transition disabled:opacity-40"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                직전으로
+              </button>
+              <span className="mx-0.5 h-4 w-px bg-[var(--line)]" />
+            </>
           )}
           <button
             onClick={onGenerate}
@@ -153,6 +153,14 @@ export function CaptionStage({
           </button>
         </div>
       </div>
+
+      {/* 정합성 안내 — 문구·톤은 대본에서(자막을 AI로 바꾸면 성우 음성과 어긋남) */}
+      {lines.length > 0 && (
+        <div className="flex items-center gap-1.5 border-b border-[var(--line)] bg-white/[.02] px-5 py-1.5 text-[11px] text-slate-500">
+          <Info className="h-3 w-3 flex-none" />
+          문구·톤 변경은 <b className="text-slate-400">대본 단계</b>에서 — 자막은 성우 음성과 맞춰져 있어요. 여기선 <b className="text-slate-400">타이밍·줄나눔·스타일</b>만.
+        </div>
+      )}
 
       {/* ── 세그먼트 리스트 ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">

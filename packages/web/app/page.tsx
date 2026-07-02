@@ -466,9 +466,9 @@ export default function Home() {
           )}
         </main>
 
-        {/* 우: 자막 스테이지 전용 스타일 인스펙터 */}
+        {/* 우: 자막 스테이지 전용 스타일 인스펙터 — 스타일 조정 여지 크게(440/xl 480) */}
         {stage === "caption" && (
-          <aside className="thin-scroll w-full flex-none overflow-y-auto border-t border-[var(--line)] px-4 py-4 lg:w-[340px] lg:border-l lg:border-t-0">
+          <aside className="thin-scroll w-full flex-none overflow-y-auto border-t border-[var(--line)] px-4 py-4 lg:w-[440px] lg:border-l lg:border-t-0 xl:w-[480px]">
             <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
           </aside>
         )}
