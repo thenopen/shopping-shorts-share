@@ -121,6 +121,7 @@ class TranscribeReq(BaseModel):
 
 class RefineReq(BaseModel):
     script: str
+    direction: str | None = None   # 대본 가공 8방향(refine.SCRIPT_DIRECTIONS 키). 없으면 기본 가공
 
 
 class RenderReq(BaseModel):
@@ -188,7 +189,7 @@ def refine(req: RefineReq):
 
     if not available():
         raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
-    return {"script": refine_script(req.script)}
+    return {"script": refine_script(req.script, direction=req.direction)}
 
 
 @app.post("/render")

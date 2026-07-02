@@ -9,6 +9,18 @@ import { Spinner } from "../../ui";
 import { JobState } from "../../lib/types";
 import { parsePoints } from "../../lib/format";
 
+// 대본 AI 가공 8방향(8각 다이얼) — 백엔드 refine.SCRIPT_DIRECTIONS 키와 동일.
+const REFINE_DIRECTIONS: { key: string; label: string; hint: string }[] = [
+  { key: "hook",     label: "후킹",   hint: "첫 3초 시선 강탈형 도입으로" },
+  { key: "impact",   label: "임팩트", hint: "짧고 강한 문장, 군더더기 제거" },
+  { key: "urgency",  label: "긴박",   hint: "지금 봐야 할 이유 (없는 할인은 안 지어냄)" },
+  { key: "humor",    label: "유머",   hint: "가벼운 위트 한 스푼" },
+  { key: "story",    label: "스토리", hint: "직접 써본 경험담 흐름으로" },
+  { key: "friendly", label: "친근",   hint: "친구가 알려주는 톤(반말 살짝)" },
+  { key: "trust",    label: "신뢰",   hint: "담백한 정보·근거 중심" },
+  { key: "concise",  label: "간결",   hint: "핵심만 남기고 압축" },
+];
+
 // 대본 스테이지 — 소스(제품 링크 · 영상 받아쓰기 · 직접 입력) → 소구포인트 → 대본 에디터.
 // API 호출/상태 로직은 전부 props 주입(useProductScript·useScriptHistory 반환 그대로) — 여기선 표시만.
 export function ScriptStage(props: {
@@ -16,7 +28,7 @@ export function ScriptStage(props: {
   onChangeScript: (v: string) => void;   // dirty 마킹 포함된 핸들러
   onFocusScript: () => void; onBlurScript: () => void;
   canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void;
-  onRefine: () => void; refineBusy: boolean;
+  onRefine: (direction?: string) => void; refineBusy: boolean;
   onGenFromVideo: () => void; scriptBusy: boolean;   // 영상 음성→대본(transcribe)
   job: JobState | null;
   // 제품 소구포인트(useProductScript 반환 그대로)
@@ -38,7 +50,15 @@ export function ScriptStage(props: {
     pointsEdit, setPointsEdit, addImageFiles, onProductPaste, onGenerateProduct,
   } = props;
   const [productOpen, setProductOpen] = useState(true);  // 소스 기본 = 제품 링크 패널 열림
+  const [dialOpen, setDialOpen] = useState(false);       // AI 가공 8각 다이얼 팝오버
+  const [hovered, setHovered] = useState<string | null>(null);  // 다이얼 hover 방향(힌트 표시)
   const { cat, points } = parsePoints(sellingPoints);
+  const hoveredDir = REFINE_DIRECTIONS.find((d) => d.key === hovered);
+
+  const pickDirection = (key?: string) => {
+    setDialOpen(false);
+    onRefine(key);
+  };
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -225,14 +245,62 @@ export function ScriptStage(props: {
             <FileText className="h-4 w-4 text-pink-500" /> 한국어 대본
           </span>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
-            <button
-              onClick={onRefine}
-              disabled={!script.trim() || refineBusy}
-              className="flex items-center gap-1 rounded-lg bg-pink-500/15 px-2.5 py-1.5 text-pink-400 ring-1 ring-pink-500/30 transition hover:bg-pink-500/25 disabled:opacity-40"
-            >
-              {refineBusy ? <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-400" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {refineBusy ? "가공 중…" : "AI로 가공"}
-            </button>
+            {/* AI 가공 — 8각 다이얼: 방향을 골라 그 톤으로 재작성 (중앙 = 기본 다듬기) */}
+            <div className="relative">
+              <button
+                onClick={() => setDialOpen((v) => !v)}
+                disabled={!script.trim() || refineBusy}
+                className="flex items-center gap-1 rounded-lg bg-pink-500/15 px-2.5 py-1.5 text-pink-400 ring-1 ring-pink-500/30 transition hover:bg-pink-500/25 disabled:opacity-40"
+              >
+                {refineBusy ? <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-400" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {refineBusy ? "가공 중…" : "AI로 가공"}
+              </button>
+              {dialOpen && (
+                <>
+                  {/* 바깥 클릭 닫기 */}
+                  <div className="fixed inset-0 z-20" onClick={() => setDialOpen(false)} />
+                  <div className="panel absolute right-0 top-[calc(100%+8px)] z-30 w-[264px] rounded-2xl p-3 shadow-2xl">
+                    <p className="mb-1 text-center text-[11px] font-semibold text-slate-300">어느 방향으로 바꿀까요?</p>
+                    {/* 8각 다이얼 — 12시부터 시계방향 45° 간격 */}
+                    <div className="relative mx-auto" style={{ width: 220, height: 220 }}>
+                      {REFINE_DIRECTIONS.map((d, i) => {
+                        const ang = (-90 + i * 45) * (Math.PI / 180);
+                        const x = 110 + 84 * Math.cos(ang);
+                        const y = 110 + 84 * Math.sin(ang);
+                        return (
+                          <button
+                            key={d.key}
+                            onClick={() => pickDirection(d.key)}
+                            onMouseEnter={() => setHovered(d.key)}
+                            onMouseLeave={() => setHovered(null)}
+                            title={d.hint}
+                            className="absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/5 text-[11px] font-bold text-slate-200 ring-1 ring-[var(--line)] transition hover:bg-pink-500/20 hover:text-pink-300 hover:ring-pink-500/50"
+                            style={{ left: x, top: y }}
+                          >
+                            {d.label}
+                          </button>
+                        );
+                      })}
+                      {/* 중앙 = 기본 다듬기(번역투 정리) */}
+                      <button
+                        onClick={() => pickDirection()}
+                        onMouseEnter={() => setHovered("__base")}
+                        onMouseLeave={() => setHovered(null)}
+                        className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full bg-pink-500/15 text-[10px] font-bold text-pink-400 ring-1 ring-pink-500/40 transition hover:bg-pink-500/25"
+                      >
+                        <Sparkles className="mb-0.5 h-4 w-4" />
+                        기본
+                      </button>
+                    </div>
+                    <p className="mt-1 h-8 text-center text-[11px] leading-snug text-slate-400">
+                      {hovered === "__base"
+                        ? "번역투 정리 + 자연스러운 구어체 (기본)"
+                        : hoveredDir?.hint ?? "방향을 고르면 그 톤으로 대본을 다시 써요. 마음에 안 들면 ↶ 되돌리기."}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
             <button
               onClick={onUndo}
               disabled={!canUndo}

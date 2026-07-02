@@ -9,19 +9,39 @@ from app.gemini import api_key as _api_key, available  # noqa: F401 (재export: 
 
 MODEL = os.environ.get("GEMINI_REFINE_MODEL", "gemini-2.5-flash-lite")
 
-REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대본입니다.
-쇼핑 숏츠에 어울리게 자연스러운 한국어 구어체 대본으로 다듬어 주세요.
+# 쇼츠 공통 문장 규칙 — 대본이 이후 자막 줄(6~12자 호흡)로 분할되는 걸 전제로 작성.
+SHORTS_RULES = """- 쇼츠 자막으로 잘리기 좋게: 한 문장 = 한 메시지, 한 호흡(대략 15자 안쪽)으로 짧게.
+- 긴 문장은 둘로 쪼개고, 접속사로 길게 잇지 마라.
+- 첫 문장은 3초 안에 시선을 잡는 도입(질문·반전·구체 숫자)."""
+
+# 대본 AI 가공 8방향(8각 다이얼) — 프론트 ScriptStage와 키 동일.
+SCRIPT_DIRECTIONS = {
+    "hook":     "도입부를 첫 3초에 시선을 강탈하는 훅(질문·반전·구체 숫자)으로 다시 써라. 본문 의미는 유지.",
+    "impact":   "짧고 강한 문장으로 바꿔라. 군더더기·수식어 제거, 단문 위주 펀치라인.",
+    "urgency":  "지금 봐야 할 이유가 느껴지는 긴박한 톤으로 바꿔라. 단, 원문에 없는 할인·한정수량·마감시한을 지어내지 마라.",
+    "humor":    "가벼운 위트를 한 스푼 섞어라(과한 드립·유행어 남발 금지). 정보는 그대로.",
+    "story":    "직접 써본 사람의 경험담 흐름(궁금→써봄→결과)으로 재구성해라.",
+    "friendly": "친한 친구가 알려주는 톤으로 바꿔라(반말 살짝, 과하지 않게).",
+    "trust":    "담백하고 신뢰감 있는 정보 전달 톤으로 바꿔라. 감탄사 줄이고 사실·근거 중심.",
+    "concise":  "핵심만 남기고 압축해라. 중복·군더더기 제거, 분량 30% 이상 줄이기.",
+}
+
+REFINE_PROMPT = """다음은 한국 쇼핑 숏츠용 한국어 대본입니다.
+{instruction}
 
 규칙:
-- 어색한 번역투만 고치고 원래 의미를 최대한 유지
+- 원래 의미를 최대한 유지
 - 원문에 없는 제품 속성, 색감, 효능, 가격, 할인, 수량, 성능 추가 금지
 - "무조건 사야 한다", "꼭 사야 한다" 같은 강압/과장 표현 금지
-- 짧고 말하기 좋은 문장으로 정리
-- 결과 대본만 출력
+{shorts_rules}
+- 결과 대본만 출력(설명·머리말·마크다운 금지)
 
 원본 대본:
 {script}
 """
+
+# direction 미지정 시 기본 가공(기존 동작): 번역투 정리 + 자연스러운 구어체.
+DEFAULT_INSTRUCTION = "어색한 번역투를 고치고 자연스러운 한국어 구어체 대본으로 다듬어 주세요."
 
 
 def _call_gemini(prompt: str, retries: int = 3) -> str:
@@ -33,12 +53,15 @@ def _call_gemini(prompt: str, retries: int = 3) -> str:
     return gemini.generate_fallback(prompt)
 
 
-def refine_script(script: str) -> str:
+def refine_script(script: str, direction: str | None = None) -> str:
+    """대본 AI 가공. direction(8방향 키) 지정 시 그 방향으로, 없으면 기본(번역투 정리)."""
     script = (script or "").strip()
     if not script:
         return ""
+    instruction = SCRIPT_DIRECTIONS.get(direction or "", DEFAULT_INSTRUCTION)
     try:
-        out = _call_gemini(REFINE_PROMPT.format(script=script))
+        out = _call_gemini(REFINE_PROMPT.format(
+            instruction=instruction, shorts_rules=SHORTS_RULES, script=script))
         return _safe_refined_output(script, out) or script
     except Exception as e:
         print(f"  [Gemini refine failed, keeping original: {str(e)[:120]}]")
@@ -55,7 +78,7 @@ PRODUCT_SCRIPT_PROMPT = """너는 한국 쇼핑 숏츠 대본 작가다.
 - 소구포인트에 있는 사실만 사용. 없는 효능·가격·할인·수량·성능을 지어내지 마라.
 - "무조건 사라", "꼭 사야 한다" 같은 강압·과장 금지.
 - 짧고 말하기 좋은 구어체. 20~45초 분량.
-- 도입 1문장으로 관심을 끌어라.
+{shorts_rules}
 - **오직 입으로 읽을 내레이션 문장만** 출력해라. 장면 지시(괄호 콘티), 마크다운 기호(**, [영상 끝] 등), 머리말·설명은 절대 넣지 마라. 문장만 줄바꿈으로 구분.
 
 (A) 영상 내용:
@@ -90,6 +113,7 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
         prompt = PRODUCT_SCRIPT_PROMPT.format(
             video=video_content or "(영상 내용 없음 — 소구포인트 중심으로 작성)",
             points=selling_points,
+            shorts_rules=SHORTS_RULES,
         )
         out = _call_gemini(prompt)
         result = _narration_only(out) or video_content

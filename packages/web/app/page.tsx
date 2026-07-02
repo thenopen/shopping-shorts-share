@@ -285,14 +285,15 @@ export default function Home() {
     setCapEditPrev(null);
   }
 
-  async function refineScript() {
+  // direction: 8방향 다이얼 키(hook/impact/…) — 없으면 기본(번역투 정리) 가공.
+  async function refineScript(direction?: string) {
     if (!script.trim() || refineBusy) return;
     setRefineBusy(true);
     try {
       const r = await fetch(`${apiBase()}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script }),
+        body: JSON.stringify({ script, direction: direction ?? null }),
       });
       if (!r.ok) {
         alert("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
