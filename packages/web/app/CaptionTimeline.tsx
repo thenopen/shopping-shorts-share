@@ -1,9 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { CaptionStyle, styleToCss, emphasizeNodes } from "./CaptionEditor";
-import { FONTS } from "./fonts";
+import { CaptionStyle, styleToCss, emphasizeNodes } from "./caption/style";
+import { CaptionLineData } from "./caption/types";
+import { FONTS } from "./data/fonts";
 import { Spinner } from "./ui";
+
+// CaptionLineData 정의는 ./caption/types 로 이동. 기존 import 경로("./CaptionTimeline") 호환 위해 재노출.
+export type { CaptionLineData } from "./caption/types";
 
 // AI 자막 다듬기 방향. ai=false는 결정형(즉시·무료), ai=true는 Gemini 재작성.
 const EDIT_DIRECTIONS: { key: string; label: string; ai: boolean; hint: string }[] = [
@@ -14,15 +18,6 @@ const EDIT_DIRECTIONS: { key: string; label: string; ai: boolean; hint: string }
   { key: "friendly", label: "친근하게", ai: true, hint: "AI가 친근한 구어체 톤으로" },
   { key: "concise", label: "핵심만", ai: true, hint: "AI가 핵심만 압축" },
 ];
-
-// 자막 한 줄 — 시간(start/end) + 텍스트 + (줄별)스타일 override.
-// style=null 이면 기본 스타일(default) 사용.
-export type CaptionLineData = {
-  text: string;
-  start: number;
-  end: number;
-  style: CaptionStyle | null;
-};
 
 function fmt(t: number) {
   const s = Math.max(0, t);
@@ -66,6 +61,9 @@ export default function CaptionTimeline({
     onChange([...lines, { text: "새 자막", start, end: start + 2, style: null }]);
   }
 
+  // TODO(bug/개선트랙): key={i}·editingIdx가 위치 기반 — 위 줄 삭제/삽입 시 열린 스타일패널·포커스가
+  //   다른 줄에 붙음. 줄마다 stable id 부여(key+editingIdx)로 고치거나, 최소한 삭제 idx가 editingIdx보다
+  //   위면 editingIdx를 1 줄일 것.
   function delLine(i: number) {
     onChange(lines.filter((_, idx) => idx !== i));
     if (editingIdx === i) setEditingIdx(null);

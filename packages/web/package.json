@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "gen:fonts": "node scripts/gen-font-css.mjs",
+    "predev": "node scripts/gen-font-css.mjs",
+    "prebuild": "node scripts/gen-font-css.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
