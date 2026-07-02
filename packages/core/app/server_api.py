@@ -384,58 +384,69 @@ def script_product(req: ProductScriptReq):
     우선순위: manual_points > product_image > product_url.
     어느 입력도 없으면 400. 크롤 차단(쿠팡 등) 시 error에 사유 담아 반환.
     """
+    import traceback
     from app.pipeline.product_scrape import extract_selling_points
     from app.pipeline.refine import product_script
 
-    raw_imgs = list(req.product_images or [])
-    if req.product_image:
-        raw_imgs.append(req.product_image)
-    images = [b for b in (_decode_image_b64(s) for s in raw_imgs) if b]
-    if not (req.product_url.strip() or images or req.manual_points.strip()):
-        raise HTTPException(400, "product_url·product_images·manual_points 중 하나가 필요합니다.")
-
     debug: list = []
-    debug.append(f"입력: url={'있음' if req.product_url.strip() else '없음'}, 이미지 {len(images)}장, "
-                 f"manual={'있음' if req.manual_points.strip() else '없음'}, "
-                 f"영상내용 {len(req.video_content or '')}자, combine={req.combine}")
     try:
+        raw_imgs = list(req.product_images or [])
+        if req.product_image:
+            raw_imgs.append(req.product_image)
+        images = [b for b in (_decode_image_b64(s) for s in raw_imgs) if b]
+        if not (req.product_url.strip() or images or req.manual_points.strip()):
+            raise HTTPException(400, "product_url·product_images·manual_points 중 하나가 필요합니다.")
+
+        debug.append(f"입력: url={'있음' if req.product_url.strip() else '없음'}, 이미지 {len(images)}장, "
+                     f"manual={'있음' if req.manual_points.strip() else '없음'}, "
+                     f"영상내용 {len(req.video_content or '')}자, combine={req.combine}")
+
         sp = extract_selling_points(
             url=req.product_url or None,
             images=images or None,
             manual=req.manual_points or None,
             debug=debug,
         )
+
+        points = sp.get("points", "")
+        if not points and sp.get("error"):
+            # 크롤 차단 등 — 포인트 못 뽑음. 사유 그대로 전달(웹이 폴백 안내).
+            debug.append(f"■ 종료: 소구포인트 못 뽑음 (사유: {sp['error'][:140]})")
+            return {"selling_points": "", "script": "", "source": sp.get("source", ""),
+                    "site": sp.get("site", ""), "error": sp["error"], "debug": debug}
+
+        script = ""
+        combine_err = ""
+        if req.combine:
+            script = product_script(req.video_content, points, debug=debug)
+            # 결합 실패(429 한도·503 과부하 등)를 debug에서 잡아 조용한 폴백 대신 원인별로 안내.
+            fail = next((m for m in debug if "대본 생성 실패" in m), "")
+            if fail and not script.strip():
+                f = fail.lower()
+                if "429" in fail or "resource_exhausted" in f:
+                    combine_err = ("Gemini 무료 한도(분당/일일)에 걸려 대본 결합이 안 됐어요. 배지의 '오늘 남은 수'와는 "
+                                   "별개(분당 한도)예요. 1분쯤 뒤 아래 소구포인트의 '🔄 대본 다시'를 눌러주세요.")
+                elif "503" in fail or "unavailable" in f or "overload" in f or "high demand" in f:
+                    combine_err = ("Gemini 모델이 잠시 과부하예요(503, 일시적). 보통 곧 풀려요 — 아래 소구포인트의 "
+                                   "'🔄 대본 다시'를 잠깐 뒤 눌러주세요. 소구포인트는 이미 뽑아놨어요.")
+                else:
+                    combine_err = ("대본 결합에 실패했어요. 아래 소구포인트로 직접 작성하거나 '🔄 대본 다시'로 재시도해 주세요.")
+                debug.append(f"■ 결합 실패 → 사용자 알림: {combine_err[:50]}…")
+        debug.append(f"■ 완료: 소구포인트 {len(points)}자, 대본 {len(script)}자")
+        return {"selling_points": points, "script": script,
+                "source": sp.get("source", ""), "site": sp.get("site", ""),
+                "error": combine_err, "debug": debug}
+    except HTTPException:
+        raise                                  # 400 등 의도된 응답은 그대로
     except Exception as e:
-        raise HTTPException(500, f"소구포인트 추출 실패: {str(e)[:300]}") from e
-
-    points = sp.get("points", "")
-    if not points and sp.get("error"):
-        # 크롤 차단 등 — 포인트 못 뽑음. 사유 그대로 전달(웹이 폴백 안내).
-        debug.append(f"■ 종료: 소구포인트 못 뽑음 (사유: {sp['error'][:140]})")
-        return {"selling_points": "", "script": "", "source": sp.get("source", ""),
-                "site": sp.get("site", ""), "error": sp["error"], "debug": debug}
-
-    script = ""
-    combine_err = ""
-    if req.combine:
-        script = product_script(req.video_content, points, debug=debug)
-        # 결합 실패(429 한도·503 과부하 등)를 debug에서 잡아 조용한 폴백 대신 원인별로 안내.
-        fail = next((m for m in debug if "대본 생성 실패" in m), "")
-        if fail and not script.strip():
-            f = fail.lower()
-            if "429" in fail or "resource_exhausted" in f:
-                combine_err = ("Gemini 무료 한도(분당/일일)에 걸려 대본 결합이 안 됐어요. 배지의 '오늘 남은 수'와는 "
-                               "별개(분당 한도)예요. 1분쯤 뒤 아래 소구포인트의 '🔄 대본 다시'를 눌러주세요.")
-            elif "503" in fail or "unavailable" in f or "overload" in f or "high demand" in f:
-                combine_err = ("Gemini 모델이 잠시 과부하예요(503, 일시적). 보통 곧 풀려요 — 아래 소구포인트의 "
-                               "'🔄 대본 다시'를 잠깐 뒤 눌러주세요. 소구포인트는 이미 뽑아놨어요.")
-            else:
-                combine_err = ("대본 결합에 실패했어요. 아래 소구포인트로 직접 작성하거나 '🔄 대본 다시'로 재시도해 주세요.")
-            debug.append(f"■ 결합 실패 → 사용자 알림: {combine_err[:50]}…")
-    debug.append(f"■ 완료: 소구포인트 {len(points)}자, 대본 {len(script)}자")
-    return {"selling_points": points, "script": script,
-            "source": sp.get("source", ""), "site": sp.get("site", ""),
-            "error": combine_err, "debug": debug}
+        # 그 어떤 예외도 bare 500으로 안 나가게 — 전체 traceback을 서버 로그에 남기고(진단용)
+        # 사용자에겐 원인 힌트 + debug를 담아 graceful 반환.
+        tb = traceback.format_exc()
+        print(f"[제품대본] ✗ 처리 중 예외 — 전체 traceback ↓\n{tb}", flush=True)
+        debug.append(f"✗ 처리 중 예외: {type(e).__name__}: {str(e)[:200]}")
+        return {"selling_points": "", "script": "", "source": "", "site": "",
+                "error": f"처리 중 오류가 났어요({type(e).__name__}). 잠시 뒤 다시 시도하거나, 상세페이지 캡처 이미지를 올려보세요.",
+                "debug": debug}
 
 
 def _decode_image_b64(s: str) -> bytes | None:
