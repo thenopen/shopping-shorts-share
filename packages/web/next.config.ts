@@ -8,6 +8,9 @@ const API_PREFIXES = [
 ];
 
 const nextConfig: NextConfig = {
+  // rewrites 프록시 타임아웃 30초(기본) → 5분.
+  // /script/product(크롤+비전 수십초~)가 30초 넘으면 코어는 성공하는데 브라우저만 500 받던 원인.
+  experimental: { proxyTimeout: 300_000 },
   // 원격접속(터널/LAN/Tailscale) 시 dev 리소스(/_next) cross-origin 허용
   allowedDevOrigins: [
     "127.0.0.1",
