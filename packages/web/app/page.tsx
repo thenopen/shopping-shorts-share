@@ -67,6 +67,9 @@ export default function Home() {
   };
   // 자막 스테이지 진입 시 대본으로 자막 1회 자동생성했는지 서명((job,script)). TTS 낭비 방지.
   const autoCapRef = useRef("");
+  // 대본 스테이지 이탈 시 자동저장용 — 마지막 저장 대본 + 직전 스테이지.
+  const lastSavedScriptRef = useRef("");
+  const prevStageRef = useRef<StageKey>("source");
 
   const {
     script, setScript, scriptDirtyRef,
@@ -129,6 +132,23 @@ export default function Home() {
   }
   useEffect(() => { loadLibrary(); }, []);
 
+  // 현재 대본(제품/AI가공/직접편집)을 job+라이브러리에 저장 — STT만 저장하던 구멍 보완.
+  // 이어하기/새로고침에서 최신 대본 복구. job 없으면(영상 없이 제품만) 서버 저장 대상 없음.
+  async function saveScriptToLibrary() {
+    if (!job?.id) return;
+    const s = script.trim();
+    if (!s || s === lastSavedScriptRef.current) return;   // 변경 없으면 skip
+    lastSavedScriptRef.current = s;
+    try { await postJSON(`/jobs/${job.id}/script`, { script: s }); } catch {}
+  }
+
+  // 대본 스테이지를 떠날 때(상단 보이스 클릭 / 다음 바 / 렌더 등) 대본 자동저장.
+  useEffect(() => {
+    if (prevStageRef.current === "script" && stage !== "script") saveScriptToLibrary();
+    prevStageRef.current = stage;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
   // 대본 생성하면 자막 생성 — 자막 스테이지 처음 들어갈 때(대본·job 있고 자막 아직 없음) 1회 자동생성.
   // 소스에서 '이어하기'로 대본까지 불러온 경우도 여기로 이어짐. 자막이 이미 있으면 건드리지 않음.
   useEffect(() => {
@@ -168,7 +188,7 @@ export default function Home() {
       if (jr.ok) {
         const j: JobState = await jr.json();
         setJob(j);
-        if (j.script) { setScript(j.script); scriptDirtyRef.current = true; }
+        if (j.script) { setScript(j.script); scriptDirtyRef.current = true; lastSavedScriptRef.current = j.script; }
       }
       const lbl: Record<string, string> = { source: "원본", nosub: "자막제거본", script: "대본" };
       setPreview(null);

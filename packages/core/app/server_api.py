@@ -192,6 +192,29 @@ def refine(req: RefineReq):
     return {"script": refine_script(req.script, direction=req.direction)}
 
 
+@app.post("/jobs/{jid}/script")
+def save_job_script(jid: str, req: RefineReq):
+    """현재 대본(제품/AI가공/직접편집)을 job + 라이브러리에 저장 — 이어하기·새로고침 복구용.
+    STT 경로만 저장하던 구멍 보완. 기존 script.json의 zh_text/segments는 보존하고 ko_text만 갱신."""
+    job = _require_job(jid)
+    ko = (req.script or "").strip()
+    job["script"] = ko
+    job["has_speech"] = len(ko) >= 4
+    url = (job.get("meta") or {}).get("url") or ""
+    saved = False
+    if url and ko:
+        from app import library
+        try:
+            prev = library.get_script(url) or {}
+            prev.update({"ko_text": ko, "has_speech": len(ko) >= 4, "edited": True})
+            prev.setdefault("provider", "edited")
+            library.save_script(url, prev)
+            saved = True
+        except Exception as e:
+            print(f"  [save_job_script 실패: {str(e)[:120]}]")
+    return {"ok": True, "saved_to_library": saved}
+
+
 @app.post("/render")
 def render(req: RenderReq):
     _require_job(req.job_id)
