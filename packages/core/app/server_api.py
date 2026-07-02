@@ -416,20 +416,26 @@ def script_product(req: ProductScriptReq):
                 "site": sp.get("site", ""), "error": sp["error"], "debug": debug}
 
     script = ""
-    quota_warn = ""
+    combine_err = ""
     if req.combine:
         script = product_script(req.video_content, points, debug=debug)
-        # 결합이 Gemini 429로 실패했는지 debug에서 감지 → 조용한 폴백 대신 명확히 알림.
-        # 429는 '일일 한도'뿐 아니라 분당 요청수(RPM)·순간 과부하일 때도 남 → 배지의 일일 잔여와 별개.
-        if any(("RESOURCE_EXHAUSTED" in m or "429" in m) and "실패" in m for m in debug):
-            quota_warn = ("Gemini가 요청을 잠깐 거부했어요(429 — 무료 등급의 분당 요청 한도이거나 순간 과부하). "
-                          "쿼터 배지의 '오늘 남은 수'와는 별개예요. 1분쯤 뒤 다시 누르면 대개 됩니다. "
-                          "급하면 아래 소구포인트를 보고 대본을 직접 다듬어 주세요.")
-            debug.append("■ 429 → 사용자 알림 표시(소구포인트 유지). 원인: 분당/순간 한도 추정")
+        # 결합 실패(429 한도·503 과부하 등)를 debug에서 잡아 조용한 폴백 대신 원인별로 안내.
+        fail = next((m for m in debug if "대본 생성 실패" in m), "")
+        if fail and not script.strip():
+            f = fail.lower()
+            if "429" in fail or "resource_exhausted" in f:
+                combine_err = ("Gemini 무료 한도(분당/일일)에 걸려 대본 결합이 안 됐어요. 배지의 '오늘 남은 수'와는 "
+                               "별개(분당 한도)예요. 1분쯤 뒤 아래 소구포인트의 '🔄 대본 다시'를 눌러주세요.")
+            elif "503" in fail or "unavailable" in f or "overload" in f or "high demand" in f:
+                combine_err = ("Gemini 모델이 잠시 과부하예요(503, 일시적). 보통 곧 풀려요 — 아래 소구포인트의 "
+                               "'🔄 대본 다시'를 잠깐 뒤 눌러주세요. 소구포인트는 이미 뽑아놨어요.")
+            else:
+                combine_err = ("대본 결합에 실패했어요. 아래 소구포인트로 직접 작성하거나 '🔄 대본 다시'로 재시도해 주세요.")
+            debug.append(f"■ 결합 실패 → 사용자 알림: {combine_err[:50]}…")
     debug.append(f"■ 완료: 소구포인트 {len(points)}자, 대본 {len(script)}자")
     return {"selling_points": points, "script": script,
             "source": sp.get("source", ""), "site": sp.get("site", ""),
-            "error": quota_warn, "debug": debug}
+            "error": combine_err, "debug": debug}
 
 
 def _decode_image_b64(s: str) -> bytes | None:

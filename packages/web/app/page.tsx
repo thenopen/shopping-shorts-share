@@ -1458,12 +1458,16 @@ export default function Home() {
 
           </div>
 
-          {/* 영상 분석했지만 대본 없을 때 — 영상에서 자동 대본 생성 진입점(우측 대본창은 대본 있을 때만 등장) */}
+          {/* 영상 음성→대본(transcribe)은 니치 경로 — 접어서 숨김(일부 사용자용). 기본은 제품 링크. */}
           {job?.id && !script.trim() && (
-            <button onClick={genScript} disabled={scriptBusy} className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white/70 px-5 py-3 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-              {scriptBusy && <Spinner className="h-4 w-4 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
-              {scriptBusy ? "대본 생성 중..." : "🎬 영상에서 자동 대본 생성"}
-            </button>
+            <details className="mt-3 rounded-xl bg-white/40 px-3.5 py-2 backdrop-blur">
+              <summary className="cursor-pointer select-none text-xs font-semibold text-[var(--ink-soft)]">▸ 제품 링크 없이 · 영상 음성에서 대본 만들기</summary>
+              <button onClick={genScript} disabled={scriptBusy} className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-full bg-white/70 px-5 py-3 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                {scriptBusy && <Spinner className="h-4 w-4 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+                {scriptBusy ? "대본 생성 중..." : "🎬 영상에서 자동 대본 생성"}
+              </button>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--ink-soft)]">영상에 한국어/중국어 <b>음성</b>이 있을 때만 유용해요. 무음·BGM만이면 빈 대본이 나와요.</p>
+            </details>
           )}
 
           {(busy || scriptBusy) && job?.status !== "done" && <PipelineProgress job={job} />}
