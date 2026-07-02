@@ -7,7 +7,7 @@ import { Film, Volume2, Play, Pause, X } from "lucide-react";
 import { PipelineProgress } from "../PipelineProgress";
 import type { JobState } from "../../lib/types";
 import type { CaptionLineData } from "../../caption/types";
-import { CaptionStyle, styleToCss, emphasizeNodes, autoEmphIndices } from "../../caption/style";
+import { CaptionStyle, styleToCssScaled, emphasizeNodes, animCss, autoEmphIndices } from "../../caption/style";
 
 // 실제 출력 폭 1080px → 프리뷰 폭 250px 축소 배율
 const SCALE = 250 / 1080;
@@ -158,18 +158,15 @@ export function PreviewPane(props: {
   // 줄 스타일(줄별 override 우선) → 250px 프리뷰용 축소 CSS
   const renderCaption = (line: CaptionLineData) => {
     const eff = line.style ?? defaultStyle;
-    const css: CSSProperties = { ...styleToCss(eff), fontSize: eff.size * SCALE };
-    if (eff.outline && eff.outlineWidth > 0) css.WebkitTextStrokeWidth = `${eff.outlineWidth * 2 * SCALE}px`;
-    if (eff.box) {
-      css.padding = `${(eff.boxPadY ?? 6) * SCALE}px ${(eff.boxPadX ?? 16) * SCALE}px`;
-      css.borderRadius = (eff.boxRadius ?? 8) * SCALE;
-    }
+    const css: CSSProperties = styleToCssScaled(eff, SCALE);
     // 애니(워드바이워드): 말하는 단어(t∈[start,end)) 팝 + 강조어 색 유지. 아니면 정적 emphasizeNodes.
     let inner: React.ReactNode;
     if (eff.animate && line.words && line.words.length) {
       const emphSet = new Set(line.emph ?? autoEmphIndices(line.text));
       inner = line.words.map((w, i) => {
-        const active = t >= w.start && t < w.end;
+        // 팝은 단어 시작 후 0.17초만(최종 ASS \t 70+100ms와 동일) — 발화 내내 커져 있으면 렌더와 다르게 보임
+        const dt = t - w.start;
+        const popping = dt >= 0 && dt < 0.17 && t < w.end;
         const isE = eff.emphasis && emphSet.has(i);
         return (
           <span
@@ -178,7 +175,7 @@ export function PreviewPane(props: {
               display: "inline-block",
               color: isE ? eff.emphasisColor : undefined,
               fontWeight: isE ? 900 : undefined,
-              transform: active ? `scale(${isE ? 1.3 : 1.18})` : "scale(1)",
+              transform: popping ? `scale(${isE ? 1.3 : 1.18})` : "scale(1)",
               transition: "transform 90ms ease-out",
             }}
           >
@@ -201,8 +198,10 @@ export function PreviewPane(props: {
     return (
       <div className={wrapCls} style={{ ...wrapStyle, pointerEvents: "none" }}>
         <span
+          // key=줄 시작시각 — 줄이 바뀔 때마다 등장 효과(anim) 재실행(최종 렌더와 동일 타이밍)
+          key={`${line.start}-${eff.anim ?? "none"}`}
           className={`text-center ${draggable ? "cursor-grab" : ""} ${capDrag ? "cursor-grabbing rounded ring-1 ring-pink-400" : ""}`}
-          style={{ ...css, pointerEvents: draggable ? "auto" : "none", touchAction: "none" }}
+          style={{ ...css, ...animCss(eff), pointerEvents: draggable ? "auto" : "none", touchAction: "none" }}
           title={draggable ? "드래그해서 위치 이동" : undefined}
           onPointerDown={(e) => {
             if (!draggable) return;

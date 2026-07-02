@@ -261,7 +261,7 @@ export default function CaptionTimeline({
                       <input
                         type="range"
                         min={16}
-                        max={120}
+                        max={200}
                         value={eff.size}
                         onChange={(e) => setLineStyle(i, "size", +e.target.value)}
                         className="w-full accent-[var(--accent-deep)]"

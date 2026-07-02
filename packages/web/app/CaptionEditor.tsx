@@ -1,11 +1,34 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { FONTS } from "./data/fonts";
-import { CaptionStyle, styleToCss, emphasizeNodes, PRESET_TEMPLATES } from "./caption/style";
+import { CaptionStyle, styleToCss, styleToCssScaled, emphasizeNodes, animCss, ANIMS, PRESET_TEMPLATES } from "./caption/style";
 import { Toggle } from "./components/ui/Toggle";
 
 const STORAGE_KEY = "caption_templates";
+
+// 1080px 출력 기준 스타일을 '컨테이너 폭 = 영상 폭'으로 축소해 그리는 미리보기 텍스트.
+// 82px 같은 출력값을 그대로 뿌리면 패널에서 실제 영상 비율보다 훨씬 크게 보이는 문제 방지.
+function ScaledPreview({ s, text }: { s: CaptionStyle; text: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(0.4);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setScale(Math.max(0.1, el.clientWidth / 1080));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className="flex w-full justify-center">
+      <span key={s.anim ?? "none"} className="text-center" style={{ ...styleToCssScaled(s, scale), ...animCss(s) }}>
+        {text ? emphasizeNodes(text, s) : "미리보기"}
+      </span>
+    </div>
+  );
+}
 
 // React.memo — value(captionStyle)/onChange(안정 setter) 동일하면 리렌더 skip.
 // 링크·대본 등 부모 상태 타이핑 시 이 무거운 편집기(539 폰트 option) 재조정 방지.
@@ -100,7 +123,7 @@ function CaptionEditor({
           backgroundPosition: "0 0, 0 0, 12px 12px",
         }}
       >
-        <span style={styleToCss(value)}>{text ? emphasizeNodes(text, value) : "미리보기"}</span>
+        <ScaledPreview s={value} text={text} />
       </div>
       {/* 배경 토글 — 투명(기본) + 영상톤별로 자막 가독성 확인 */}
       <div className="mb-5 flex gap-2">
@@ -129,11 +152,11 @@ function CaptionEditor({
           </select>
         </Row>
 
-        <Row label={`크기 ${value.size}px`}>
+        <Row label={`크기 ${value.size}px (1080px 폭 기준)`}>
           <input
             type="range"
             min={16}
-            max={120}
+            max={200}
             value={value.size}
             onChange={(e) => set("size", +e.target.value)}
             className="w-full accent-pink-500"
@@ -152,6 +175,14 @@ function CaptionEditor({
             <Toggle dense on={value.box} onClick={() => set("box", !value.box)} label="박스" />
             <Toggle dense on={value.emphasis} onClick={() => set("emphasis", !value.emphasis)} label="핵심강조" />
             <Toggle dense on={value.animate} onClick={() => set("animate", !value.animate)} label="✨애니(단어 팝)" />
+          </div>
+        </Row>
+
+        <Row label="등장 효과 (줄이 뜰 때 1회)">
+          <div className="flex flex-wrap gap-1.5">
+            {ANIMS.map((a) => (
+              <Toggle key={a.v} dense on={(value.anim ?? "none") === a.v} onClick={() => set("anim", a.v)} label={a.label} />
+            ))}
           </div>
         </Row>
 
@@ -334,7 +365,7 @@ function CaptionEditor({
             <div className="mb-1 text-base font-bold text-slate-100">템플릿 저장</div>
             <p className="mb-4 text-xs text-slate-400">현재 자막 스타일을 이름 붙여 저장합니다.</p>
             <div className="mb-4 flex items-center justify-center rounded-xl p-4" style={{ background: "#6a7180" }}>
-              <span style={styleToCss(value)}>{text ? emphasizeNodes(text, value) : "미리보기"}</span>
+              <ScaledPreview s={value} text={text} />
             </div>
             <input
               autoFocus

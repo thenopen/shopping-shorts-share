@@ -140,6 +140,18 @@ body {
 .grad-anim { background: linear-gradient(135deg, var(--brand), var(--blu)); color: #fff; }
 .grad-box { background: var(--panel-2); }
 
+/* 자막 등장 효과(anim) — 백엔드 ASS(\fad/\t/\move) 타이밍과 일치시켜 프리뷰=렌더 */
+@keyframes capFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes capPopIn {
+  0% { opacity: 0; transform: scale(0.7); }
+  55% { opacity: 1; transform: scale(1.07); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes capRiseIn {
+  from { opacity: 0; transform: translateY(0.55em); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
