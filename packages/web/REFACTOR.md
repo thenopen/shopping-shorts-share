@@ -9,15 +9,18 @@
 - **step 2 — 의존성 없는 모듈 추출**: `lib/api.ts`(apiBase/postJSON/errMsg) · `lib/types.ts`(8 타입) · `lib/format.ts`(fmtK/fmtSec/parsePoints/normLines) · `caption/style.tsx`(CaptionStyle/DEFAULT_STYLE/styleToCss/emphasizeNodes/EMPH_*) · `caption/types.ts`(CaptionLineData) · `data/voices.ts`(VOICES). `fonts.ts`→`data/fonts.ts`. CaptionTimeline은 `CaptionLineData` 재노출로 기존 import 경로 호환.
 - **step 4 — 자기완결 컴포넌트 추출** → `app/components/`: HelpDot · StageBadges · QuotaBadge · SettingsPanel · PipelineProgress(+PIPE_STEPS/STATUS_STEP/STEP_NOMINAL). 각자 state/effect/props 그대로 이동(disabled exhaustive-deps 포함 — 동작 동일).
 - **step 8a**: 죽은 `subtitleBackend` useState(setter 없음, 항상 "modal") → 모듈 상수.
+- **step 3 — Toggle dedup**: 중복 `Toggle` 2곳 → `components/ui/Toggle.tsx`(`dense` prop로 두 룩 재현).
+- **step 6(부분) — memo**: `React.memo(CaptionEditor)`, `memo(QuotaBadge)` — 부모 키입력 시 무거운 리렌더 skip.
+- **step 5(부분) — 훅 추출**: `hooks/useCtas.ts`, `hooks/useScriptHistory.ts`, `hooks/useModalDeploy.ts`.
 
-**결과: page.tsx 1763→1162줄, globals.css 642→103줄.**
+**결과: page.tsx 1763→1074줄, globals.css 642→103줄.** (커밋: 838ad4c · 3f02524 · 4a707ba · +useModalDeploy)
 
 ## ⏳ 남은 리팩터 (동작보존)
 
-- **step 3 — UI 프리미티브 dedup** → `components/ui/`: `Toggle`(CaptionEditor·CaptionTimeline 2곳 중복, padding만 다름 px-2.5 vs px-3 → `dense` prop로 두 룩 재현), `Row`(CaptionEditor)+`Field`(page.tsx) 통합(`LabeledPanel`), `ColorInput`, `Spinner`/`Switch`(ui.tsx). ⚠ 클래스 픽셀 동일 보존 + 스크린샷 diff 필수.
-- **step 5 — 훅 추출** → `app/hooks/`: `useJobPolling`(1200ms/5-fail cutoff·1회 log ref·scriptDirtyRef 게이팅·unmount cleanup), `useScriptHistory`(undo/redo slice(-50)), `useCtas`, `useQuota`, `useProductScript`, `useModalDeploy`. ⚠ closure/ref 의미가 load-bearing — 하나씩 tsc+스모크.
-- **step 6 — memo**: `React.memo(CaptionEditor/QuotaBadge/VoicePicker)`. ⚠ `genCaptions`가 `script`를 **ref로** 읽어야 대본 타이핑 중에도 CaptionTimeline memo 유지(useCallback만으론 안 됨 — 검증됨).
-- **step 7 — page.tsx → ~150줄 Home 셸** + 결합 플래그 `useReducer`(job/render 머신, caption 스토어). VoicePicker 컴포넌트 분리(voice/playing/loadingVoice/genderFilter/audioRef 훅으로).
+- **step 5(나머지) — 훅 추출** → `app/hooks/`: `useJobPolling`(pollJob/stopPoll·1200ms/5-fail cutoff·1회 log ref[engine/douyin/debug]·scriptDirtyRef 게이팅·unmount cleanup — **closure/ref load-bearing, 최고난도**), `useProductScript`(productUrl/images/points·7s stage ticker·addImageFiles/onProductPaste·generateProductScript는 commitScript+script 의존). ⚠ 하나씩 tsc+스모크.
+- **step 6(나머지) — CaptionTimeline memo**: `genCaptions`가 `script`를 **ref로** 읽어야 대본 타이핑 중에도 memo 유지(useCallback만으론 안 됨 — 검증됨).
+- **step 3(선택) — Row/Field → LabeledPanel**: 단일 사용이라 dedup 가치 낮음(패널 래퍼만 공유). ColorInput/Spinner/Switch도 단일/기존 위치라 이동 불필요.
+- **step 7 — page.tsx → ~150줄 Home 셸** + 결합 플래그 `useReducer`(job/render 머신: job·busy·scriptBusy·refineBusy·renderSeq / caption 스토어: captionLines·capBusy·capEditBusy·capEditPrev). VoicePicker 컴포넌트 분리(voice/playing/loadingVoice/genderFilter/audioRef).
 
 ## 🚩 개선 트랙(step 9, 동작변경 — 나중에). 감사 상세는 워크플로 산출물 참고.
 

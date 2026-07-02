@@ -15,6 +15,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { PipelineProgress } from "./components/PipelineProgress";
 import { useCtas } from "./hooks/useCtas";
 import { useScriptHistory } from "./hooks/useScriptHistory";
+import { useModalDeploy } from "./hooks/useModalDeploy";
 
 
 
@@ -42,8 +43,7 @@ export default function Home() {
   const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
   const bumpUsage = () => setUsageRefresh((n) => n + 1);
   const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
-  const [deployN, setDeployN] = useState(0);      // Modal 배포중 계정 수(헤더 표시용)
-  const [deployWatch, setDeployWatch] = useState(0);  // 배포 감시 폴링 트리거
+  const { deployN, watchDeploy } = useModalDeploy();  // Modal 배포중 계정 수 + 감시 트리거
   const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
   const [previewBusy, setPreviewBusy] = useState(false);
   const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
@@ -272,25 +272,6 @@ export default function Home() {
   }
   useEffect(() => { loadLibrary(); }, []);
 
-  // Modal 계정 배포 감시 — 마운트 시 1회 + 배포 트리거(deployWatch) 시 폴링. 배포중 0되면 멈춤.
-  useEffect(() => {
-    let live = true;
-    let done = false;
-    const poll = async () => {
-      try {
-        const r = await fetch(`${apiBase()}/modal/accounts`);
-        if (!r.ok) return;
-        const j = await r.json();
-        const n = (j.accounts || []).filter((a: { deploy: string }) => a.deploy === "deploying").length;
-        if (!live) return;
-        setDeployN(n);
-        if (n === 0) done = true;
-      } catch {}
-    };
-    poll();
-    const id = setInterval(() => { if (done) { clearInterval(id); return; } poll(); }, 5000);
-    return () => { live = false; clearInterval(id); };
-  }, [deployWatch]);
 
   // '확인' — 다운로드 없이 제목/썸네일 미리보기. 이미 받은 영상이면 재사용·단계 표시.
   async function checkUrl(u?: string) {
@@ -573,7 +554,7 @@ export default function Home() {
           >⚙️</button>
         </div>
       </header>
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={() => setDeployWatch((w) => w + 1)} />}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={watchDeploy} />}
 
       <main className={`mx-auto px-4 pb-16 pt-4 sm:px-6 ${showWork ? "max-w-6xl" : "max-w-5xl"}`}>
         <div className={showWork ? "lg:grid lg:grid-cols-12 lg:items-start lg:gap-6" : ""}>
