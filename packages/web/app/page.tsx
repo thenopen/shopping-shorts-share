@@ -9,6 +9,7 @@ import { normLines } from "./lib/format";
 import { CaptionStyle, DEFAULT_STYLE } from "./caption/style";
 import { StageKey } from "./lib/stage";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { HomeView } from "./components/home/HomeView";
 import { TopBar } from "./components/workspace/TopBar";
 import { PreviewPane } from "./components/workspace/PreviewPane";
 import { SourceStage } from "./components/workspace/SourceStage";
@@ -60,6 +61,8 @@ export default function Home() {
   const [qBusy, setQBusy] = useState(false);
   const [qEngine, setQEngine] = useState<string | null>(null);
 
+  // 화면 분리 — home(메인/프로젝트 목록) vs edit(워크스페이스). 홈 전환해도 편집 상태는 유지.
+  const [view, setView] = useState<"home" | "edit">("home");
   // 워크스페이스 — 현재 스테이지 + 프리뷰 영상 재생 위치(자막 타임라인 싱크)
   const [stage, setStage] = useState<StageKey>("source");
   const [currentTime, setCurrentTime] = useState(0);
@@ -136,11 +139,11 @@ export default function Home() {
   }
   useEffect(() => { loadLibrary(); }, []);
 
-  // 새 영상 — 현재 작업(링크·대본·자막·job)을 접고 소스부터 새로 시작.
+  // 새 프로젝트 — 현재 작업(링크·대본·자막·job)을 접고 소스부터 새로 시작 + 편집 화면 진입.
   // 스타일/보이스/CTA 등 환경설정은 유지(반복 작업 편의). 다운로드/대본은 '이어하기'로 복구 가능.
   function newProject() {
     if ((url.trim() || script.trim() || job) &&
-        !window.confirm("새 영상을 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)")) return;
+        !window.confirm("새 프로젝트를 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)")) return;
     setUrl("");
     setPreview(null);
     setJob(null);
@@ -158,6 +161,7 @@ export default function Home() {
     autoCapRef.current = "";
     resetEngineLogs();
     setStage("source");
+    setView("edit");
     loadLibrary();  // 방금 작업물이 라이브러리에 반영됐을 수 있으니 갱신
   }
 
@@ -242,6 +246,7 @@ export default function Home() {
       const lbl: Record<string, string> = { source: "원본", nosub: "자막제거본", script: "대본" };
       setPreview(null);
       setStage("script");  // 불러온 뒤 자연스러운 다음 단계로 이동
+      setView("edit");     // 홈에서 이어하기 → 편집 화면 진입
       alert(`이어하기 완료 · ${lbl[r.loaded] || r.loaded}까지 불러왔어요. 이어서 진행하세요.`);
     } catch (e) {
       alert(errMsg(e, "이어하기 실패"));
@@ -281,11 +286,10 @@ export default function Home() {
       });
       if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
       // 분석 끝나면 라이브러리 갱신 + 미리보기 갱신 + 다음 단계(대본)로 이동
-      // TODO(bug/개선트랙): checkUrl(url)은 입력창의 stale 값 — '자막제거 다시'처럼 opts.url로 분석한 경우
-      //   실제 분석 대상(target)과 달라 엉뚱한 영상의 미리보기/썸네일/단계배지로 갱신됨. checkUrl(target)로 고칠 것.
+      // target 고정 — 입력창(url)은 stale일 수 있어(opts.url 분석 시) 엉뚱한 미리보기 갱신 방지
       pollJob(job_id, ["analyzed", "error"], (j) => {
         loadLibrary();
-        checkUrl(url);
+        checkUrl(target);
         if (j.status === "analyzed") setStage("script");
       });
     } catch {
@@ -356,6 +360,7 @@ export default function Home() {
       if (!next.length) { alert("다듬기 결과가 비었습니다."); return; }
       setCapEditPrev(prev);
       setCaptionLines(next);
+      setSelectedCap(null);   // 재분할로 줄 수/경계 변경 → 위치 기반 선택 무효
     } catch (e) {
       alert(errMsg(e, "자막 다듬기 실패."));
     } finally {
@@ -368,6 +373,7 @@ export default function Home() {
     if (!capEditPrev) return;
     setCaptionLines(capEditPrev);
     setCapEditPrev(null);
+    setSelectedCap(null);   // 줄 구성이 되돌아감 → 선택 초기화
   }
 
   // direction: 8방향 다이얼 키(hook/impact/…) — 없으면 기본(번역투 정리) 가공.
@@ -435,11 +441,35 @@ export default function Home() {
     render: !!job?.output,
   };
 
+  // 홈 '편집 계속하기' 노출 조건 + 라벨(제목 > 링크 요약)
+  const hasWork = !!(url.trim() || script.trim() || job);
+  const workLabel = preview?.title || (url.trim() ? url.trim() : undefined);
+
   return (
     <div className="flex h-screen flex-col overflow-hidden text-[var(--text)]">
       {/* 보이스 미리듣기용 단일 오디오 엘리먼트(iOS 인앱브라우저 호환) */}
       <audio ref={audioRef} onEnded={onAudioEnded} preload="auto" className="hidden" />
 
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={watchDeploy} />}
+
+      {view === "home" && (
+        <HomeView
+          entries={libEntries}
+          hasWork={hasWork}
+          workLabel={workLabel}
+          onNew={newProject}
+          onContinue={() => setView("edit")}
+          onResume={resumeFromLibrary}
+          onDelete={deleteLibraryEntry}
+          onOpenSettings={() => setSettingsOpen(true)}
+          usageRefresh={usageRefresh}
+          usageActive={busy || scriptBusy}
+          deployN={deployN}
+        />
+      )}
+
+      {view === "edit" && (
+      <>
       <TopBar
         stage={stage}
         onStage={setStage}
@@ -448,12 +478,8 @@ export default function Home() {
         usageRefresh={usageRefresh}
         usageActive={busy || scriptBusy}
         deployN={deployN}
-        onRender={startRender}
-        renderDisabled={!job?.id || busy}
-        renderBusy={busy && job?.status !== "analyzed"}
-        onNewProject={newProject}
+        onHome={() => { setView("home"); loadLibrary(); }}
       />
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={watchDeploy} />}
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* 좌: 항상 보이는 9:16 프리뷰 + 진행/오류/TTS */}
@@ -597,6 +623,8 @@ export default function Home() {
           </aside>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

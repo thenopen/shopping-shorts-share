@@ -1,12 +1,12 @@
 "use client";
 
-import { Check, Clapperboard, Settings, FilePlus2 } from "lucide-react";
+import { Check, House, Settings } from "lucide-react";
 import { StageKey, STAGES } from "../../lib/stage";
-import { Spinner } from "../../ui";
 import { QuotaBadge } from "../QuotaBadge";
 import { ThemeToggle } from "../ThemeToggle";
 
-// 워크스페이스 상단바 — 좌: 로고/타이틀, 중앙: 스테이지 칩 내비(lg+), 우: 사용량·설정·영상 생성 CTA.
+// 편집(워크스페이스) 상단바 — 좌: 홈 복귀/타이틀, 중앙: 스테이지 칩 내비(lg+), 우: 사용량·설정.
+// '영상 생성'은 렌더 스테이지 안에만 둔다(단계 무관 CTA는 오작동/혼란 유발이라 제거).
 export function TopBar(props: {
   stage: StageKey;
   onStage: (s: StageKey) => void;
@@ -15,10 +15,7 @@ export function TopBar(props: {
   usageRefresh: number;
   usageActive: boolean;
   deployN: number;
-  onRender: () => void;
-  renderDisabled: boolean;
-  renderBusy: boolean;
-  onNewProject: () => void;   // 새 영상(현재 작업 초기화 → 소스)
+  onHome: () => void;   // 홈(프로젝트 목록)으로 — 편집 상태는 유지된 채 view만 전환
 }) {
   // 스테이지 칩 1개 (데스크톱 중앙/모바일 하단 행 공용)
   const chip = (s: { key: StageKey; label: string }) => {
@@ -42,15 +39,26 @@ export function TopBar(props: {
   return (
     <>
     <header className="flex h-14 flex-none items-center justify-between border-b border-[var(--line)] px-4">
-      {/* 좌: 로고 + 타이틀 + BETA */}
+      {/* 좌: 로고(홈 복귀) + 타이틀 + 편집 배지 */}
       <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand)] to-[var(--blu)] font-bold text-white">
+        <button
+          onClick={props.onHome}
+          title="홈으로 (작업은 유지돼요)"
+          className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--brand)] to-[var(--blu)] font-bold text-white transition hover:opacity-90"
+        >
           S
-        </div>
-        <span className="font-semibold text-slate-100">쇼핑 쇼츠 메이커</span>
-        <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-slate-400 ring-1 ring-[var(--line)]">
-          BETA
+        </button>
+        <span className="hidden font-semibold text-slate-100 sm:inline">쇼핑 쇼츠 메이커</span>
+        <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-pink-400 ring-1 ring-pink-500/30">
+          편집
         </span>
+        <button
+          onClick={props.onHome}
+          className="btn-ghost flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"
+          title="프로젝트 목록으로 — 편집 중인 작업은 유지"
+        >
+          <House className="h-3.5 w-3.5 text-slate-400" /> 홈
+        </button>
       </div>
 
       {/* 중앙: 스테이지 칩 내비 — done=emerald 체크, active=brand 하이라이트 */}
@@ -58,7 +66,7 @@ export function TopBar(props: {
         {STAGES.map(chip)}
       </nav>
 
-      {/* 우: Modal 배포중 칩 + 사용량 배지 + 설정 + 영상 생성 CTA */}
+      {/* 우: Modal 배포중 칩 + 사용량 배지 + 테마 + 설정 */}
       <div className="flex items-center gap-2">
         {props.deployN > 0 && (
           <button
@@ -76,28 +84,6 @@ export function TopBar(props: {
           className="btn-ghost flex h-9 w-9 items-center justify-center rounded-lg"
         >
           <Settings className="h-4 w-4 text-slate-300" />
-        </button>
-        <button
-          onClick={props.onNewProject}
-          className="btn-ghost flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium"
-          title="현재 작업을 접고 새 영상을 시작"
-        >
-          <FilePlus2 className="h-4 w-4 text-slate-300" /> 새 영상
-        </button>
-        <button
-          onClick={props.onRender}
-          disabled={props.renderDisabled}
-          className="btn-primary flex items-center gap-2 rounded-xl px-5 py-2"
-        >
-          {props.renderBusy ? (
-            <>
-              <Spinner className="h-4 w-4 border-white/40 border-t-white" /> 생성 중…
-            </>
-          ) : (
-            <>
-              <Clapperboard className="h-4 w-4" /> 영상 생성
-            </>
-          )}
         </button>
       </div>
     </header>
