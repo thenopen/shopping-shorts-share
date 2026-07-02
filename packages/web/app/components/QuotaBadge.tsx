@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { Fragment, memo, useEffect, useState } from "react";
+import { Cloud, Mic, Sparkles } from "lucide-react";
 import { apiBase } from "../lib/api";
 import { Usage } from "../lib/types";
 import { fmtK } from "../lib/format";
@@ -38,48 +39,54 @@ function QuotaBadgeImpl({ refreshKey, active }: { refreshKey: number; active: bo
 
   const g = u.gemini, t = u.tts, m = u.modal;
   const clr = (rem: number, lim: number) =>
-    rem <= 0 ? "text-rose-500" : rem < lim * 0.1 ? "text-amber-600" : "text-[var(--ink)]";
+    rem <= 0 ? "text-rose-400" : rem < lim * 0.1 ? "text-amber-400" : "text-slate-100";
 
   const rows = [
     {
-      key: "gemini", icon: "🔹", label: "Gemini",
-      value: `${g.remaining.toLocaleString()}/${g.limit.toLocaleString()}`, unit: "요청",
+      key: "gemini",
+      icon: <Sparkles className="h-3.5 w-3.5 text-pink-400" />,
+      rem: g.remaining.toLocaleString(), lim: g.limit.toLocaleString(),
       // 색은 일일·분당 중 더 빡빡한 쪽 기준(분당이 무료 등급 실제 병목).
       cls: clr(Math.min(g.remaining / Math.max(1, g.limit), g.rpm_remaining / Math.max(1, g.rpm_limit)), 1),
       help: `Gemini 무료 실제 한도 기준(설정값은 이 실제 한도로 캡됨).\n· 하루 ${g.limit.toLocaleString()}요청 — 오늘 ${g.calls}회 사용, ${g.remaining.toLocaleString()} 남음.\n· 분당 ${g.rpm_limit}요청 — 최근 1분 ${g.rpm}회, ${g.rpm_remaining} 남음. ← 무료 등급 실제 병목(몰아 쓰면 여기서 429).\n일일 잔여 남아도 분당 초과하면 막혀요. 리셋: 매일 ${g.reset} (KST). 실시간 정확값은 AI Studio/Cloud Console.`,
     },
     {
-      key: "tts", icon: "🔸", label: "TTS",
-      value: `${fmtK(t.remaining)}/${fmtK(t.limit)}`, unit: "자",
+      key: "tts",
+      icon: <Mic className="h-3.5 w-3.5 text-blue-400" />,
+      rem: fmtK(t.remaining), lim: fmtK(t.limit),
       cls: clr(t.remaining, t.limit),
       help: `Google TTS(Chirp3-HD) 무료 한도: 월 ${t.limit.toLocaleString()}자.\n남은 = 한도 − 이번달 사용 ${t.chars.toLocaleString()}자.\n리셋: 매월 1일 ${t.reset} (KST).\n정확한 잔여는 Cloud Console 할당량.`,
     },
     {
-      key: "modal", icon: "☁️", label: m.accounts > 1 ? `Modal×${m.accounts}` : "Modal",
-      value: `$${m.remaining}/$${m.limit}`, unit: "",
+      key: "modal",
+      icon: <Cloud className="h-3.5 w-3.5 text-slate-400" />,
+      rem: `$${m.remaining}`, lim: `$${m.limit}`,
       cls: clr(m.remaining, m.limit),
       help: `Modal 무료 크레딧: 월 $${m.limit}${m.accounts > 1 ? ` (${m.accounts}계정 합산 · 계정당 $${(m.limit / m.accounts).toFixed(0)})` : ""}.\n남은 = 총한도 − 이번달 추정사용 $${m.cost} (자막제거 ${m.jobs}건, GPU ${Math.round(m.seconds)}s${m.gpu ? `, ${m.gpu}` : ""}).\nGPU초×단가 추정치 — 정확한 잔여는 Modal 대시보드.\n리셋: 매월 1일 ${m.reset} (KST).`,
     },
   ];
 
   return (
-    <div className="hidden flex-col items-end gap-1 text-[11px] font-semibold sm:flex">
+    <>
       {cool > 0 && (
-        <span className="rounded-full bg-rose-100/80 px-2.5 py-1 text-rose-600 backdrop-blur">
-          ⚠ Gemini 한도 소진 · {cool}s 후 재시도
+        <span className="hidden items-center whitespace-nowrap rounded-full bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold text-rose-400 ring-1 ring-rose-500/30 md:inline-flex">
+          Gemini 한도 소진 · {cool}s 후 재시도
         </span>
       )}
-      <div className="flex flex-col gap-0.5 rounded-xl bg-white/55 px-3 py-1.5 text-[var(--ink-soft)] backdrop-blur">
-        {rows.map((r) => (
-          <div key={r.key} className="flex items-center justify-end gap-1.5 whitespace-nowrap">
-            <span>{r.icon} {r.label}</span>
-            <span className={`font-bold ${r.cls}`}>{r.value}</span>
-            <span>{r.unit ? `${r.unit} 남음` : "남음"}</span>
-            <HelpDot title={r.help} />
-          </div>
+      <div className="hidden md:flex items-center gap-3 rounded-lg panel-2 px-3 py-1.5 text-[11px] font-medium">
+        {rows.map((r, i) => (
+          <Fragment key={r.key}>
+            {i > 0 && <span className="h-3 w-px bg-white/10" aria-hidden />}
+            <span className="flex items-center gap-1.5 whitespace-nowrap">
+              {r.icon}
+              <b className={r.cls}>{r.rem}</b>
+              <span className="text-slate-600">/{r.lim}</span>
+              <HelpDot title={r.help} />
+            </span>
+          </Fragment>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 

@@ -1,103 +1,106 @@
 @import "tailwindcss";
 @import "./fonts.generated.css";  /* 539 local @font-face — generated from public/fonts/*.woff2 (scripts/gen-font-css.mjs) */
 
-/* 로컬 폰트 (public/fonts/*.woff2) — 자막 미리보기 + UI */
-
+/* ── 다크 워크스페이스 토큰 (proto-vrew 기준) ─────────────────────────────
+   surfaces: --bg(캔버스) < --panel(카드) < --panel-2(입력/융기)
+   brand = pink-500(#EC4899), 보조 = blue-500(#3B82F6). 텍스트는 slate 스케일. */
 :root {
-  --background: #eef0ff;
-  --foreground: #2a2444;
-  /* 레퍼런스 파스텔 팔레트: 페리윙클→라벤더→핑크 */
-  --c-blue: #bdcfff;
-  --c-blue2: #b8c0ff;
-  --c-violet: #c8b6fe;
-  --c-lilac: #e7c5ff;
-  --c-pink: #fed5ff;
-  --ink: #2a2444;
-  --ink-soft: #6b6488;
-  --accent: #7b8cff;
-  --accent-deep: #6a5cff;
+  --bg: #0B1120;
+  --panel: #131C2E;
+  --panel-2: #1E293B;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #E2E8F0;
+  --text-mut: #94A3B8;
+  --text-dim: #64748B;
+  --brand: #EC4899;
+  --brand-deep: #DB2777;
+  --blu: #3B82F6;
+
+  /* 레거시 별칭 — 아직 새 토큰으로 안 옮긴 잔재가 다크에서도 읽히게 재매핑 */
+  --background: #0B1120;
+  --foreground: #E2E8F0;
+  --ink: #E2E8F0;
+  --ink-soft: #94A3B8;
+  --accent: #EC4899;
+  --accent-deep: #DB2777;
+  --c-blue: #1E293B;
+  --c-blue2: #1E293B;
+  --c-violet: #1E293B;
+  --c-lilac: #1E293B;
+  --c-pink: #1E293B;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter);
 }
 
-/* 다크모드 강제 비활성 — 앱은 라이트 파스텔 디자인. OS 다크여도 색감 유지 */
-
 body {
-  color: var(--foreground);
-  /* 전체 UI 기본 = 조선굴림체 */
-  font-family: "ChosunGu", system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  /* 바깥 배경은 흰색(요청) — 그라데이션은 안쪽 카드에만 */
-  background: #ffffff;
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font-inter), "Pretendard", system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   min-height: 100vh;
 }
 
-/* 강조 텍스트 = 온글잎 데몽고딕. Bold(굵게)는 해제 — 폰트 자체 두께만 사용.
-   자막 미리보기/편집기는 인라인 fontFamily를 쓰므로 영향 없음(UI 텍스트만). */
-b, strong, .font-bold, .font-semibold, .font-extrabold, .font-black,
-h1, h2, h3, h4, h5, h6 {
-  font-family: "Paperlogy3", "ChosunGu", system-ui, sans-serif;
-  font-weight: bold;
-  font-size: 1.06em;
-  line-height: 1.35;  /* 세로 여유 — 작은 버튼/라벨서 위아래 잘림 방지 */
+/* 키보드 포커스 — 앱 전역(마우스 클릭엔 안 뜸) */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
-/* 글래스 카드 — 파스텔 그라데이션을 카드 안쪽에 적용 + 큰 라운드 + 부드러운 그림자 */
-.glass {
-  background:
-    radial-gradient(120% 140% at 0% 0%, var(--c-blue) 0%, transparent 45%),
-    radial-gradient(120% 140% at 100% 0%, var(--c-pink) 0%, transparent 42%),
-    radial-gradient(140% 160% at 50% 120%, var(--c-violet) 0%, transparent 50%),
-    linear-gradient(135deg, #e3e9ff 0%, #ece4ff 48%, #fce6ff 100%);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 18px 50px -22px rgba(106, 92, 255, 0.3), 0 2px 8px -4px rgba(106, 92, 255, 0.15);
+/* ── 공용 표면/버튼 ── */
+.panel { background: var(--panel); border: 1px solid var(--line); }
+.panel-2 { background: var(--panel-2); border: 1px solid var(--line); }
+.btn-primary {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 10px 24px -10px rgba(236, 72, 153, 0.45);
 }
-/* 카드 안에 또 들어가는 소형 패널 — 카드 그라데이션 위에 얹는 반투명 흰판 */
-.glass-soft {
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(10px) saturate(120%);
-  -webkit-backdrop-filter: blur(10px) saturate(120%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+.btn-primary:hover { background: var(--brand-deep); }
+.btn-primary:disabled { opacity: 0.4; box-shadow: none; }
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  color: var(--text);
 }
-/* 그라데이션 입력바 테두리(레퍼런스 이미지4 하단 입력) */
-.grad-ring {
-  background: linear-gradient(120deg, var(--c-blue) 0%, var(--c-violet) 50%, var(--c-pink) 100%);
-  padding: 2px;
-  border-radius: 9999px;
+.btn-ghost:hover { background: rgba(255, 255, 255, 0.1); }
+.btn-ghost:disabled { opacity: 0.4; }
+/* 입력류 */
+.field {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
 }
-/* 메인 액션 버튼 그라데이션 */
+.field::placeholder { color: var(--text-dim); }
+.field:focus { border-color: rgba(236, 72, 153, 0.5); }
+
+/* 자막 렌더(최종 영상과 동일 룩) — stroke를 fill 아래에 */
+.cap { -webkit-text-stroke: 3px #000; paint-order: stroke fill; }
+.cap-s { -webkit-text-stroke: 2px #000; paint-order: stroke fill; }
+
+/* 활성 세그먼트(재생 위치 줄) */
+.seg-active { background: rgba(236, 72, 153, 0.08); box-shadow: inset 0 0 0 1px rgba(236, 72, 153, 0.45); }
+
+/* 다크 스크롤바 */
+.thin-scroll::-webkit-scrollbar, ::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb, ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 9999px; }
+
+/* ── 레거시 클래스 안전망(아직 안 옮긴 컴포넌트가 깨져 보이지 않게 다크로 재정의) ── */
+.glass { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
+.glass-soft { background: var(--panel-2); border: 1px solid var(--line); }
+.grad-ring { background: var(--line); padding: 1px; border-radius: 9999px; }
 .btn-grad {
-  background: linear-gradient(120deg, #7b8cff 0%, #9a7bff 55%, #c98bff 100%);
+  background: var(--brand);
   color: #fff;
-  box-shadow: 0 12px 28px -10px rgba(122, 92, 255, 0.6);
+  box-shadow: 0 10px 24px -10px rgba(236, 72, 153, 0.45);
 }
-.btn-grad:hover { filter: brightness(1.06); }
-.btn-grad:disabled { opacity: 0.45; filter: none; box-shadow: none; }
-/* 스크롤바 (보이스 리스트) */
-.thin-scroll::-webkit-scrollbar { width: 6px; }
-.thin-scroll::-webkit-scrollbar-thumb { background: rgba(122, 140, 255, 0.4); border-radius: 9999px; }
+.btn-grad:hover { background: var(--brand-deep); filter: none; }
+.btn-grad:disabled { opacity: 0.45; box-shadow: none; }
+.grad-anim { background: linear-gradient(135deg, var(--brand), var(--blu)); color: #fff; }
+.grad-box { background: var(--panel-2); }
 
-/* 움직이는 그라데이션(shimmer) — tovideo .btn-gradient 스타일. 색이 왕복하며 흐른다 */
-@keyframes shimmer {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-.grad-anim {
-  background-image: linear-gradient(60deg, #f79533, #f37055, #ef4e7b, #a166ab, #5073b8, #1098ad, #07b39b, #6fba82);
-  background-size: 300% 300%;
-  animation: shimmer 3s ease-out infinite alternate;
-  color: #fff;
-  box-shadow: 0 12px 28px -10px rgba(122, 92, 255, 0.6);
-}
-
-/* 제목/배지 뒤 그라데이션 박스 — 같은 shimmer지만 연하게(글자색 유지 가독성) */
-.grad-box {
-  background-image: linear-gradient(120deg, var(--c-blue), var(--c-violet), var(--c-pink), var(--c-violet), var(--c-blue));
-  background-size: 300% 300%;
-  animation: shimmer 6s ease-out infinite alternate;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

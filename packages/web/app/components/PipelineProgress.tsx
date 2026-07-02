@@ -83,33 +83,33 @@ export function PipelineProgress({ job }: { job: JobState | null }) {
   const pct = Math.min(100, Math.round(disp));
 
   return (
-    <div className="mt-5 overflow-hidden rounded-2xl glass-soft">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 pt-3 text-[12px] font-semibold">
+    <div className="panel-2 mt-4 w-full overflow-hidden rounded-xl">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3 text-[12px] font-semibold">
         {PIPE_STEPS.map((label, i) => {
           const done = status === "done" || i < stepIdx;
           const active = i === stepIdx && !done;
           return (
-            <span key={label} className={done ? "text-[var(--accent-deep)]" : active ? "text-[var(--ink)]" : "text-[var(--ink-soft)]/50"}>
+            <span key={label} className={done ? "text-emerald-400" : active ? "text-white" : "text-slate-600"}>
               {done ? "✓" : active ? "⟳" : "○"} {label}
             </span>
           );
         })}
       </div>
-      <div className="flex items-center gap-3 px-5 py-2.5 text-sm font-medium text-[var(--ink)]">
-        <Spinner className={`h-4 w-4 ${waiting ? "border-amber-400/50 border-t-amber-500" : "border-[var(--accent)]/40 border-t-[var(--accent-deep)]"}`} />
+      <div className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-slate-100">
+        <Spinner className={`h-4 w-4 ${waiting ? "border-amber-400/50 border-t-amber-400" : "border-pink-500/40 border-t-pink-500"}`} />
         {waiting ? (
-          <span className="text-amber-600">GPU 대기 중 · 앞 작업이 끝나면 시작돼요</span>
+          <span className="text-amber-400">GPU 대기 중 · 앞 작업이 끝나면 시작돼요</span>
         ) : (
           <span>
             {stage || "준비 중"} · {pct}%
-            <span className="ml-2 text-xs font-normal text-[var(--ink-soft)]">
+            <span className="ml-2 text-xs font-normal text-slate-500">
               {fmtSec(elapsed)} 경과{etaLeft > 3 ? ` · ~${fmtSec(etaLeft)} 남음` : stepIdx < 5 ? " · 마무리 중" : ""}
             </span>
           </span>
         )}
       </div>
-      <div className="h-1.5 w-full bg-white/40">
-        <div className={`h-full transition-all duration-300 ${waiting ? "bg-amber-300" : "btn-grad"}`} style={{ width: `${pct}%` }} />
+      <div className="h-1.5 w-full bg-white/10">
+        <div className={`h-full transition-all duration-300 ${waiting ? "bg-amber-400" : "bg-[var(--brand)]"}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

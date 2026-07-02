@@ -5,7 +5,7 @@ export function HelpDot({ title }: { title: string }) {
   return (
     <span
       title={title}
-      className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full bg-[var(--ink-soft)]/25 text-[9px] font-bold leading-none text-[var(--ink-soft)]"
+      className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full bg-white/10 text-[9px] font-bold leading-none text-slate-400"
     >?</span>
   );
 }

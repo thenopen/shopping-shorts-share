@@ -22,7 +22,7 @@ function CaptionEditor({
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [previewBg, setPreviewBg] = useState<"none" | "mid" | "light" | "dark">("none");
 
-  // none=투명(글래스 카드에 자막만), mid=중간회색, light=밝게, dark=어둡게
+  // none=투명(패널 카드에 자막만), mid=중간회색, light=밝게, dark=어둡게
   const transparent = previewBg === "none";
   const bgBase = previewBg === "light" ? "rgba(235,238,242,0.96)" : previewBg === "dark" ? "rgba(28,30,36,0.96)" : "rgba(105,112,128,0.92)";
   const bgBase2 = previewBg === "light" ? "rgba(205,210,220,0.96)" : previewBg === "dark" ? "rgba(12,14,18,0.96)" : "rgba(78,84,98,0.92)";
@@ -64,19 +64,19 @@ function CaptionEditor({
   }
 
   return (
-    <div className="glass rounded-[28px] p-7 sm:p-8">
-      <div className="mb-4 text-sm font-bold text-[var(--ink)]">자막 스타일 편집</div>
+    <div className="panel rounded-2xl p-7 sm:p-8">
+      <div className="mb-4 text-sm font-bold text-slate-100">자막 스타일 편집</div>
 
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Text를 입력하세요."
-        className="mb-4 w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-2.5 text-sm text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
+        className="field mb-4 w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
       />
 
-      {/* 미리보기 배경: 투명(글래스) 기본. 토글로 영상톤(중간/밝게/어둡게) 확인 */}
+      {/* 미리보기 배경: 투명(panel-2 점선) 기본. 토글로 영상톤(중간/밝게/어둡게) 확인 */}
       <div
-        className={`mb-3 flex min-h-40 items-center justify-center overflow-hidden rounded-2xl p-6 ${transparent ? "border border-dashed border-white/60 bg-white/30" : ""}`}
+        className={`mb-3 flex min-h-40 items-center justify-center overflow-hidden rounded-2xl p-6 ${transparent ? "border border-dashed border-white/15 bg-[var(--panel-2)]" : ""}`}
         style={transparent ? undefined : {
           backgroundImage:
             `linear-gradient(135deg, ${bgBase}, ${bgBase2}), ` +
@@ -94,7 +94,7 @@ function CaptionEditor({
           <button
             key={v}
             onClick={() => setPreviewBg(v)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === v ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${previewBg === v ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"}`}
           >{lbl}</button>
         ))}
       </div>
@@ -104,7 +104,7 @@ function CaptionEditor({
           <select
             value={value.font}
             onChange={(e) => set("font", e.target.value)}
-            className="w-full rounded-xl border border-white/50 bg-white/70 px-2 py-1.5 text-sm text-[var(--ink)] outline-none"
+            className="field w-full rounded-lg px-2 py-1.5 text-sm outline-none"
             style={{ fontFamily: value.font }}
           >
             {FONTS.map((f) => (
@@ -122,7 +122,7 @@ function CaptionEditor({
             max={120}
             value={value.size}
             onChange={(e) => set("size", +e.target.value)}
-            className="w-full accent-[var(--accent-deep)]"
+            className="w-full accent-pink-500"
           />
         </Row>
 
@@ -150,7 +150,7 @@ function CaptionEditor({
               <ColorInput value={value.outlineColor} onChange={(v) => set("outlineColor", v)} />
             </Row>
             <Row label={`외곽선 두께 ${value.outlineWidth}`}>
-              <input type="range" min={1} max={8} value={value.outlineWidth} onChange={(e) => set("outlineWidth", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+              <input type="range" min={1} max={8} value={value.outlineWidth} onChange={(e) => set("outlineWidth", +e.target.value)} className="w-full accent-pink-500" />
             </Row>
           </>
         )}
@@ -161,7 +161,7 @@ function CaptionEditor({
               <ColorInput value={value.shadowColor} onChange={(v) => set("shadowColor", v)} />
             </Row>
             <Row label={`그림자 흐림 ${value.shadowBlur}`}>
-              <input type="range" min={0} max={20} value={value.shadowBlur} onChange={(e) => set("shadowBlur", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+              <input type="range" min={0} max={20} value={value.shadowBlur} onChange={(e) => set("shadowBlur", +e.target.value)} className="w-full accent-pink-500" />
             </Row>
           </>
         )}
@@ -172,7 +172,7 @@ function CaptionEditor({
               <ColorInput value={value.glowColor} onChange={(v) => set("glowColor", v)} />
             </Row>
             <Row label={`글로우 크기 ${value.glowSize}`}>
-              <input type="range" min={2} max={30} value={value.glowSize} onChange={(e) => set("glowSize", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+              <input type="range" min={2} max={30} value={value.glowSize} onChange={(e) => set("glowSize", +e.target.value)} className="w-full accent-pink-500" />
             </Row>
           </>
         )}
@@ -189,13 +189,13 @@ function CaptionEditor({
               <ColorInput value={value.boxColor} onChange={(v) => set("boxColor", v)} />
             </Row>
             <Row label={`박스 투명도 ${Math.round(value.boxOpacity * 100)}%`}>
-              <input type="range" min={0} max={1} step={0.05} value={value.boxOpacity} onChange={(e) => set("boxOpacity", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+              <input type="range" min={0} max={1} step={0.05} value={value.boxOpacity} onChange={(e) => set("boxOpacity", +e.target.value)} className="w-full accent-pink-500" />
             </Row>
             <Row label={`박스 좌우 여백 ${value.boxPadX}px`}>
-              <input type="range" min={0} max={48} value={value.boxPadX} onChange={(e) => set("boxPadX", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+              <input type="range" min={0} max={48} value={value.boxPadX} onChange={(e) => set("boxPadX", +e.target.value)} className="w-full accent-pink-500" />
             </Row>
             <Row label={`박스 상하 여백 ${value.boxPadY}px`}>
-              <input type="range" min={0} max={48} value={value.boxPadY} onChange={(e) => set("boxPadY", +e.target.value)} className="w-full accent-[var(--accent-deep)]" />
+              <input type="range" min={0} max={48} value={value.boxPadY} onChange={(e) => set("boxPadY", +e.target.value)} className="w-full accent-pink-500" />
             </Row>
             <Row label={`박스 둥글기 ${value.boxRadius}px · 미리보기 전용(영상 미반영)`}>
               <input
@@ -206,34 +206,34 @@ function CaptionEditor({
                 disabled
                 title="libass(최종 영상 자막)는 둥근 모서리를 지원하지 않아 결과 영상엔 반영되지 않습니다. 웹 미리보기 전용입니다."
                 onChange={(e) => set("boxRadius", +e.target.value)}
-                className="w-full cursor-not-allowed accent-[var(--accent-deep)] opacity-40"
+                className="w-full cursor-not-allowed accent-pink-500 opacity-40"
               />
             </Row>
           </>
         )}
       </div>
 
-      <div className="mt-6 border-t border-white/40 pt-4">
+      <div className="mt-6 border-t border-[var(--line)] pt-4">
         <div className="mb-3 flex items-center justify-between">
-          <div className="text-xs font-bold text-[var(--ink-soft)]">
+          <div className="text-xs font-bold text-slate-400">
             스타일 템플릿 {Object.keys(templates).length > 0 && <span className="opacity-60">({Object.keys(templates).length})</span>}
           </div>
           <button
             onClick={() => { setTplName(""); setSaveModalOpen(true); }}
-            className="btn-grad rounded-full px-4 py-2 text-xs font-bold transition"
+            className="btn-primary rounded-full px-4 py-2 text-xs font-bold transition"
           >
             + 현재 스타일 저장
           </button>
         </div>
 
         {Object.keys(templates).length === 0 ? (
-          <p className="rounded-2xl bg-white/40 px-3 py-4 text-center text-xs text-[var(--ink-soft)] backdrop-blur">
+          <p className="panel-2 rounded-2xl px-3 py-4 text-center text-xs text-slate-500">
             저장된 템플릿이 없습니다. 스타일을 만든 뒤 저장하세요.
           </p>
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {Object.entries(templates).map(([name, st]) => (
-              <div key={name} className="group flex items-center gap-2 overflow-hidden rounded-2xl border border-white/50 bg-white/55 p-2 backdrop-blur">
+              <div key={name} className="group panel-2 flex items-center gap-2 overflow-hidden rounded-2xl p-2">
                 <div
                   className="flex h-12 w-20 flex-none items-center justify-center overflow-hidden rounded-xl"
                   style={{ background: "#6a7180" }}
@@ -242,14 +242,14 @@ function CaptionEditor({
                   <span style={{ ...styleToCss(st), fontSize: Math.min(16, st.size / 3) }}>가나다</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold text-[var(--ink)]">{name}</div>
-                  <div className="truncate text-[11px] text-[var(--ink-soft)]">{st.font} · {st.size}px</div>
+                  <div className="truncate text-sm font-bold text-slate-100">{name}</div>
+                  <div className="truncate text-[11px] text-slate-500">{st.font} · {st.size}px</div>
                 </div>
                 <div className="flex flex-none gap-1">
-                  <button onClick={() => loadTemplate(name)} className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-[var(--accent-deep)] transition hover:bg-white">
+                  <button onClick={() => loadTemplate(name)} className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white transition hover:bg-white/20">
                     적용
                   </button>
-                  <button onClick={() => { if (window.confirm(`'${name}' 템플릿을 삭제할까요?`)) deleteTemplate(name); }} className="rounded-full px-2 py-1 text-xs text-[var(--ink-soft)] transition hover:bg-rose-100/70 hover:text-rose-500">
+                  <button onClick={() => { if (window.confirm(`'${name}' 템플릿을 삭제할까요?`)) deleteTemplate(name); }} className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400">
                     삭제
                   </button>
                 </div>
@@ -262,15 +262,15 @@ function CaptionEditor({
       {/* 템플릿 이름 저장 모달 */}
       {saveModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onClick={() => setSaveModalOpen(false)}
         >
           <div
-            className="w-full max-w-sm rounded-[24px] glass p-6"
+            className="panel w-full max-w-sm rounded-2xl p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-1 text-base font-bold text-[var(--ink)]">템플릿 저장</div>
-            <p className="mb-4 text-xs text-[var(--ink-soft)]">현재 자막 스타일을 이름 붙여 저장합니다.</p>
+            <div className="mb-1 text-base font-bold text-slate-100">템플릿 저장</div>
+            <p className="mb-4 text-xs text-slate-400">현재 자막 스타일을 이름 붙여 저장합니다.</p>
             <div className="mb-4 flex items-center justify-center rounded-xl p-4" style={{ background: "#6a7180" }}>
               <span style={styleToCss(value)}>{text ? emphasizeNodes(text, value) : "미리보기"}</span>
             </div>
@@ -280,13 +280,13 @@ function CaptionEditor({
               onChange={(e) => setTplName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") confirmSaveTemplate(); if (e.key === "Escape") setSaveModalOpen(false); }}
               placeholder="템플릿 이름 (예: 굵은 노랑 강조)"
-              className="mb-4 w-full rounded-xl border border-white/50 bg-white/80 px-3 py-2.5 text-sm text-[var(--ink)] outline-none focus:bg-white focus:ring-2 focus:ring-[var(--accent)]/30"
+              className="field mb-4 w-full rounded-xl px-3 py-2.5 text-sm outline-none"
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setSaveModalOpen(false)} className="rounded-full bg-white/60 px-4 py-2 text-sm font-semibold text-[var(--ink-soft)] transition hover:bg-white/90">
+              <button onClick={() => setSaveModalOpen(false)} className="btn-ghost rounded-full px-4 py-2 text-sm font-semibold transition">
                 취소
               </button>
-              <button onClick={confirmSaveTemplate} disabled={!tplName.trim()} className="btn-grad rounded-full px-6 py-2 text-sm font-bold transition">
+              <button onClick={confirmSaveTemplate} disabled={!tplName.trim()} className="btn-primary rounded-full px-6 py-2 text-sm font-bold transition">
                 저장
               </button>
             </div>
@@ -299,8 +299,8 @@ function CaptionEditor({
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-white/50 bg-white/40 p-3.5 backdrop-blur">
-      <div className="mb-1.5 text-xs font-bold text-[var(--ink-soft)]">{label}</div>
+    <div className="panel-2 rounded-2xl p-3.5">
+      <div className="mb-1.5 text-xs font-bold text-slate-400">{label}</div>
       {children}
     </div>
   );
@@ -310,8 +310,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="flex items-center gap-2">
-      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-10 cursor-pointer rounded-lg border border-white/60" />
-      <span className="text-xs text-[var(--ink-soft)]">{value}</span>
+      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="h-8 w-10 cursor-pointer rounded-lg border border-[var(--line)] bg-transparent" />
+      <span className="text-xs text-slate-400">{value}</span>
     </div>
   );
 }

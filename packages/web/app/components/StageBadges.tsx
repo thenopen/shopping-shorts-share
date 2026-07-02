@@ -8,7 +8,7 @@ export function StageBadges({ stages }: { stages: Stages }) {
   return (
     <div className="mt-1 flex flex-wrap gap-1">
       {items.map(([k, l]) => (
-        <span key={k} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${stages[k] ? "bg-emerald-100 text-emerald-700" : "bg-white/50 text-[var(--ink-soft)]/60"}`}>
+        <span key={k} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${stages[k] ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-slate-500"}`}>
           {stages[k] ? "✓" : "○"} {l}
         </span>
       ))}
