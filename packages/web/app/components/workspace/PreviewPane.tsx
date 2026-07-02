@@ -16,7 +16,7 @@ const SCALE = 250 / 1080;
 const POS_CLASS: Record<CaptionStyle["posV"], string> = {
   top: "top-[10%]",
   middle: "top-1/2 -translate-y-1/2",
-  bottom: "bottom-[14%]",
+  bottom: "bottom-[11%]",  // 백엔드 ASS MarginV 210px(1920 기준 10.9%)와 일치 — 프리뷰=렌더
 };
 
 export function PreviewPane(props: {
@@ -114,6 +114,12 @@ export function PreviewPane(props: {
             <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-dashed border-rose-400/70 bg-rose-500/15" style={{ height: "15%" }}>
               <p className="mt-1 text-center text-[9px] font-semibold text-rose-300">플랫폼 UI 가림 위험</p>
             </div>
+            {/* 자막(posV=bottom) 점유 영역 — 하단 11%에서 위로 ~2줄. CTA가 여기 들어오면 대사와 겹침 */}
+            {captionsOn && (
+              <div className="pointer-events-none absolute inset-x-0 border-y border-dashed border-blue-400/60 bg-blue-500/10" style={{ bottom: "11%", height: "13%" }}>
+                <p className="mt-0.5 text-center text-[9px] font-semibold text-blue-300">자막 영역</p>
+              </div>
+            )}
             <div className="pointer-events-none absolute right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white" style={{ top: `${ctaPos * 100}%` }}>
               {Math.round(ctaPos * 100)}%
             </div>

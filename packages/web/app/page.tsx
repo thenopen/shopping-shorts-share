@@ -40,7 +40,9 @@ export default function Home() {
   const { ctaList, cta, setCta, addCustomCta, deleteCta } = useCtas();
   const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
   const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
-  const [ctaPos, setCtaPos] = useState(0.84);      // CTA 세로 위치(0~1) — 하단 15%는 플랫폼 UI에 가려 84% 기본
+  // CTA 세로 위치(0~1). 하단은 자막(posV=bottom, ~76-89%) + 플랫폼 UI(85%~)가 점유 →
+  // 기본 0.72 = 자막 바로 위 안내띠(대사·세이프존과 안 겹침). 프리뷰에서 드래그로 조정.
+  const [ctaPos, setCtaPos] = useState(0.72);
   const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
   const bumpUsage = () => setUsageRefresh((n) => n + 1);
   const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
