@@ -788,7 +788,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 {chr(10).join(style_rows)}
 
 [Events]
-Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialog = []
     for i, ln in enumerate(lines):
