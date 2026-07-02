@@ -32,10 +32,11 @@ export function PreviewPane(props: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTime: (t: number) => void;   // video timeupdate 마다 currentTime 전달
   onCtaPos?: (p: number) => void; // CTA 세로 위치 드래그(0~1) — 주면 프리뷰에서 직접 끌 수 있음
+  onCaptionPos?: (x: number, y: number) => void; // 자막 자유위치 드래그(중심 0~1) — 기본 스타일에 반영
 }) {
   const {
     videoUrl, isFinal, captionLines, captionsOn, defaultStyle,
-    ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos,
+    ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos, onCaptionPos,
   } = props;
 
   // CTA 드래그 — 9:16 박스 기준 상대 y → ctaPos(0~1). 드래그 중엔 세이프존 가이드 표시.
@@ -46,6 +47,17 @@ export function PreviewPane(props: {
     if (!box || !onCtaPos) return;
     const r = box.getBoundingClientRect();
     onCtaPos(Math.min(0.95, Math.max(0.03, (clientY - r.top) / r.height)));
+  };
+
+  // 자막 2D 드래그 — 박스 기준 상대 (x,y) → 중심 좌표(0~1). 기본 스타일 posX/posY로.
+  const [capDrag, setCapDrag] = useState(false);
+  const dragCapTo = (clientX: number, clientY: number) => {
+    const box = boxRef.current;
+    if (!box || !onCaptionPos) return;
+    const r = box.getBoundingClientRect();
+    const x = Math.min(0.95, Math.max(0.05, (clientX - r.left) / r.width));
+    const y = Math.min(0.95, Math.max(0.05, (clientY - r.top) / r.height));
+    onCaptionPos(x, y);
   };
 
   // 오버레이 싱크용 현재 재생 시각(onTime과 동일 소스 — 자체 onTimeUpdate에서 갱신)
@@ -91,9 +103,34 @@ export function PreviewPane(props: {
     } else {
       inner = emphasizeNodes(line.text, eff, line.emph);
     }
+    // 자유위치(posX/posY)면 중심 앵커 절대배치, 아니면 posV 프리셋. onCaptionPos 있으면 드래그 가능.
+    const free = eff.posX != null && eff.posY != null;
+    const wrapCls = free
+      ? "absolute flex -translate-x-1/2 -translate-y-1/2 justify-center px-2"
+      : `absolute inset-x-0 flex justify-center px-2 ${POS_CLASS[eff.posV]}`;
+    const wrapStyle: CSSProperties = free
+      ? { left: `${(eff.posX as number) * 100}%`, top: `${(eff.posY as number) * 100}%` }
+      : {};
+    const draggable = !!onCaptionPos;
     return (
-      <div className={`pointer-events-none absolute inset-x-0 flex justify-center px-2 ${POS_CLASS[eff.posV]}`}>
-        <span className="text-center" style={css}>{inner}</span>
+      <div className={wrapCls} style={{ ...wrapStyle, pointerEvents: "none" }}>
+        <span
+          className={`text-center ${draggable ? "cursor-grab" : ""} ${capDrag ? "cursor-grabbing rounded ring-1 ring-pink-400" : ""}`}
+          style={{ ...css, pointerEvents: draggable ? "auto" : "none", touchAction: "none" }}
+          title={draggable ? "드래그해서 위치 이동" : undefined}
+          onPointerDown={(e) => {
+            if (!draggable) return;
+            e.preventDefault();
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setCapDrag(true);
+            dragCapTo(e.clientX, e.clientY);
+          }}
+          onPointerMove={(e) => { if (capDrag) dragCapTo(e.clientX, e.clientY); }}
+          onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); setCapDrag(false); }}
+          onPointerCancel={() => setCapDrag(false)}
+        >
+          {inner}
+        </span>
       </div>
     );
   };
@@ -133,8 +170,9 @@ export function PreviewPane(props: {
           </span>
         </div>
 
-        {/* 자막 라이브 오버레이(video controls와 안 겹치게 pointer-events-none) */}
-        {activeLine && renderCaption(activeLine)}
+        {/* 자막 오버레이 — 재생 중이면 활성 줄, 정지 중엔 첫 줄을 위치 핸들로(드래그 조정용) */}
+        {(activeLine ?? (captionsOn && !isFinal && captionLines.length ? captionLines[0] : null)) &&
+          renderCaption((activeLine ?? captionLines[0]))}
 
         {/* 드래그 중 세이프존 가이드 — 하단 ~15%는 틱톡/쇼츠 UI(캡션·진행바)에 가려지는 영역 */}
         {dragging && (

@@ -46,6 +46,8 @@ class CaptionStyle:
     box_pad: int = 6                # 박스 글자~테두리 여백 px (ASS Outline로 매핑)
     # NOTE: boxRadius(둥근 모서리)는 libass가 지원 안 해 burn-in 불가 → 웹 프리뷰 전용.
     pos_v: str = "bottom"           # 자막 세로 위치: top/middle/bottom (ASS Alignment)
+    pos_x: float | None = None      # 자유위치 가로(0~1, 중심 앵커). None=pos_v 프리셋 사용
+    pos_y: float | None = None      # 자유위치 세로(0~1, 중심 앵커). None=pos_v 프리셋 사용
     emphasis: bool = True           # 가격·혜택 등 핵심 단어 자동 강조(인라인 색/크기 팝)
     emphasis_color: str = "FFE600"  # 강조 단어 색 (hex)
     animate: bool = False           # 워드바이워드 애니(말할 때 단어 팝 + 강조어 색). words 타임스탬프 필요
@@ -101,6 +103,8 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         emphasis=bool(d.get("emphasis", b.emphasis)),
         emphasis_color=hx(d.get("emphasisColor"), b.emphasis_color),
         animate=bool(d.get("animate", b.animate)),
+        pos_x=(float(d["posX"]) if d.get("posX") is not None else b.pos_x),
+        pos_y=(float(d["posY"]) if d.get("posY") is not None else b.pos_y),
     )
 
 
@@ -175,6 +179,8 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "boxPadX": st.box_pad,
         "boxPadY": st.box_pad,
         "posV": st.pos_v,
+        "posX": st.pos_x,
+        "posY": st.pos_y,
         "emphasis": st.emphasis,
         "emphasisColor": "#" + st.emphasis_color,
         "animate": st.animate,
@@ -480,6 +486,8 @@ def _style_sig(st) -> tuple:
         round(float(getattr(st, "box_opacity", 0.5)), 3),
         getattr(st, "box_pad", 6),
         getattr(st, "pos_v", "bottom"),
+        getattr(st, "pos_x", None),
+        getattr(st, "pos_y", None),
         getattr(st, "emphasis", True),
         getattr(st, "emphasis_color", "FFE600"),
         getattr(st, "animate", False),
@@ -570,6 +578,9 @@ Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
         text = (ln.text or "").replace("\n", "\\N")
         sname = line_style_name[i] if i < len(line_style_name) else "S0"
         start, end = _ass_time(ln.start), _ass_time(ln.end)
+        # 자유위치(pos_x/pos_y)면 중심 앵커 절대배치 — 모든 레이어(글로우/섀도/메인)에 prepend.
+        px, py = getattr(st, "pos_x", None), getattr(st, "pos_y", None)
+        pp = f"{{\\an5\\pos({int(round(float(px)*video_w))},{int(round(float(py)*video_h))})}}" if (px is not None and py is not None) else ""
         # 글로우/소프트섀도는 '메인 텍스트 뒤'(낮은 Layer)에 별도 블러 이벤트로 깐다.
         # → 메인 텍스트 글리프 자체는 선명 유지(웹 편집기와 동일한 룩).
         if getattr(st, "glow", False) and int(getattr(st, "glow_size", 0)) > 0:
@@ -577,20 +588,20 @@ Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
             # 채움 투명(\1a&HFF&) + 두꺼운 외곽선(글로우색) + 블러 → 빛번짐 후광.
             gtag = (f"{{\\1a&HFF&\\3a&H00&\\4a&HFF&\\3c{_ass_c(st.glow_color)}"
                     f"\\bord{g}\\shad0\\blur{max(g, 2)}}}")
-            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{gtag}{text}")
+            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{pp}{gtag}{text}")
         if int(getattr(st, "shadow", 0)) and int(getattr(st, "shadow_blur", 0)) > 0:
             sb = int(st.shadow_blur)
             # 외곽선/그림자 끄고 채움=그림자색 + 블러 → 부드러운 색 그림자 후광(근사).
             stag = (f"{{\\bord0\\shad0\\3a&HFF&\\4a&HFF&"
                     f"\\1c{_ass_c(st.shadow_color)}\\blur{sb}}}")
-            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{stag}{text}")
+            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{pp}{stag}{text}")
         # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
         # animate=on이고 단어 타임스탬프 있으면 워드바이워드 애니, 아니면 정적 색팝 강조.
         if getattr(st, "animate", False) and getattr(ln, "words", None):
             main_text = _ass_animated(ln, st)
         else:
             main_text = _ass_emphasis(text, st, getattr(ln, "emph", None))
-        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{main_text}")
+        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{pp}{main_text}")
     out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
     return out_ass
 

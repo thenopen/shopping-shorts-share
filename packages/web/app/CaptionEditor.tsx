@@ -141,12 +141,23 @@ function CaptionEditor({
           </div>
         </Row>
 
-        <Row label="위치 (세로)">
-          <div className="flex gap-1.5">
+        <Row label="위치">
+          <div className="flex flex-wrap items-center gap-1.5">
             {([["top", "위"], ["middle", "중간"], ["bottom", "아래"]] as const).map(([v, lbl]) => (
-              <Toggle key={v} on={(value.posV ?? "bottom") === v} onClick={() => set("posV", v)} label={lbl} />
+              <Toggle
+                key={v}
+                on={value.posX == null && (value.posV ?? "bottom") === v}
+                onClick={() => onChange({ ...value, posV: v, posX: null, posY: null })}
+                label={lbl}
+              />
             ))}
+            {value.posX != null && (
+              <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-semibold text-pink-400 ring-1 ring-pink-500/30">
+                자유위치 {Math.round((value.posX ?? 0) * 100)},{Math.round((value.posY ?? 0) * 100)}
+              </span>
+            )}
           </div>
+          <p className="mt-1 text-[10px] text-slate-500">또는 왼쪽 프리뷰에서 자막을 <b className="text-slate-400">드래그</b>해 자유 배치</p>
         </Row>
 
         <Row label="글자색">

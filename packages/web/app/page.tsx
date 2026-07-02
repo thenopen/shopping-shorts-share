@@ -423,6 +423,7 @@ export default function Home() {
           videoRef={videoRef}
           onTime={setCurrentTime}
           onCtaPos={setCtaPos}
+          onCaptionPos={(x, y) => setCaptionStyle((s) => ({ ...s, posX: x, posY: y }))}
         />
 
         {/* 중앙: 스테이지별 작업 패널 + 하단 이전/다음 바 */}

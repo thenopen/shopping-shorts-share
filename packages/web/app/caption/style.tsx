@@ -23,7 +23,9 @@ export type CaptionStyle = {
   boxPadX: number;
   boxPadY: number;
   boxRadius: number;
-  posV: "top" | "middle" | "bottom";  // 자막 세로 위치
+  posV: "top" | "middle" | "bottom";  // 자막 세로 위치(프리셋). posX/posY 있으면 무시(자유위치)
+  posX: number | null;      // 자유위치 가로(0~1, 중심 앵커). null=posV 프리셋 사용
+  posY: number | null;      // 자유위치 세로(0~1, 중심 앵커). null=posV 프리셋 사용
   emphasis: boolean;        // 가격·혜택 등 핵심 단어 자동 강조(색팝)
   emphasisColor: string;    // 강조 단어 색
   animate: boolean;         // 워드바이워드 애니(말할 때 단어 팝 + 강조어 색). words 타임스탬프 필요
@@ -51,6 +53,8 @@ export const DEFAULT_STYLE: CaptionStyle = {
   boxPadY: 6,
   boxRadius: 8,
   posV: "bottom",
+  posX: null,
+  posY: null,
   emphasis: true,
   emphasisColor: "#ffe600",
   animate: false,
