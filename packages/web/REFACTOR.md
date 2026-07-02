@@ -11,16 +11,15 @@
 - **step 8a**: 죽은 `subtitleBackend` useState(setter 없음, 항상 "modal") → 모듈 상수.
 - **step 3 — Toggle dedup**: 중복 `Toggle` 2곳 → `components/ui/Toggle.tsx`(`dense` prop로 두 룩 재현).
 - **step 6(부분) — memo**: `React.memo(CaptionEditor)`, `memo(QuotaBadge)` — 부모 키입력 시 무거운 리렌더 skip.
-- **step 5(부분) — 훅 추출**: `hooks/useCtas.ts`, `hooks/useScriptHistory.ts`, `hooks/useModalDeploy.ts`.
+- **step 5 — 훅 추출(완료)** → `app/hooks/`: `useCtas` · `useScriptHistory` · `useModalDeploy` · `useJobPolling`(pollJob/stopPoll·1회 콘솔로그 ref·unmount cleanup·scriptDirtyRef 게이팅) · `useProductScript`(video_content=script, commitScript 주입) · `useVoicePreview`(audioRef/playing를 previewTts와 공유 노출).
 
-**결과: page.tsx 1763→1074줄, globals.css 642→103줄.** (커밋: 838ad4c · 3f02524 · 4a707ba · +useModalDeploy)
+**결과: page.tsx 1763→891줄(−49%), globals.css 642→103줄.** (커밋 7개: 838ad4c 3f02524 4a707ba 855c9ea 7fd5684 ad069f1 617135c. 각 커밋 tsc exit 0 + 렌더/콘솔 검증)
 
 ## ⏳ 남은 리팩터 (동작보존)
 
-- **step 5(나머지) — 훅 추출** → `app/hooks/`: `useJobPolling`(pollJob/stopPoll·1200ms/5-fail cutoff·1회 log ref[engine/douyin/debug]·scriptDirtyRef 게이팅·unmount cleanup — **closure/ref load-bearing, 최고난도**), `useProductScript`(productUrl/images/points·7s stage ticker·addImageFiles/onProductPaste·generateProductScript는 commitScript+script 의존). ⚠ 하나씩 tsc+스모크.
-- **step 6(나머지) — CaptionTimeline memo**: `genCaptions`가 `script`를 **ref로** 읽어야 대본 타이핑 중에도 memo 유지(useCallback만으론 안 됨 — 검증됨).
-- **step 3(선택) — Row/Field → LabeledPanel**: 단일 사용이라 dedup 가치 낮음(패널 래퍼만 공유). ColorInput/Spinner/Switch도 단일/기존 위치라 이동 불필요.
-- **step 7 — page.tsx → ~150줄 Home 셸** + 결합 플래그 `useReducer`(job/render 머신: job·busy·scriptBusy·refineBusy·renderSeq / caption 스토어: captionLines·capBusy·capEditBusy·capEditPrev). VoicePicker 컴포넌트 분리(voice/playing/loadingVoice/genderFilter/audioRef).
+- **step 6(나머지) — CaptionTimeline memo**: `genCaptions`/`editCaptions`/`undoCaptionEdit`를 `useCallback`로 안정화(genCaptions는 `script`를 **ref로** 읽기) 후 `memo(CaptionTimeline)`. 안 하면 대본 타이핑마다 memo 깨짐(검증됨).
+- **step 7 — 마무리**: VoicePicker 컴포넌트 분리(순수 JSX 이동, props: voice/setVoice·genderFilter/setGenderFilter·playing·loadingVoice·toggleVoice — 로직은 이미 useVoicePreview에 있음). 선택적 `useReducer`(job/render: job·busy·scriptBusy·refineBusy·renderSeq / caption: captionLines·capBusy·capEditBusy·capEditPrev — 단일유저라 가치 낮음, atomic 전환 주의). 남은 플로우 핸들러(analyze/genScript/genCaptions/editCaptions/refineScript/startRender/checkUrl/resumeFromLibrary/checkQuality/previewTts/loadLibrary)는 Home 유지.
+- **step 3(선택) — Row/Field → LabeledPanel**: 단일 사용이라 가치 낮음. ColorInput/Spinner/Switch도 이동 불필요.
 
 ## 🚩 개선 트랙(step 9, 동작변경 — 나중에). 감사 상세는 워크플로 산출물 참고.
 
