@@ -1198,6 +1198,8 @@ export default function Home() {
   const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
   // 자막제거본(nosub) 전용 — 미리보기·품질확인은 이걸 쓰고, 완성 영상은 아래 전용 섹션에서(중복 방지).
   const nosubUrl = job?.preview ? `${apiBase()}${job.preview}` : null;
+  // 2단 레이아웃 게이팅 — 작업 시작(분석 job) 또는 대본 생성 전엔 우측 작업물 컬럼 숨김(단일열).
+  const showWork = !!script.trim() || !!job?.id;
   // 상대경로 → 절대경로(외부 기기/공유시 동작). 다운로드·공유 링크에만 적용.
   const absUrl = (rel: string) => (typeof window !== "undefined" ? new URL(rel, window.location.origin).href : rel);
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
@@ -1240,7 +1242,9 @@ export default function Home() {
       </header>
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={() => setDeployWatch((w) => w + 1)} />}
 
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6">
+      <main className={`mx-auto px-4 pb-16 pt-4 sm:px-6 ${showWork ? "max-w-6xl" : "max-w-5xl"}`}>
+        <div className={showWork ? "lg:grid lg:grid-cols-12 lg:items-start lg:gap-6" : ""}>
+        <div className={showWork ? "lg:col-span-7 min-w-0" : ""}>
         <section className="glass rounded-[28px] p-5 sm:p-8">
           <label className="mb-3 block text-sm font-bold text-[var(--ink)]">영상 링크</label>
           <div className="flex flex-col gap-2.5 md:flex-row">
@@ -1607,47 +1611,6 @@ export default function Home() {
             </Field>
           </div>
 
-          <div className="mt-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <label className="text-sm font-bold text-[var(--ink)]">한국어 대본</label>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={genScript} disabled={!job?.id || scriptBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {scriptBusy && <Spinner className="h-3 w-3 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
-                  {scriptBusy ? "생성 중..." : "자동 대본 생성"}
-                </button>
-                <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {refineBusy && <Spinner className="h-3 w-3 border-fuchsia-300 border-t-fuchsia-600" />}
-                  {refineBusy ? "가공 중..." : "AI로 가공"}
-                </button>
-                <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
-                  ↶ 되돌리기
-                </button>
-                <button onClick={redoScript} disabled={!scriptFuture.length} title="다시실행 (Ctrl+Shift+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
-                  ↷ 다시실행
-                </button>
-              </div>
-            </div>
-            {job?.status === "transcribed" && job?.has_speech === false && (
-              <div className="mb-2 rounded-xl bg-amber-50/70 px-3 py-2 text-[13px] font-medium text-amber-700">
-                🔇 이 영상엔 음성이 없어요. 대본을 직접 입력하거나 아래 <b>제품 링크</b>로 만들어보세요.
-              </div>
-            )}
-            <textarea
-              value={script}
-              onChange={(e) => { scriptDirtyRef.current = true; setScript(e.target.value); }}
-              onFocus={() => { lastSnapshotRef.current = script; }}
-              onBlur={() => { if (lastSnapshotRef.current !== script) { setScriptPast((p) => [...p, lastSnapshotRef.current].slice(-50)); setScriptFuture([]); } }}
-              onKeyDown={(e) => {
-                const mod = e.ctrlKey || e.metaKey;
-                if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undoScript(); }
-                else if (mod && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redoScript(); }
-              }}
-              rows={5}
-              placeholder="자동 대본 생성 버튼을 누르거나 직접 입력하세요."
-              className="w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-3 text-sm leading-relaxed text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
-            />
-          </div>
-
           <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs font-medium text-[var(--ink-soft)]">{job?.id ? "분석 완료 후 대본을 확인하고 작업을 시작하세요." : "먼저 링크를 분석하세요."}</p>
             <button onClick={startRender} disabled={!job?.id || busy} className="btn-grad rounded-full px-9 py-3 text-sm font-bold transition">
@@ -1723,6 +1686,52 @@ export default function Home() {
             <p className="text-center text-[11px] text-[var(--ink-soft)]">아이폰은 위 영상을 길게 눌러 &quot;비디오 저장&quot;으로도 받을 수 있어요.</p>
           </section>
         )}
+        </div>
+        {showWork && (
+          <aside className="mt-6 lg:col-span-5 lg:mt-0 lg:sticky lg:top-4">
+            <div className="glass rounded-[28px] p-5 sm:p-6">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <label className="text-sm font-bold text-[var(--ink)]">📝 한국어 대본</label>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={genScript} disabled={!job?.id || scriptBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                    {scriptBusy && <Spinner className="h-3 w-3 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+                    {scriptBusy ? "생성 중..." : "자동 대본 생성"}
+                  </button>
+                  <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+                    {refineBusy && <Spinner className="h-3 w-3 border-fuchsia-300 border-t-fuchsia-600" />}
+                    {refineBusy ? "가공 중..." : "AI로 가공"}
+                  </button>
+                  <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
+                    ↶ 되돌리기
+                  </button>
+                  <button onClick={redoScript} disabled={!scriptFuture.length} title="다시실행 (Ctrl+Shift+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
+                    ↷ 다시실행
+                  </button>
+                </div>
+              </div>
+              {job?.status === "transcribed" && job?.has_speech === false && (
+                <div className="mb-2 rounded-xl bg-amber-50/70 px-3 py-2 text-[13px] font-medium text-amber-700">
+                  🔇 이 영상엔 음성이 없어요. 대본을 직접 입력하거나 왼쪽 <b>제품 링크</b>로 만들어보세요.
+                </div>
+              )}
+              <textarea
+                value={script}
+                onChange={(e) => { scriptDirtyRef.current = true; setScript(e.target.value); }}
+                onFocus={() => { lastSnapshotRef.current = script; }}
+                onBlur={() => { if (lastSnapshotRef.current !== script) { setScriptPast((p) => [...p, lastSnapshotRef.current].slice(-50)); setScriptFuture([]); } }}
+                onKeyDown={(e) => {
+                  const mod = e.ctrlKey || e.metaKey;
+                  if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undoScript(); }
+                  else if (mod && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redoScript(); }
+                }}
+                rows={8}
+                placeholder="자동 대본 생성 버튼을 누르거나 직접 입력하세요."
+                className="w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-3 text-sm leading-relaxed text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
+              />
+            </div>
+          </aside>
+        )}
+        </div>
       </main>
     </div>
   );
