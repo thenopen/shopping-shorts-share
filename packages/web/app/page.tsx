@@ -76,7 +76,7 @@ type JobState = {
 };
 
 type Usage = {
-  gemini: { calls: number; tokens: number; model?: string | null; cooldown: number; limit: number; remaining: number; tpm_limit: number; reset: string };
+  gemini: { calls: number; tokens: number; model?: string | null; cooldown: number; limit: number; remaining: number; tpm_limit: number; rpm: number; rpm_limit: number; rpm_remaining: number; reset: string };
   tts: { chars: number; calls: number; limit: number; remaining: number; reset: string };
   modal: { jobs: number; seconds: number; cost: number; gpu?: string | null; limit: number; remaining: number; reset: string; accounts: number };
 };
@@ -171,8 +171,9 @@ function QuotaBadge({ refreshKey, active }: { refreshKey: number; active: boolea
     {
       key: "gemini", icon: "🔹", label: "Gemini",
       value: `${g.remaining.toLocaleString()}/${g.limit.toLocaleString()}`, unit: "요청",
-      cls: clr(g.remaining, g.limit),
-      help: `Gemini 하루 ${g.limit.toLocaleString()}요청 — 이 한도는 '설정값'이에요. 설정 → API 한도에서 본인 계정의 실제 한도로 바꾸세요.\n남은 = 한도 − 오늘 사용 ${g.calls}회 (${g.tokens.toLocaleString()}토큰).\n⚠ 무료 등급은 '분당 요청수(RPM)' 한도가 따로 있어, 일일 잔여가 남아도 요청이 몰리면 429가 나요(그땐 빨간 배지 표시). 이 배지의 일일 잔여와는 별개.\n리셋: 매일 ${g.reset} (KST). 정확한 실시간 잔여는 AI Studio / Cloud Console.`,
+      // 색은 일일·분당 중 더 빡빡한 쪽 기준(분당이 무료 등급 실제 병목).
+      cls: clr(Math.min(g.remaining / Math.max(1, g.limit), g.rpm_remaining / Math.max(1, g.rpm_limit)), 1),
+      help: `Gemini 무료 실제 한도 기준(설정값은 이 실제 한도로 캡됨).\n· 하루 ${g.limit.toLocaleString()}요청 — 오늘 ${g.calls}회 사용, ${g.remaining.toLocaleString()} 남음.\n· 분당 ${g.rpm_limit}요청 — 최근 1분 ${g.rpm}회, ${g.rpm_remaining} 남음. ← 무료 등급 실제 병목(몰아 쓰면 여기서 429).\n일일 잔여 남아도 분당 초과하면 막혀요. 리셋: 매일 ${g.reset} (KST). 실시간 정확값은 AI Studio/Cloud Console.`,
     },
     {
       key: "tts", icon: "🔸", label: "TTS",

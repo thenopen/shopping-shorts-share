@@ -24,12 +24,23 @@ LIMITS_PATH = WORKDIR / "settings.json"
 MODAL_TOML = Path.home() / ".modal.toml"
 DEFAULT_DOWNLOAD_DIR = BACKEND_ROOT / "downloads"   # 다운로드 영상 라이브러리 기본 위치
 
-# 한도 기본값(env로도 조정 가능). settings.json이 있으면 그 값이 우선.
+# 한도 기본값(env로도 조정 가능). settings.json이 있으면 그 값이 우선 — 단 아래 FREE_QUOTA로 캡.
 DEFAULT_LIMITS = {
     "gemini_rpd": int(os.environ.get("GEMINI_RPD_LIMIT", "1000")),
+    "gemini_rpm": int(os.environ.get("GEMINI_RPM_LIMIT", "15")),   # 분당 요청(무료 등급 실제 병목)
     "gemini_tpm": int(os.environ.get("GEMINI_TPM_LIMIT", "250000")),
     "tts_chars": int(os.environ.get("TTS_CHARS_LIMIT", "1000000")),
     "modal_credit": float(os.environ.get("MODAL_CREDIT_LIMIT", "30")),
+}
+
+# 각 서비스 무료 등급의 '실제' 한도(공식 문서 기준 · 수시 변동, 2026-07 확인 요망).
+# get_limits가 min(설정값, 이 값)으로 캡 → 사용자가 크게 넣어도 배지가 실제보다 크게 표시 안 함.
+# Gemini(AI Studio 무료): gemini-2.5-flash-lite RPD 1000·RPM 15·TPM 250k
+#   (gemini-2.5-flash는 RPD 250·RPM 10로 더 낮음 — 앱이 둘 다 써서 보수 표기).
+# Google TTS Chirp3-HD: 월 100만 자. Modal: 무료 크레딧 월 $30.
+FREE_QUOTA = {
+    "gemini_rpd": 1000, "gemini_rpm": 15, "gemini_tpm": 250000,
+    "tts_chars": 1000000, "modal_credit": 30.0,
 }
 
 
@@ -47,7 +58,10 @@ def _save_settings(cur: dict) -> None:
 
 
 def get_limits() -> dict:
-    """기본값 위에 settings.json 저장값을 덮어 반환."""
+    """기본값 위에 settings.json 저장값을 덮되, 실제 무료 한도(FREE_QUOTA)로 캡(min).
+
+    사용자가 설정에서 더 큰 값을 넣어도 배지가 실제 무료 quota보다 크게 표시하지 않음.
+    """
     d = dict(DEFAULT_LIMITS)
     try:
         saved = _load_settings()
@@ -56,6 +70,9 @@ def get_limits() -> dict:
                 d[k] = type(DEFAULT_LIMITS[k])(saved[k])
     except Exception:
         pass
+    for k, cap in FREE_QUOTA.items():        # 실제 quota로 상한 캡
+        if d.get(k):
+            d[k] = min(d[k], cap)
     return d
 
 

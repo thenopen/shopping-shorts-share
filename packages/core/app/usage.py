@@ -85,7 +85,10 @@ def record_gemini(model: str, usage_metadata=None) -> None:
         g["calls"] = g.get("calls", 0) + 1
         g["tokens"] = g.get("tokens", 0) + total
         g["model"] = model
-        g["last"] = time.time()
+        now = time.time()
+        g["last"] = now
+        # 분당 요청수(RPM) 추정용 — 최근 60초 타임스탬프만 유지(무료 등급 실제 병목).
+        g["recent"] = [t for t in g.get("recent", []) if now - t < 60] + [now]
         _save(d)
 
 
@@ -179,6 +182,8 @@ def snapshot() -> dict:
     t_chars = t.get("chars", 0)
     m_cost = mo.get("cost", 0.0)
     rpd, tpm = lim["gemini_rpd"], lim["gemini_tpm"]
+    rpm_lim = lim.get("gemini_rpm", 15)
+    rpm_used = len([t for t in (g.get("recent") or []) if time.time() - t < 60])
     tts_lim, modal_lim = lim["tts_chars"], lim["modal_credit"]
     # 크레딧 합산 기준 = 실효 계정수(풀 + 기존/대표 계정). 0이면 1로 폴백.
     n_modal = max(1, len(settings.effective_accounts()))
@@ -191,6 +196,9 @@ def snapshot() -> dict:
             "limit": rpd,
             "remaining": max(0, rpd - g_calls),
             "tpm_limit": tpm,
+            "rpm": rpm_used,                       # 최근 60초 요청수(무료 등급 실제 병목)
+            "rpm_limit": rpm_lim,
+            "rpm_remaining": max(0, rpm_lim - rpm_used),
             "reset": _next_daily_reset_kst(),      # 매일 태평양 자정(한국시간 표기)
         },
         "tts": {
