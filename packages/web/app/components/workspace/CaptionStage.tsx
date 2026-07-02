@@ -51,6 +51,15 @@ export function CaptionStage({
   onSeek: (t: number) => void;      // 줄 클릭 → 프리뷰 시크
 }) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  // 사용자가 CaptionEditor에서 저장한 템플릿 — 줄별 프리셋에도 노출. 편집기 열 때 최신 로드.
+  const [userTpls, setUserTpls] = useState<Record<string, CaptionStyle>>({});
+  useEffect(() => {
+    if (editingIdx == null) return;
+    try {
+      const raw = localStorage.getItem("caption_templates");
+      setUserTpls(raw ? JSON.parse(raw) : {});
+    } catch { setUserTpls({}); }
+  }, [editingIdx]);
 
   // ── 활성 줄 싱크: currentTime ∈ [start,end) 줄만 seg-active + 보이게 스크롤 ──
   const activeIdx = lines.findIndex((l) => currentTime >= l.start && currentTime < l.end);
@@ -332,7 +341,7 @@ export function CaptionStage({
                           기본 스타일로 되돌리기
                         </button>
                       </label>
-                      {/* 이 줄에만 프리셋 적용 */}
+                      {/* 이 줄에만 프리셋/내 템플릿 적용 */}
                       <div className="col-span-2 sm:col-span-4">
                         <div className="mb-1 text-[11px] text-slate-400">프리셋 적용(이 줄)</div>
                         <div className="flex flex-wrap gap-1">
@@ -344,6 +353,16 @@ export function CaptionStage({
                               className="rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-300 ring-1 ring-[var(--line)] transition hover:bg-pink-500/15 hover:text-pink-300"
                             >
                               {p.name}
+                            </button>
+                          ))}
+                          {Object.entries(userTpls).map(([name, st]) => (
+                            <button
+                              key={`u:${name}`}
+                              onClick={() => patch(i, { style: { ...st } })}
+                              title="내 템플릿"
+                              className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-500/20"
+                            >
+                              ★ {name}
                             </button>
                           ))}
                         </div>

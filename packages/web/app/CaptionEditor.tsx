@@ -65,7 +65,11 @@ function CaptionEditor({
 
   return (
     <div className="panel rounded-2xl p-7 sm:p-8">
-      <div className="mb-4 text-sm font-bold text-slate-100">자막 스타일 편집</div>
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-sm font-bold text-slate-100">자막 스타일</span>
+        <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-semibold text-pink-400 ring-1 ring-pink-500/30">전체 자막 적용</span>
+      </div>
+      <p className="mb-4 text-[11px] text-slate-500">여기 설정은 <b className="text-slate-400">모든 자막 줄</b>에 적용돼요. 특정 줄만 다르게 하려면 가운데 목록에서 <b className="text-slate-400">+스타일</b>.</p>
 
       <input
         value={text}
