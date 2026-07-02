@@ -24,7 +24,7 @@
 ## 🚩 개선 트랙(step 9, 동작변경 — 나중에). 감사 상세는 워크플로 산출물 참고.
 
 인라인 TODO 앵커 남김:
-- **[실버그] `page.tsx` analyze() 완료 콜백** `checkUrl(url)` → `checkUrl(target)` ('자막제거 다시' 시 엉뚱한 영상으로 미리보기 갱신).
-- **[실버그] `CaptionTimeline.tsx` delLine/editingIdx** 위치 기반 → 줄마다 stable id.
+- ~~**[실버그] `page.tsx` analyze() 완료 콜백** `checkUrl(url)` → `checkUrl(target)`~~ **수정됨(2026-07-03)**.
+- ~~**[실버그] `CaptionTimeline.tsx` delLine/editingIdx**~~ **해소(2026-07-03)** — CaptionTimeline.tsx는 미사용 죽은 파일이라 삭제. 살아있는 CaptionStage의 동종 버그(줄 삭제 시 selectedCap 인덱스 시프트)는 delLine에서 보정하도록 수정. AI 재분할/되돌리기 시에도 선택 해제.
 
 주요 개선(감사 P0/P1): 전역 `:focus-visible` 1줄, placeholder solid 토큰(≥4.5:1), `alert()`25개+`prompt`→인라인 토스트/모달, 터치타깃 44px(개별 hit-area), 3층 디자인 토큰(status는 **새 primitive** 필요 — 파스텔 alias 금지), elevation 위계(.glass 1개만), 전역 `1.06em/bold` 규칙 제거+타입스케일(⚠ Paperlogy3 강조폰트 재적용 필요=디자인 변경), primary CTA 뷰당 1개, IA 스테이지 레일+출력 pane, 작업시작 버튼 위치 이동, `prefers-reduced-motion`, emoji→라인아이콘, 539-option select 폭탄, public/fonts.css CDN 중복 제거(⚠ face-swap 위험).
