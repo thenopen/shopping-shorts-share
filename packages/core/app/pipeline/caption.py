@@ -327,6 +327,187 @@ def _ass_animated(ln, st) -> str:
     return "{\\fad(100,0)}" + " ".join(parts)
 
 
+_PAUSE_GAP = 0.28   # 단어 사이 침묵(초) ≥ → 발화 쉼 = 자연 구/절 경계
+# 한국어 연결어미(어절 끝) — 여기서 끊으면 절 경계라 자연스럽다.
+_CONNECT = ("니까", "는데", "지만", "어서", "아서", "여서", "라서", "도록",
+            "다가", "든지", "거나", "면서", "고", "서", "며", "면", "고요")
+
+
+def _tail_bnd(clean: str) -> str:
+    """누적 자막 끝의 경계 강도 — 문장끝(sent) / 절경계(clause) / 없음."""
+    if not clean:
+        return ""
+    if clean[-1] in _SENT_END:
+        return "sent"
+    if clean[-1] in _SOFT_END:
+        return "clause"
+    toks = clean.split()
+    if toks and any(toks[-1].endswith(c) for c in _CONNECT):
+        return "clause"
+    return ""
+
+
+def _wmeta(items: list) -> list:
+    """[{text,offset,duration}] → [{text,start,end}] 워드바이워드 애니용(공백 단어 제외)."""
+    return [{"text": g.get("text", ""),
+             "start": round(float(g.get("offset", 0.0)), 2),
+             "end": round(float(g.get("offset", 0.0)) + float(g.get("duration", 0.0)), 2)}
+            for g in items if (g.get("text") or "").strip()]
+
+
+def _group_words(items: list, style, ideal_chars: int, min_chars: int,
+                 max_chars: int, max_dur: float) -> list:
+    """TTS 단어 리스트 → CaptionLine 리스트.
+    발화 쉼(단어 간 침묵)·한국어 연결어미·문장부호·글자/시간 상한으로 분할.
+    스크립트 의미단위가 없을 때의 폴백 + 긴 세그먼트 서브분할에 공용."""
+    lines: list[CaptionLine] = []
+    cur: list = []
+    cur_start: float | None = None
+    n = len(items)
+
+    def joined():
+        return " ".join((t.get("text") or "") for t in cur).strip()
+
+    def flush():
+        nonlocal cur, cur_start
+        text = _clean_caption_text(joined())
+        if text and cur_start is not None:
+            end = float(cur[-1].get("offset", 0.0)) + float(cur[-1].get("duration", 0.0))
+            lines.append(CaptionLine(text=text, start=round(cur_start, 2), end=round(end, 2),
+                                     style=style, words=_wmeta(cur) or None))
+        cur = []
+        cur_start = None
+
+    for idx, ts in enumerate(items):
+        off = float(ts.get("offset", 0.0))
+        dur = float(ts.get("duration", 0.0))
+        if cur_start is None:
+            cur_start = off
+        cur.append(ts)
+        clean = _clean_caption_text(joined())
+        vis = _vis_len(clean)
+        if vis == 0:
+            continue
+        nxt = items[idx + 1] if idx + 1 < n else None
+        gap = (float(nxt.get("offset", off + dur)) - (off + dur)) if nxt else 1e9
+        seg_dur = (off + dur) - cur_start
+        bnd = _tail_bnd(clean)
+        # 우선순위: 상한(강제) → 문장끝 → 발화 쉼(자연) → 절경계+목표길이
+        if vis >= max_chars or seg_dur >= max_dur:
+            flush()
+        elif bnd == "sent" and vis >= min_chars:
+            flush()
+        elif gap >= _PAUSE_GAP and vis >= min_chars:
+            flush()
+        elif bnd == "clause" and vis >= ideal_chars:
+            flush()
+    flush()
+    return lines
+
+
+def _meaning_segments(text: str | None) -> list:
+    """스크립트 텍스트 → 의미단위 세그먼트. 대본 생성이 ENTER(줄바꿈)로 문장/구를 구분함."""
+    if not text:
+        return []
+    out = []
+    for raw in str(text).replace("\r", "\n").split("\n"):
+        s = _clean_caption_text(raw)
+        if s:
+            out.append(s)
+    return out
+
+
+def _split_balanced(items: list, max_chars: int) -> list:
+    """단어들을 화면폭(max_chars) 넘지 않게 균형 분할 — 꼬리 위도 안 생기게 목표길이 근처서 끊음."""
+    total = sum(_vis_len(t.get("text", "")) for t in items)
+    if total <= max_chars:
+        return [items]
+    k = max(2, -(-total // max_chars))      # 필요한 줄 수(ceil)
+    per = total / k                          # 줄당 목표 글자수
+    groups: list = []
+    cur: list = []
+    cur_vis = 0
+    for i, t in enumerate(items):
+        cur.append(t)
+        cur_vis += _vis_len(t.get("text", ""))
+        if len(groups) < k - 1:
+            nv = _vis_len(items[i + 1].get("text", "")) if i + 1 < len(items) else 0
+            # 목표 도달했거나, 다음 단어 붙이면 목표서 더 멀어지면 지금 끊음(균형)
+            if cur_vis >= per or (nv and abs(cur_vis - per) <= abs(cur_vis + nv - per)):
+                groups.append(cur); cur = []; cur_vis = 0
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def _seg_line(items: list, style) -> "CaptionLine | None":
+    """단어 그룹 → CaptionLine 하나(텍스트=단어조인, 타이밍=단어 타임스탬프)."""
+    txt = _clean_caption_text(" ".join((g.get("text") or "") for g in items))
+    if not txt:
+        return None
+    start = float(items[0].get("offset", 0.0))
+    end = float(items[-1].get("offset", 0.0)) + float(items[-1].get("duration", 0.0))
+    return CaptionLine(text=txt, start=round(start, 2), end=round(end, 2),
+                       style=style, words=_wmeta(items) or None)
+
+
+def _lines_by_segments(segs: list, timestamps: list, style, ideal_chars: int,
+                       min_chars: int, max_chars: int, max_dur: float) -> list:
+    """스크립트 의미단위(segs)를 1차 경계로, TTS 단어를 글자수 기준으로 순서대로 배정.
+    세그먼트가 화면폭(max_chars) 넘으면 그 안에서만 균형 서브분할(의미 경계는 유지).
+    (발화시간이 길어도 한 의미단위면 한 줄로 — 천천히 말한 것뿐이라 안 쪼갬.)"""
+    lens = [_vis_len(s) for s in segs]
+    W = len(timestamps)
+    lines: list[CaptionLine] = []
+    wi = 0
+    for si in range(len(segs)):
+        last = si == len(segs) - 1
+        grp: list = []
+        acc = 0
+        target = lens[si]
+        while wi < W:
+            t = timestamps[wi]
+            grp.append(t)
+            acc += _vis_len(t.get("text", ""))
+            wi += 1
+            if not last and acc >= target:
+                break
+        if last:                       # 마지막 세그먼트가 남은 단어 전부 흡수
+            while wi < W:
+                grp.append(timestamps[wi]); wi += 1
+        if not grp:
+            continue
+        gvis = _vis_len(_clean_caption_text(" ".join((g.get("text") or "") for g in grp)))
+        # 의미단위는 되도록 통째로 한 자막(빠른 플래시·위도 방지, 읽기시간 확보).
+        # 2줄에도 안 들어갈 만큼 길 때(> 2*max_chars)만 균형 서브분할.
+        parts = _split_balanced(grp, max_chars) if gvis > 2 * max_chars else [grp]
+        for sub in parts:
+            ln = _seg_line(sub, style)
+            if ln:
+                lines.append(ln)
+    return lines
+
+
+def _merge_widows(lines: list, min_chars: int, max_chars: int, max_dur: float) -> list:
+    """너무 짧은 꼬리줄을 앞줄에 병합(상한 이내, 문장 안 넘을 때). 휴리스틱 경로 전용."""
+    merged: list[CaptionLine] = []
+    for ln in lines:
+        if merged:
+            prev = merged[-1]
+            too_short = _vis_len(ln.text) < min_chars or (ln.end - ln.start) < 0.7
+            fits = (_vis_len(prev.text) + _vis_len(ln.text) <= max_chars
+                    and ln.end - prev.start <= max_dur + 0.6)
+            prev_sent = bool(prev.text) and prev.text[-1] in _SENT_END
+            if too_short and fits and not prev_sent:
+                prev.text = _clean_caption_text(prev.text + " " + ln.text)
+                prev.end = ln.end
+                if prev.words or ln.words:
+                    prev.words = (prev.words or []) + (ln.words or [])
+                continue
+        merged.append(ln)
+    return merged
+
+
 def build_lines_from_tts(
     timestamps: list,
     default_style: CaptionStyle,
@@ -337,57 +518,26 @@ def build_lines_from_tts(
     ideal_chars: int = 8,
     min_chars: int = 6,
 ) -> list:
-    """TTS 타임스탬프 → CaptionLine 리스트(타임코드 맞춤, 적당한 길이로 분할).
+    """TTS 타임스탬프 → CaptionLine 리스트.
 
-    timestamps 예: [{"text": "안녕", "offset": 0.0, "duration": 0.4}, ...]
-    단어를 묶어 한 줄(≤max_chars글자, ≤max_dur초) 단위 자막으로.
-    문장부호(. ! ? , …)에서 우선 끊음.
-
-    timestamps 없으면(google TTS 등) total_dur + full_text로 글자수 균등분할 폴백.
+    경계 우선순위:
+      1) 스크립트 의미단위 — 대본 생성이 ENTER(줄바꿈)로 문장/구를 구분한다. 이걸 1차 자막 경계로.
+         full_text에 의미단위가 2개↑면 각 세그먼트에 TTS 단어를 글자수 기준으로 배정.
+      2) 폴백(줄바꿈 정보 없음): 발화 쉼(단어 간 침묵)·연결어미·문장부호·글자/시간 상한으로 분할.
+    timestamps 없으면 total_dur+full_text로 글자수 균등분할.
     """
     if not timestamps:
         return _lines_uniform(full_text or "", total_dur or 0.0, default_style,
                               max_chars=max_chars, max_dur=max_dur)
 
-    lines: list[CaptionLine] = []
-    cur_words: list[str] = []
-    cur_wmeta: list = []   # [{text,start,end}] 워드바이워드 애니용
-    cur_start: float | None = None
-    cur_end: float = 0.0
+    segs = _meaning_segments(full_text)
+    if len(segs) >= 2:
+        lines = _lines_by_segments(segs, timestamps, default_style,
+                                   ideal_chars, min_chars, max_chars, max_dur)
+    else:
+        lines = _group_words(timestamps, default_style, ideal_chars, min_chars, max_chars, max_dur)
+        lines = _merge_widows(lines, min_chars, max_chars, max_dur)
 
-    def joined_text():
-        return " ".join(w for w in cur_words if w).strip()
-
-    def flush():
-        nonlocal cur_words, cur_wmeta, cur_start, cur_end
-        text = _clean_caption_text(joined_text())
-        if text and cur_start is not None:
-            lines.append(CaptionLine(text=text,
-                                     start=round(cur_start, 2),
-                                     end=round(cur_end, 2), style=default_style,
-                                     words=cur_wmeta or None))
-        cur_words = []
-        cur_wmeta = []
-        cur_start = None
-
-    for ts in timestamps:
-        w = ts.get("text", "")
-        off = float(ts.get("offset", 0.0))
-        dur = float(ts.get("duration", 0.0))
-        if cur_start is None:
-            cur_start = off
-        cur_words.append(w)
-        if (w or "").strip():
-            cur_wmeta.append({"text": w, "start": round(off, 2), "end": round(off + dur, 2)})
-        cur_end = off + dur
-        clean = joined_text().rstrip()
-        vis = _vis_len(clean)
-        hard_break = bool(clean) and clean[-1] in _SENT_END
-        dur_over = (cur_end - cur_start) >= max_dur
-        # 문장부호서 우선 끊고(최소길이 충족 시), 목표 글자수(6~10중 8) 도달/최대시간 초과 시 끊음.
-        if (hard_break and vis >= min_chars) or vis >= ideal_chars or dur_over:
-            flush()
-    flush()
     # 자막은 다음 줄 시작 전까지 보이게(틈 메움) — 끊김 방지
     for i in range(len(lines) - 1):
         if lines[i].end < lines[i + 1].start:
