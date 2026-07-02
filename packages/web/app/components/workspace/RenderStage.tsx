@@ -4,11 +4,11 @@ import { Clapperboard, Download, Link2, Plus, X } from "lucide-react";
 import { JobState } from "../../lib/types";
 import { Spinner, Switch } from "../../ui";
 
-// 렌더 스테이지 — CTA/얼굴컷/자막 최종 옵션 확인 후 렌더, 완성본 다운로드·공유.
+// 렌더 스테이지 — CTA/자막 최종 옵션 확인 후 렌더, 완성본 다운로드·공유.
 export function RenderStage({
   ctaList, cta, setCta, onAddCta, onDeleteCta,
   ctaOn, setCtaOn, ctaSize, setCtaSize, ctaPos, setCtaPos,
-  faceCutOn, setFaceCutOn, captionsOn,
+  captionsOn,
   onRender, busy, job, outputUrl, absUrl,
 }: {
   ctaList: string[]; cta: string; setCta: (v: string) => void;
@@ -16,7 +16,6 @@ export function RenderStage({
   ctaOn: boolean; setCtaOn: (b: boolean) => void;
   ctaSize: number; setCtaSize: (n: number) => void;
   ctaPos: number; setCtaPos: (n: number) => void;
-  faceCutOn: boolean; setFaceCutOn: (b: boolean) => void;
   captionsOn: boolean;
   onRender: () => void; busy: boolean; job: JobState | null;
   outputUrl: string | null;
@@ -68,22 +67,12 @@ export function RenderStage({
         )}
       </section>
 
-      {/* 얼굴샷 컷 제거 */}
-      <section className="panel flex items-center justify-between rounded-2xl p-4">
-        <div>
-          <div className="text-sm font-semibold text-slate-100">얼굴샷 컷 제거</div>
-          <div className="text-[11px] text-[var(--text-dim)]">얼굴 큰 구간을 잘라 제품샷 위주로 이어붙여요. (남길 분량이 짧으면 자동 생략)</div>
-        </div>
-        <Switch on={faceCutOn} onToggle={() => setFaceCutOn(!faceCutOn)} ariaLabel="얼굴샷 컷 제거 토글" />
-      </section>
-
       {/* 요약 + 렌더 */}
       <section className="panel rounded-2xl p-4">
         <div className="mb-3 text-sm font-semibold text-slate-100">최종 확인</div>
         <ul className="mb-4 flex flex-wrap gap-1.5 text-[11px] font-medium">
           <li className={`rounded-full px-2.5 py-1 ${captionsOn ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-slate-500"}`}>자동 자막 {captionsOn ? "ON" : "OFF"}</li>
           <li className={`rounded-full px-2.5 py-1 ${ctaOn ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-slate-500"}`}>CTA {ctaOn ? "ON" : "OFF"}</li>
-          <li className={`rounded-full px-2.5 py-1 ${faceCutOn ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-slate-500"}`}>얼굴컷 {faceCutOn ? "ON" : "OFF"}</li>
         </ul>
         <button
           onClick={onRender}

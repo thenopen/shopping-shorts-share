@@ -29,7 +29,6 @@ export default function Home() {
   const [voice, setVoice] = useState("소담");
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [captionsOn, setCaptionsOn] = useState(true);
-  const [faceCutOn, setFaceCutOn] = useState(false);  // 얼굴 전체샷 컷 제거(opt-in)
   // 자막제거는 클라우드(Modal)만 사용 — 로컬 GPU 옵션은 제품에서 제외.
   // 디버깅 때만 값 복원 + 백엔드 env ALLOW_LOCAL_GPU=1. 값은 항상 "modal".
   const subtitleBackend: "local" | "modal" = "modal";
@@ -362,7 +361,6 @@ export default function Home() {
         caption_style: captionStyle,
         // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
         caption_lines: captionLines.length ? captionLines : null,
-        face_cut: faceCutOn,
       });
       if (!job_id) { setBusy(false); alert("렌더 작업 ID를 받지 못했습니다."); return; }
       pollJob(job_id, ["done", "error"]);
@@ -516,7 +514,6 @@ export default function Home() {
               ctaOn={ctaOn} setCtaOn={setCtaOn}
               ctaSize={ctaSize} setCtaSize={setCtaSize}
               ctaPos={ctaPos} setCtaPos={setCtaPos}
-              faceCutOn={faceCutOn} setFaceCutOn={setFaceCutOn}
               captionsOn={captionsOn}
               onRender={startRender} busy={busy} job={job}
               outputUrl={job?.output ? previewUrl : null}

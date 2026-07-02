@@ -136,7 +136,6 @@ class RenderReq(BaseModel):
     captions: bool = True            # TTS 대본 자동자막 on/off
     caption_style: dict | None = None  # 웹 CaptionStyle (font/size/color/...) — 기본 스타일
     caption_lines: list | None = None  # 타임라인 편집기서 수정한 줄들(있으면 자동생성 대신 이걸 burn)
-    face_cut: bool = False           # 얼굴 전체샷 구간 자동 컷 제거(opt-in, 기본 off)
 
 
 class CaptionPreviewReq(BaseModel):
@@ -955,12 +954,6 @@ def _render_worker(jid: str, req: RenderReq):
         job_dir = WORKDIR / jid
         nosub = job_dir / "nosub.mp4"
         base = nosub if nosub.exists() else _source_for_job(jid)
-
-        # [4] 얼굴 전체샷 컷 제거(opt-in). 인물 클로즈업 구간을 빼고 제품샷 위주로 재연결.
-        if req.face_cut:
-            from app.pipeline.face_cut import cut_face_segments
-            job.update(status="face_cut", stage="얼굴샷 컷 제거", progress=0)
-            base = cut_face_segments(base, job_dir / "facecut.mp4")
 
         dub = None
         stamps: list = []

@@ -55,14 +55,21 @@ def compose(
             f"borderw={bw}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)*{pos}"
         )
 
-    cmd = [FFMPEG, "-y", "-i", str(video_path)]
+    # 더빙(내레이션)으로 교체할 땐 최종 길이 = 더빙(TTS) 길이가 기준.
+    # 영상이 더빙보다 짧으면 -stream_loop로 반복해 채우고, 길면 -shortest가 더빙 끝에서 자른다.
+    # → 내레이션이 절대 잘리지 않고, 영상은 딱 내레이션 길이만큼.
+    loop_video = bool(audio_path and replace_audio)
+    cmd = [FFMPEG, "-y"]
+    if loop_video:
+        cmd += ["-stream_loop", "-1"]
+    cmd += ["-i", str(video_path)]
     if audio_path:
         cmd += ["-i", str(audio_path)]
 
     cmd += ["-vf", vf]
 
     if audio_path and replace_audio:
-        # 더빙 오디오로 교체, 영상길이에 맞춤
+        # 더빙 오디오로 교체 + 영상은 더빙(TTS) 길이에 맞춤(-shortest는 무한 루프 영상 대신 더빙서 종료)
         cmd += ["-map", "0:v:0", "-map", "1:a:0", "-shortest"]
     elif audio_path and not replace_audio:
         cmd += ["-map", "0:v:0", "-map", "1:a:0"]
