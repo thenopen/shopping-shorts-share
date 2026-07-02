@@ -5,6 +5,7 @@ import { CaptionStyle, styleToCss, emphasizeNodes } from "./caption/style";
 import { CaptionLineData } from "./caption/types";
 import { FONTS } from "./data/fonts";
 import { Spinner } from "./ui";
+import { Toggle } from "./components/ui/Toggle";
 
 // CaptionLineData 정의는 ./caption/types 로 이동. 기존 import 경로("./CaptionTimeline") 호환 위해 재노출.
 export type { CaptionLineData } from "./caption/types";
@@ -326,13 +327,3 @@ export default function CaptionTimeline({
   );
 }
 
-function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-full px-3 py-1 text-xs font-semibold transition ${on ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}
-    >
-      {label}
-    </button>
-  );
-}

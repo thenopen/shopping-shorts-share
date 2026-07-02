@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { FONTS } from "./data/fonts";
 import { CaptionStyle, DEFAULT_STYLE, styleToCss, emphasizeNodes } from "./caption/style";
+import { Toggle } from "./components/ui/Toggle";
 
 const STORAGE_KEY = "caption_templates";
 
-export default function CaptionEditor({
+// React.memo — value(captionStyle)/onChange(안정 setter) 동일하면 리렌더 skip.
+// 링크·대본 등 부모 상태 타이핑 시 이 무거운 편집기(539 폰트 option) 재조정 방지.
+function CaptionEditor({
   value,
   onChange,
 }: {
@@ -127,13 +130,13 @@ export default function CaptionEditor({
           {/* flex-wrap 유지(sm:flex-nowrap 제거) — 좁은 칸(비율 조정 등)에서 버튼이
               옆 칸(글자색) 침범하지 않게 항상 줄바꿈. */}
           <div className="flex flex-wrap gap-1.5">
-            <Toggle on={value.bold} onClick={() => set("bold", !value.bold)} label="굵게" />
-            <Toggle on={value.italic} onClick={() => set("italic", !value.italic)} label="기울임" />
-            <Toggle on={value.outline} onClick={() => set("outline", !value.outline)} label="외곽선" />
-            <Toggle on={value.shadow} onClick={() => set("shadow", !value.shadow)} label="그림자" />
-            <Toggle on={value.glow} onClick={() => set("glow", !value.glow)} label="글로우" />
-            <Toggle on={value.box} onClick={() => set("box", !value.box)} label="박스" />
-            <Toggle on={value.emphasis} onClick={() => set("emphasis", !value.emphasis)} label="핵심강조" />
+            <Toggle dense on={value.bold} onClick={() => set("bold", !value.bold)} label="굵게" />
+            <Toggle dense on={value.italic} onClick={() => set("italic", !value.italic)} label="기울임" />
+            <Toggle dense on={value.outline} onClick={() => set("outline", !value.outline)} label="외곽선" />
+            <Toggle dense on={value.shadow} onClick={() => set("shadow", !value.shadow)} label="그림자" />
+            <Toggle dense on={value.glow} onClick={() => set("glow", !value.glow)} label="글로우" />
+            <Toggle dense on={value.box} onClick={() => set("box", !value.box)} label="박스" />
+            <Toggle dense on={value.emphasis} onClick={() => set("emphasis", !value.emphasis)} label="핵심강조" />
           </div>
         </Row>
 
@@ -303,13 +306,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
-  return (
-    <button onClick={onClick} className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold transition ${on ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}>
-      {label}
-    </button>
-  );
-}
 
 function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
@@ -319,3 +315,5 @@ function ColorInput({ value, onChange }: { value: string; onChange: (v: string) 
     </div>
   );
 }
+
+export default memo(CaptionEditor);

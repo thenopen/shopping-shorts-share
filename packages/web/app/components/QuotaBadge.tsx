@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { apiBase } from "../lib/api";
 import { Usage } from "../lib/types";
 import { fmtK } from "../lib/format";
@@ -8,7 +8,7 @@ import { HelpDot } from "./HelpDot";
 
 // 헤더 우측 API 잔여 한도 배지 — /usage 8초 폴링. 무료티어는 잔여 quota API가 없어
 // '한도 − 우리 사용량'으로 남은 양을 계산(이 키를 이 앱만 쓸 때 정확). 리셋시각은 (?)에.
-export function QuotaBadge({ refreshKey, active }: { refreshKey: number; active: boolean }) {
+function QuotaBadgeImpl({ refreshKey, active }: { refreshKey: number; active: boolean }) {
   const [u, setU] = useState<Usage | null>(null);
   const [cool, setCool] = useState(0);
   useEffect(() => {
@@ -82,3 +82,5 @@ export function QuotaBadge({ refreshKey, active }: { refreshKey: number; active:
     </div>
   );
 }
+
+export const QuotaBadge = memo(QuotaBadgeImpl);
