@@ -12,9 +12,13 @@ const STORAGE_KEY = "caption_templates";
 function CaptionEditor({
   value,
   onChange,
+  scope = "all",
+  scopeLabel,
 }: {
   value: CaptionStyle;
   onChange: (s: CaptionStyle) => void;
+  scope?: "all" | "selected";
+  scopeLabel?: string;
 }) {
   const [text, setText] = useState("");
   const [templates, setTemplates] = useState<Record<string, CaptionStyle>>({});
@@ -67,9 +71,15 @@ function CaptionEditor({
     <div className="panel rounded-2xl p-7 sm:p-8">
       <div className="mb-1 flex items-center gap-2">
         <span className="text-sm font-bold text-slate-100">자막 스타일</span>
-        <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-semibold text-pink-400 ring-1 ring-pink-500/30">전체 자막 적용</span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${scope === "selected" ? "bg-amber-400/15 text-amber-300 ring-amber-400/30" : "bg-pink-500/15 text-pink-400 ring-pink-500/30"}`}>
+          {scope === "selected" ? `선택 자막 · ${scopeLabel}` : "전체 자막 적용"}
+        </span>
       </div>
-      <p className="mb-4 text-[11px] text-slate-500">여기 설정은 <b className="text-slate-400">모든 자막 줄</b>에 적용돼요. 특정 줄만 다르게 하려면 가운데 목록에서 <b className="text-slate-400">+스타일</b>.</p>
+      <p className="mb-4 text-[11px] text-slate-500">
+        {scope === "selected"
+          ? <><b className="text-slate-400">이 줄만</b> 바뀌어요(잠금됨). 전체로 돌아가려면 위 <b className="text-slate-400">전체 자막</b> 탭.</>
+          : <><b className="text-slate-400">모든 자막 줄</b>에 적용돼요(잠긴 줄 제외). 특정 줄만 바꾸려면 가운데 목록에서 줄을 <b className="text-slate-400">클릭</b>.</>}
+      </p>
 
       <input
         value={text}

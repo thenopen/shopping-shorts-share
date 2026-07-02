@@ -32,11 +32,12 @@ export function PreviewPane(props: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTime: (t: number) => void;   // video timeupdate 마다 currentTime 전달
   onCtaPos?: (p: number) => void; // CTA 세로 위치 드래그(0~1) — 주면 프리뷰에서 직접 끌 수 있음
-  onCaptionPos?: (x: number, y: number) => void; // 자막 자유위치 드래그(중심 0~1) — 기본 스타일에 반영
+  onCaptionPos?: (x: number, y: number) => void; // 자막 자유위치 드래그(중심 0~1) — 선택/전체에 반영
+  selectedCap?: number | null;   // 선택된 자막 줄 — 정지 중 이 줄을 드래그 핸들로 표시
 }) {
   const {
     videoUrl, isFinal, captionLines, captionsOn, defaultStyle,
-    ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos, onCaptionPos,
+    ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos, onCaptionPos, selectedCap,
   } = props;
 
   // CTA 드래그 — 9:16 박스 기준 상대 y → ctaPos(0~1). 드래그 중엔 세이프존 가이드 표시.
@@ -170,9 +171,12 @@ export function PreviewPane(props: {
           </span>
         </div>
 
-        {/* 자막 오버레이 — 재생 중이면 활성 줄, 정지 중엔 첫 줄을 위치 핸들로(드래그 조정용) */}
-        {(activeLine ?? (captionsOn && !isFinal && captionLines.length ? captionLines[0] : null)) &&
-          renderCaption((activeLine ?? captionLines[0]))}
+        {/* 자막 오버레이 — 재생 중이면 활성 줄, 정지 중엔 선택 줄(없으면 첫 줄)을 드래그 핸들로 */}
+        {(() => {
+          if (!(captionsOn && !isFinal && captionLines.length)) return null;
+          const handle = activeLine ?? captionLines[selectedCap ?? 0] ?? captionLines[0];
+          return handle ? renderCaption(handle) : null;
+        })()}
 
         {/* 드래그 중 세이프존 가이드 — 하단 ~15%는 틱톡/쇼츠 UI(캡션·진행바)에 가려지는 영역 */}
         {dragging && (

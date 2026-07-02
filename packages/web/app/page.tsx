@@ -38,6 +38,11 @@ export default function Home() {
   const [capBusy, setCapBusy] = useState(false);
   const [capEditBusy, setCapEditBusy] = useState(false);            // AI 자막 다듬기 진행중
   const [capEditPrev, setCapEditPrev] = useState<CaptionLineData[] | null>(null); // 다듬기 직전(되돌리기용)
+  // 선택 자막 — null이면 '전체 자막'(기본 스타일), 값이면 그 줄만 편집/드래그.
+  const [selectedCap, setSelectedCap] = useState<number | null>(null);
+  const capSel = selectedCap != null && selectedCap < captionLines.length ? selectedCap : null;
+  const updateLineStyle = (i: number, style: CaptionStyle | null) =>
+    setCaptionLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, style } : l)));
   const { ctaList, cta, setCta, addCustomCta, deleteCta } = useCtas();
   const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
   const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
@@ -282,6 +287,7 @@ export default function Home() {
       const lines: CaptionLineData[] = normLines(data.lines);
       setCaptionLines(lines);
       setCapEditPrev(null);
+      setSelectedCap(null);   // 새 자막 → 선택 해제(전체 모드)
     } catch {
       alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
@@ -423,7 +429,15 @@ export default function Home() {
           videoRef={videoRef}
           onTime={setCurrentTime}
           onCtaPos={setCtaPos}
-          onCaptionPos={(x, y) => setCaptionStyle((s) => ({ ...s, posX: x, posY: y }))}
+          selectedCap={capSel}
+          onCaptionPos={(x, y) => {
+            if (capSel != null) {
+              const eff = captionLines[capSel].style ?? captionStyle;
+              updateLineStyle(capSel, { ...eff, posX: x, posY: y });
+            } else {
+              setCaptionStyle((s) => ({ ...s, posX: x, posY: y }));
+            }
+          }}
         />
 
         {/* 중앙: 스테이지별 작업 패널 + 하단 이전/다음 바 */}
@@ -485,6 +499,12 @@ export default function Home() {
               onUndoEdit={undoCaptionEdit} canUndoEdit={!!capEditPrev}
               currentTime={currentTime}
               onSeek={seekTo}
+              selected={capSel}
+              onSelect={(i) => setSelectedCap(i)}
+              onToggleLock={(i) => {
+                const ln = captionLines[i];
+                updateLineStyle(i, ln.style ? null : { ...(ln.style ?? captionStyle) });
+              }}
             />
           )}
           {stage === "render" && (
@@ -505,10 +525,30 @@ export default function Home() {
         <StageFooter stage={stage} onStage={setStage} />
         </div>
 
-        {/* 우: 자막 스테이지 전용 스타일 인스펙터 — 스타일 조정 여지 크게(440/xl 480) */}
+        {/* 우: 자막 스타일 — 전체/선택 대상 토글 + 스타일 인스펙터 */}
         {stage === "caption" && (
           <aside className="thin-scroll w-full flex-none overflow-y-auto border-t border-[var(--line)] px-4 py-4 lg:w-[440px] lg:border-l lg:border-t-0 xl:w-[480px]">
-            <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
+            {/* 적용 대상: 전체 자막 vs 선택 자막(목록에서 줄 클릭) */}
+            <div className="mb-3 flex items-center gap-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] p-1 text-[12px] font-medium">
+              <button
+                onClick={() => setSelectedCap(null)}
+                className={`flex-1 rounded-lg px-3 py-1.5 transition ${capSel == null ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "text-slate-400 hover:bg-white/5"}`}
+              >
+                전체 자막
+              </button>
+              <button
+                disabled={capSel == null}
+                className={`flex-1 rounded-lg px-3 py-1.5 transition ${capSel != null ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "text-slate-600"}`}
+              >
+                {capSel != null ? `선택 자막 · ${capSel + 1}번` : "선택 자막 (줄 클릭)"}
+              </button>
+            </div>
+            <CaptionEditor
+              value={capSel != null ? (captionLines[capSel].style ?? captionStyle) : captionStyle}
+              onChange={capSel != null ? (s) => updateLineStyle(capSel, s) : setCaptionStyle}
+              scope={capSel != null ? "selected" : "all"}
+              scopeLabel={capSel != null ? `${capSel + 1}번 줄` : undefined}
+            />
           </aside>
         )}
       </div>

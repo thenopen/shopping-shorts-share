@@ -2,13 +2,11 @@
 
 // Vrew식 자막 세그먼트 리스트(워크스페이스 중앙) — 기존 CaptionTimeline의 편집 로직을
 // proto-vrew 룩으로 이식. 프리뷰 currentTime과 활성 줄 싱크 + 줄 클릭 시 시크.
-import { useEffect, useRef, useState } from "react";
-import { Captions, ChevronsDownUp, ChevronsUpDown, Info, Plus, RefreshCw, Undo2, X } from "lucide-react";
-import { CaptionStyle, splitWords, autoEmphIndices, PRESET_TEMPLATES } from "../../caption/style";
+import { useEffect, useRef } from "react";
+import { Captions, ChevronsDownUp, ChevronsUpDown, Info, Lock, LockOpen, Plus, RefreshCw, Undo2, X } from "lucide-react";
+import { CaptionStyle, splitWords, autoEmphIndices } from "../../caption/style";
 import { CaptionLineData } from "../../caption/types";
-import { FONTS } from "../../data/fonts";
 import { Spinner, Switch } from "../../ui";
-import { Toggle } from "../ui/Toggle";
 
 // 줄 나누기(재분할) — 같은 단어를 줄바꿈만 다시(음성과 안 어긋남, 즉시·무료).
 // 문구·톤 재작성은 대본 단계 다이얼로 이동함(자막을 AI로 바꾸면 성우 음성과 desync).
@@ -39,6 +37,9 @@ export function CaptionStage({
   canUndoEdit,
   currentTime,
   onSeek,
+  selected,
+  onSelect,
+  onToggleLock,
 }: {
   lines: CaptionLineData[];
   onChange: (l: CaptionLineData[]) => void;
@@ -49,18 +50,10 @@ export function CaptionStage({
   onUndoEdit: () => void; canUndoEdit: boolean;
   currentTime: number;              // PreviewPane video 현재 초
   onSeek: (t: number) => void;      // 줄 클릭 → 프리뷰 시크
+  selected: number | null;          // 선택된 줄(우측 패널·드래그 대상)
+  onSelect: (i: number) => void;    // 줄 선택
+  onToggleLock: (i: number) => void; // 줄 스타일 잠금(독립)/해제(전체 따름)
 }) {
-  const [editingIdx, setEditingIdx] = useState<number | null>(null);
-  // 사용자가 CaptionEditor에서 저장한 템플릿 — 줄별 프리셋에도 노출. 편집기 열 때 최신 로드.
-  const [userTpls, setUserTpls] = useState<Record<string, CaptionStyle>>({});
-  useEffect(() => {
-    if (editingIdx == null) return;
-    try {
-      const raw = localStorage.getItem("caption_templates");
-      setUserTpls(raw ? JSON.parse(raw) : {});
-    } catch { setUserTpls({}); }
-  }, [editingIdx]);
-
   // ── 활성 줄 싱크: currentTime ∈ [start,end) 줄만 seg-active + 보이게 스크롤 ──
   const activeIdx = lines.findIndex((l) => currentTime >= l.start && currentTime < l.end);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -95,26 +88,8 @@ export function CaptionStage({
     onChange([...lines, { text: "새 자막", start, end: start + 2, style: null }]);
   }
 
-  // TODO(bug/개선트랙): key={i}·editingIdx가 위치 기반 — 위 줄 삭제/삽입 시 열린 스타일패널·포커스가
-  //   다른 줄에 붙음. 줄마다 stable id 부여(key+editingIdx)로 고치거나, 최소한 삭제 idx가 editingIdx보다
-  //   위면 editingIdx를 1 줄일 것.
   function delLine(i: number) {
     onChange(lines.filter((_, idx) => idx !== i));
-    if (editingIdx === i) setEditingIdx(null);
-  }
-
-  // 줄별 스타일 override 시작 = 기본스타일 복사본을 그 줄에 부여
-  function enableLineStyle(i: number) {
-    patch(i, { style: { ...(lines[i].style || defaultStyle) } });
-    setEditingIdx(i);
-  }
-  function resetLineStyle(i: number) {
-    patch(i, { style: null });
-    if (editingIdx === i) setEditingIdx(null);
-  }
-  function setLineStyle<K extends keyof CaptionStyle>(i: number, k: K, v: CaptionStyle[K]) {
-    const base = lines[i].style || defaultStyle;
-    patch(i, { style: { ...base, [k]: v } });
   }
 
   return (
@@ -215,20 +190,22 @@ export function CaptionStage({
         ) : (
           <div>
             {lines.map((ln, i) => {
-              const eff = ln.style || defaultStyle;
-              const hasOverride = ln.style != null;
+              const hasOverride = ln.style != null;   // = 잠금(전체 변경에 안 바뀜)
               const active = i === activeIdx;
+              const isSel = i === selected;
               return (
                 <div
                   key={i}
                   ref={(el) => { rowRefs.current[i] = el; }}
                   onClick={(e) => {
-                    // 입력 요소 클릭은 편집 — 줄 배경 클릭만 시크
                     if ((e.target as HTMLElement).closest("input,select,button,textarea,label")) return;
+                    onSelect(i);       // 줄 선택(우측 패널·드래그 대상)
                     onSeek(ln.start);
                   }}
-                  className={`mb-2 cursor-pointer rounded-xl border border-[var(--line)] px-3 py-2.5 transition ${
-                    active ? "seg-active" : "bg-[var(--panel-2)] hover:bg-white/5"
+                  className={`mb-2 cursor-pointer rounded-xl border px-3 py-2.5 transition ${
+                    isSel ? "border-amber-400/60 bg-amber-400/5 ring-1 ring-amber-400/40"
+                      : active ? "seg-active border-[var(--line)]"
+                        : "border-[var(--line)] bg-[var(--panel-2)] hover:bg-white/5"
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -299,25 +276,16 @@ export function CaptionStage({
                       </div>
                     </div>
 
-                    {/* 우측: 줄 스타일 토글 + 삭제 */}
+                    {/* 우측: 잠금(전체 변경 면제) + 삭제 */}
                     <div className="flex flex-none flex-col items-end gap-1">
-                      {hasOverride ? (
-                        <button
-                          onClick={() => (editingIdx === i ? setEditingIdx(null) : setEditingIdx(i))}
-                          className="rounded-lg bg-pink-500/15 px-2 py-1 text-[11px] font-semibold text-pink-400 ring-1 ring-pink-500/30 transition hover:bg-pink-500/25"
-                          title="이 줄 전용 스타일 (펼치기/접기)"
-                        >
-                          스타일 {editingIdx === i ? "▴" : "▾"}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => enableLineStyle(i)}
-                          className="rounded-lg bg-white/5 px-2 py-1 text-[11px] font-semibold text-slate-400 ring-1 ring-[var(--line)] transition hover:bg-white/10 hover:text-pink-400"
-                          title="이 줄만 다른 스타일 적용"
-                        >
-                          + 스타일
-                        </button>
-                      )}
+                      <button
+                        onClick={() => onToggleLock(i)}
+                        title={hasOverride ? "잠금 해제 — 전체 스타일 따름" : "잠금 — 이 줄 스타일 고정(전체 변경에 안 바뀜)"}
+                        aria-label="스타일 잠금"
+                        className={`rounded-lg p-1.5 transition ${hasOverride ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30" : "text-slate-500 hover:bg-white/10 hover:text-slate-300"}`}
+                      >
+                        {hasOverride ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+                      </button>
                       <button
                         onClick={() => delLine(i)}
                         className="rounded p-1 text-slate-600 transition hover:bg-white/10 hover:text-rose-400"
@@ -328,115 +296,6 @@ export function CaptionStage({
                       </button>
                     </div>
                   </div>
-
-                  {/* 줄별 스타일 인라인 편집 */}
-                  {hasOverride && editingIdx === i && (
-                    <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-white/5 p-3 ring-1 ring-[var(--line)] sm:grid-cols-4">
-                      <label className="col-span-2 text-xs font-bold text-slate-300 sm:col-span-4">
-                        이 줄 전용 스타일
-                        <button
-                          onClick={() => resetLineStyle(i)}
-                          className="btn-ghost ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                        >
-                          기본 스타일로 되돌리기
-                        </button>
-                      </label>
-                      {/* 이 줄에만 프리셋/내 템플릿 적용 */}
-                      <div className="col-span-2 sm:col-span-4">
-                        <div className="mb-1 text-[11px] text-slate-400">프리셋 적용(이 줄)</div>
-                        <div className="flex flex-wrap gap-1">
-                          {PRESET_TEMPLATES.map((p) => (
-                            <button
-                              key={p.name}
-                              onClick={() => patch(i, { style: { ...p.style } })}
-                              title={p.desc}
-                              className="rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-300 ring-1 ring-[var(--line)] transition hover:bg-pink-500/15 hover:text-pink-300"
-                            >
-                              {p.name}
-                            </button>
-                          ))}
-                          {Object.entries(userTpls).map(([name, st]) => (
-                            <button
-                              key={`u:${name}`}
-                              onClick={() => patch(i, { style: { ...st } })}
-                              title="내 템플릿"
-                              className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-300 ring-1 ring-emerald-500/30 transition hover:bg-emerald-500/20"
-                            >
-                              ★ {name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="mb-1 text-[11px] text-slate-400">폰트</div>
-                        <select
-                          value={eff.font}
-                          onChange={(e) => setLineStyle(i, "font", e.target.value)}
-                          className="field w-full rounded-lg px-2 py-1 text-xs outline-none"
-                          style={{ fontFamily: eff.font }}
-                        >
-                          {FONTS.map((f) => (
-                            <option key={f.css} value={f.css} style={{ fontFamily: f.css }}>
-                              {f.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <div className="mb-1 text-[11px] text-slate-400">크기 {eff.size}</div>
-                        <input
-                          type="range"
-                          min={16}
-                          max={120}
-                          value={eff.size}
-                          onChange={(e) => setLineStyle(i, "size", +e.target.value)}
-                          className="w-full accent-pink-500"
-                        />
-                      </div>
-                      <div>
-                        <div className="mb-1 text-[11px] text-slate-400">글자색</div>
-                        <input
-                          type="color"
-                          value={eff.color}
-                          onChange={(e) => setLineStyle(i, "color", e.target.value)}
-                          className="h-7 w-full cursor-pointer rounded border border-[var(--line)] bg-transparent"
-                        />
-                      </div>
-                      <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-4">
-                        <Toggle on={eff.bold} onClick={() => setLineStyle(i, "bold", !eff.bold)} label="굵게" />
-                        <Toggle on={eff.italic} onClick={() => setLineStyle(i, "italic", !eff.italic)} label="기울임" />
-                        <Toggle on={eff.outline} onClick={() => setLineStyle(i, "outline", !eff.outline)} label="외곽선" />
-                        <Toggle on={eff.shadow} onClick={() => setLineStyle(i, "shadow", !eff.shadow)} label="그림자" />
-                        <Toggle on={eff.glow} onClick={() => setLineStyle(i, "glow", !eff.glow)} label="글로우" />
-                        <Toggle on={eff.box} onClick={() => setLineStyle(i, "box", !eff.box)} label="박스" />
-                        {eff.glow && (
-                          <input
-                            type="color"
-                            value={eff.glowColor}
-                            onChange={(e) => setLineStyle(i, "glowColor", e.target.value)}
-                            className="h-7 w-9 cursor-pointer rounded border border-[var(--line)] bg-transparent"
-                            title="글로우 색"
-                          />
-                        )}
-                        {eff.box && (
-                          <input
-                            type="color"
-                            value={eff.boxColor}
-                            onChange={(e) => setLineStyle(i, "boxColor", e.target.value)}
-                            className="h-7 w-9 cursor-pointer rounded border border-[var(--line)] bg-transparent"
-                            title="박스 색"
-                          />
-                        )}
-                      </div>
-                      {/* 자막 세로 위치 */}
-                      <div className="col-span-2 flex items-center gap-1.5 sm:col-span-4">
-                        <span className="text-xs font-semibold text-slate-400">위치</span>
-                        {([["top", "위"], ["middle", "중간"], ["bottom", "아래"]] as const).map(([v, lbl]) => (
-                          <Toggle key={v} on={(eff.posV ?? "bottom") === v} onClick={() => setLineStyle(i, "posV", v)} label={lbl} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })}
