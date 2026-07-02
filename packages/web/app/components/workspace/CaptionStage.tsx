@@ -51,7 +51,7 @@ export function CaptionStage({
   currentTime: number;              // PreviewPane video 현재 초
   onSeek: (t: number) => void;      // 줄 클릭 → 프리뷰 시크
   selected: number | null;          // 선택된 줄(우측 패널·드래그 대상)
-  onSelect: (i: number) => void;    // 줄 선택
+  onSelect: (i: number | null) => void;    // 줄 선택(null=해제)
   onToggleLock: (i: number) => void; // 줄 스타일 잠금(독립)/해제(전체 따름)
 }) {
   // ── 활성 줄 싱크: currentTime ∈ [start,end) 줄만 seg-active + 보이게 스크롤 ──
@@ -90,6 +90,11 @@ export function CaptionStage({
 
   function delLine(i: number) {
     onChange(lines.filter((_, idx) => idx !== i));
+    // 선택이 위치(index) 기반 — 삭제로 인덱스가 당겨지면 보정, 삭제된 줄이면 해제
+    if (selected != null) {
+      if (selected === i) onSelect(null);
+      else if (selected > i) onSelect(selected - 1);
+    }
   }
 
   return (
