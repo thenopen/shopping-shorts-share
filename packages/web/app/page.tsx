@@ -111,7 +111,7 @@ export default function Home() {
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg,
     productStage, pointsEdit, setPointsEdit,
     addImageFiles, onProductPaste, generateProductScript,
-  } = useProductScript({ script, commitScript });
+  } = useProductScript({ script, commitScript, videoDuration: preview?.duration ?? null });
 
   const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");

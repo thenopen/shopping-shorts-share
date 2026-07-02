@@ -56,6 +56,28 @@ export const DEFAULT_STYLE: CaptionStyle = {
   animate: false,
 };
 
+// 릴스/쇼츠 관행(리서치 기반) 프리셋 — 전체 또는 줄별로 한 번에 적용.
+// 공통: 무거운 폰트 + 두꺼운 외곽선 + 중앙~하단 + 키워드 색강조(무음 시청·복잡 배경 가독).
+export type CaptionPreset = { name: string; desc: string; style: CaptionStyle };
+export const PRESET_TEMPLATES: CaptionPreset[] = [
+  { name: "비스트 팝", desc: "굵은 흰색·검정 외곽·중앙 (기본 추천)",
+    style: { ...DEFAULT_STYLE, font: "BlackHanSans", size: 68, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 6, shadow: true, shadowColor: "#000000", shadowBlur: 4, emphasis: true, emphasisColor: "#ffd400", posV: "middle", animate: true } },
+  { name: "호르모지 옐로", desc: "노랑 외곽선·강조 빨강",
+    style: { ...DEFAULT_STYLE, font: "GasoekOne", size: 64, color: "#ffffff", outline: true, outlineColor: "#ffd400", outlineWidth: 5, shadow: true, shadowBlur: 3, emphasis: true, emphasisColor: "#ff2d2d", posV: "middle", animate: true } },
+  { name: "카라오케 그린", desc: "흰 본문·강조 초록·하단",
+    style: { ...DEFAULT_STYLE, font: "GmarketSansBold", size: 60, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 5, emphasis: true, emphasisColor: "#22e06b", posV: "bottom", animate: true } },
+  { name: "클린 화이트", desc: "얇은 외곽·프리미엄·하단",
+    style: { ...DEFAULT_STYLE, font: "Pretendard", size: 52, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 3, shadow: true, shadowBlur: 4, emphasis: true, emphasisColor: "#ffc400", posV: "bottom" } },
+  { name: "박스 딜", desc: "반투명 검정 박스·하단",
+    style: { ...DEFAULT_STYLE, font: "GmarketSansBold", size: 50, color: "#ffffff", outline: false, box: true, boxColor: "#141414", boxOpacity: 0.72, boxPadX: 16, boxPadY: 8, emphasis: true, emphasisColor: "#ffe400", posV: "bottom" } },
+  { name: "세일 레드팝", desc: "커머스·가격 빨강 강조",
+    style: { ...DEFAULT_STYLE, font: "TmonMonsori", size: 62, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 6, shadow: true, shadowBlur: 3, emphasis: true, emphasisColor: "#ff2e2e", posV: "middle", animate: true } },
+  { name: "네온 글로우", desc: "시안 글로우·마젠타 강조",
+    style: { ...DEFAULT_STYLE, font: "Jalnan", size: 58, color: "#ffffff", outline: true, outlineColor: "#001318", outlineWidth: 2, glow: true, glowColor: "#00e5ff", glowSize: 8, emphasis: true, emphasisColor: "#ff4fd8", posV: "middle", animate: true } },
+  { name: "손글씨 팝", desc: "손글씨·흰 외곽·라이프스타일",
+    style: { ...DEFAULT_STYLE, font: "OwnglyphMeetme", size: 56, color: "#333333", outline: true, outlineColor: "#ffffff", outlineWidth: 4, shadow: true, shadowBlur: 3, emphasis: true, emphasisColor: "#ff3b30", posV: "middle", animate: true } },
+];
+
 // 핵심 강조 키워드(가격/숫자는 정규식이 따로 잡음) — 백엔드 caption.py와 동일 셋.
 const EMPH_KEYWORDS = [
   "무료배송", "무료", "최저가", "최저", "최대", "역대급", "초특가", "특가",

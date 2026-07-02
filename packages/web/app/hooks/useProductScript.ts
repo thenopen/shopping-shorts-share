@@ -4,7 +4,7 @@ import { postJSON, errMsg } from "../lib/api";
 
 // 제품 소구포인트: 상세페이지 URL / 캡처이미지 여러 장(파일·Ctrl+V) → 대본 결합.
 // script(영상내용, video_content) + commitScript는 useScriptHistory 것을 주입받아 사용.
-export function useProductScript({ script, commitScript }: { script: string; commitScript: (s: string) => void }) {
+export function useProductScript({ script, commitScript, videoDuration }: { script: string; commitScript: (s: string) => void; videoDuration?: number | null }) {
   const [productUrl, setProductUrl] = useState("");
   const [productImages, setProductImages] = useState<string[]>([]); // dataURL[]
   const [sellingPoints, setSellingPoints] = useState("");
@@ -55,9 +55,10 @@ export function useProductScript({ script, commitScript }: { script: string; com
     setProductErr("");
     setProductMsg("");
     try {
+      const target_seconds = videoDuration && videoDuration > 0 ? videoDuration : null;
       const body = fromPoints
-        ? { manual_points: sellingPoints, video_content: script, combine: true }
-        : { product_url: productUrl.trim(), product_images: productImages, video_content: script, combine: true };
+        ? { manual_points: sellingPoints, video_content: script, combine: true, target_seconds }
+        : { product_url: productUrl.trim(), product_images: productImages, video_content: script, combine: true, target_seconds };
       const d = await postJSON<any>("/script/product", body);
       if (d.debug?.length) console.log("[제품대본 DEBUG] 전 과정 ↓\n" + d.debug.join("\n"));
       if (d.error) {

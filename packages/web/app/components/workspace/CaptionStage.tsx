@@ -4,7 +4,7 @@
 // proto-vrew 룩으로 이식. 프리뷰 currentTime과 활성 줄 싱크 + 줄 클릭 시 시크.
 import { useEffect, useRef, useState } from "react";
 import { Captions, ChevronsDownUp, ChevronsUpDown, Info, Plus, RefreshCw, Undo2, X } from "lucide-react";
-import { CaptionStyle, splitWords, autoEmphIndices } from "../../caption/style";
+import { CaptionStyle, splitWords, autoEmphIndices, PRESET_TEMPLATES } from "../../caption/style";
 import { CaptionLineData } from "../../caption/types";
 import { FONTS } from "../../data/fonts";
 import { Spinner, Switch } from "../../ui";
@@ -332,6 +332,22 @@ export function CaptionStage({
                           기본 스타일로 되돌리기
                         </button>
                       </label>
+                      {/* 이 줄에만 프리셋 적용 */}
+                      <div className="col-span-2 sm:col-span-4">
+                        <div className="mb-1 text-[11px] text-slate-400">프리셋 적용(이 줄)</div>
+                        <div className="flex flex-wrap gap-1">
+                          {PRESET_TEMPLATES.map((p) => (
+                            <button
+                              key={p.name}
+                              onClick={() => patch(i, { style: { ...p.style } })}
+                              title={p.desc}
+                              className="rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-300 ring-1 ring-[var(--line)] transition hover:bg-pink-500/15 hover:text-pink-300"
+                            >
+                              {p.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <div className="col-span-2">
                         <div className="mb-1 text-[11px] text-slate-400">폰트</div>
                         <select

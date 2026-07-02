@@ -160,6 +160,7 @@ class ProductScriptReq(BaseModel):
     manual_points: str = ""            # 직접 적은 소구포인트(선택)
     video_content: str = ""            # 영상에서 뽑은 내용/현재 대본(있으면 결합)
     combine: bool = True               # True면 영상내용+소구포인트 결합 대본까지 생성
+    target_seconds: float | None = None  # 영상 길이(초) — 주면 대본 분량을 그 길이에 맞춤
 
 
 @app.post("/analyze")
@@ -442,7 +443,8 @@ def script_product(req: ProductScriptReq):
         script = ""
         combine_err = ""
         if req.combine:
-            script = product_script(req.video_content, points, debug=debug)
+            script = product_script(req.video_content, points, debug=debug,
+                                    target_seconds=req.target_seconds)
             # 결합 실패(429 한도·503 과부하 등)를 debug에서 잡아 조용한 폴백 대신 원인별로 안내.
             fail = next((m for m in debug if "대본 생성 실패" in m), "")
             if fail and not script.strip():

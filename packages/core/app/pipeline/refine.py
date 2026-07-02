@@ -77,7 +77,7 @@ PRODUCT_SCRIPT_PROMPT = """너는 한국 쇼핑 숏츠 대본 작가다.
 - 제품 브랜드명·상품명을 직접 말하지 마라. "이 제품", "요거" 같은 지시어로 가리켜라.
 - 소구포인트에 있는 사실만 사용. 없는 효능·가격·할인·수량·성능을 지어내지 마라.
 - "무조건 사라", "꼭 사야 한다" 같은 강압·과장 금지.
-- 짧고 말하기 좋은 구어체. 20~45초 분량.
+- 짧고 말하기 좋은 구어체. {length}
 {shorts_rules}
 - **오직 입으로 읽을 내레이션 문장만** 출력해라. 장면 지시(괄호 콘티), 마크다운 기호(**, [영상 끝] 등), 머리말·설명은 절대 넣지 마라. 문장만 줄바꿈으로 구분.
 
@@ -89,9 +89,21 @@ PRODUCT_SCRIPT_PROMPT = """너는 한국 쇼핑 숏츠 대본 작가다.
 """
 
 
-def product_script(video_content: str, selling_points: str, debug: list | None = None) -> str:
+# 영상 길이(초) → 대본 분량 지시. 한국어 내레이션 초당 ~4.5자(TTS 1.0x 기준) 가정.
+def _length_hint(target_seconds: float | None) -> str:
+    if not target_seconds or target_seconds < 3:
+        return "20~45초 분량."
+    sec = int(round(target_seconds))
+    chars = int(round(target_seconds * 4.5))
+    return (f"영상 길이 약 {sec}초에 맞춰라 — 한국어 내레이션 초당 약 4.5자 기준 "
+            f"총 {chars}자 내외(±15%). 영상보다 길거나 짧지 않게.")
+
+
+def product_script(video_content: str, selling_points: str, debug: list | None = None,
+                   target_seconds: float | None = None) -> str:
     """영상내용 + 제품 소구포인트 → 결합 대본(제품명 직접언급 회피).
 
+    target_seconds: 영상 길이(초). 주면 그 분량에 맞춰 대본 길이 지시.
     제품 상세페이지 정보를 의도적으로 주입하는 경로라 refine_script의
     '원문에 없는 속성 추가 금지' 안전필터를 적용하지 않는다(소구포인트는
     실제 상세페이지 근거가 있는 사실). debug(list)면 단계 append.
@@ -114,7 +126,10 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
             video=video_content or "(영상 내용 없음 — 소구포인트 중심으로 작성)",
             points=selling_points,
             shorts_rules=SHORTS_RULES,
+            length=_length_hint(target_seconds),
         )
+        if target_seconds:
+            _d(f"영상 길이 {target_seconds:.1f}초 → 대본 목표 {int(target_seconds*4.5)}자 내외")
         out = _call_gemini(prompt)
         result = _narration_only(out) or video_content
         _d(f"→ 결합 대본 생성 성공: {len(result)}자")

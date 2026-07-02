@@ -108,6 +108,9 @@ export function PreviewPane(props: {
             ref={videoRef}
             src={videoUrl}
             controls
+            // 전체화면(확대) 숨김 — 확대하면 HTML 자막/CTA 오버레이가 빠진 원본만 보이므로.
+            controlsList="nofullscreen noremoteplayback"
+            disablePictureInPicture
             playsInline
             className="h-full w-full object-contain"
             onTimeUpdate={(e) => {
