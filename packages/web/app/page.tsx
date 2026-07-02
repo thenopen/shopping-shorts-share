@@ -40,7 +40,7 @@ export default function Home() {
   const { ctaList, cta, setCta, addCustomCta, deleteCta } = useCtas();
   const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
   const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
-  const [ctaPos, setCtaPos] = useState(0.88);      // CTA 세로 위치(0~1)
+  const [ctaPos, setCtaPos] = useState(0.84);      // CTA 세로 위치(0~1) — 하단 15%는 플랫폼 UI에 가려 84% 기본
   const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
   const bumpUsage = () => setUsageRefresh((n) => n + 1);
   const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
@@ -384,6 +384,7 @@ export default function Home() {
           job={job}
           videoRef={videoRef}
           onTime={setCurrentTime}
+          onCtaPos={setCtaPos}
         />
 
         {/* 중앙: 스테이지별 작업 패널 */}

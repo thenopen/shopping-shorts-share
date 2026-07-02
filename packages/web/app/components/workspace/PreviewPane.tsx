@@ -2,7 +2,7 @@
 
 // 좌측 프리뷰 패널 — 9:16 영상(250x444) + 자막/CTA 라이브 오버레이 + 파이프라인 진행 + TTS 미리듣기.
 // 오버레이는 1080px 출력 기준 스타일을 250px 프리뷰로 축소(SCALE)해 최종 룩과 동일하게 보여준다.
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { Film } from "lucide-react";
 import { PipelineProgress } from "../PipelineProgress";
 import type { JobState } from "../../lib/types";
@@ -31,11 +31,22 @@ export function PreviewPane(props: {
   job: JobState | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTime: (t: number) => void;   // video timeupdate 마다 currentTime 전달
+  onCtaPos?: (p: number) => void; // CTA 세로 위치 드래그(0~1) — 주면 프리뷰에서 직접 끌 수 있음
 }) {
   const {
     videoUrl, isFinal, captionLines, captionsOn, defaultStyle,
-    ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime,
+    ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos,
   } = props;
+
+  // CTA 드래그 — 9:16 박스 기준 상대 y → ctaPos(0~1). 드래그 중엔 세이프존 가이드 표시.
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragTo = (clientY: number) => {
+    const box = boxRef.current;
+    if (!box || !onCtaPos) return;
+    const r = box.getBoundingClientRect();
+    onCtaPos(Math.min(0.95, Math.max(0.03, (clientY - r.top) / r.height)));
+  };
 
   // 오버레이 싱크용 현재 재생 시각(onTime과 동일 소스 — 자체 onTimeUpdate에서 갱신)
   const [t, setT] = useState(0);
@@ -65,7 +76,7 @@ export function PreviewPane(props: {
   return (
     <section className="flex w-full flex-col items-center overflow-y-auto border-[var(--line)] px-6 py-5 lg:w-[340px] lg:flex-none lg:border-r">
       {/* 9:16 프리뷰 박스 */}
-      <div className="relative flex-none overflow-hidden rounded-2xl bg-black shadow-2xl ring-1 ring-white/10" style={{ width: 250, height: 444 }}>
+      <div ref={boxRef} className="relative flex-none overflow-hidden rounded-2xl bg-black shadow-2xl ring-1 ring-white/10" style={{ width: 250, height: 444 }}>
         {videoUrl ? (
           <video
             key={videoUrl}
@@ -97,10 +108,35 @@ export function PreviewPane(props: {
         {/* 자막 라이브 오버레이(video controls와 안 겹치게 pointer-events-none) */}
         {activeLine && renderCaption(activeLine)}
 
-        {/* CTA 오버레이 — 최종 렌더와 동일 폰트(ChosunGu)·비율 */}
+        {/* 드래그 중 세이프존 가이드 — 하단 ~15%는 틱톡/쇼츠 UI(캡션·진행바)에 가려지는 영역 */}
+        {dragging && (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-dashed border-rose-400/70 bg-rose-500/15" style={{ height: "15%" }}>
+              <p className="mt-1 text-center text-[9px] font-semibold text-rose-300">플랫폼 UI 가림 위험</p>
+            </div>
+            <div className="pointer-events-none absolute right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white" style={{ top: `${ctaPos * 100}%` }}>
+              {Math.round(ctaPos * 100)}%
+            </div>
+          </>
+        )}
+
+        {/* CTA 오버레이 — 최종 렌더와 동일 폰트(ChosunGu)·비율. onCtaPos 있으면 직접 드래그로 위치 조정 */}
         {ctaOn && !isFinal && !!cta && (
-          <div className="pointer-events-none absolute inset-x-0 flex justify-center px-2" style={{ top: `${ctaPos * 100}%` }}>
-            <span className="cap-s text-center font-bold text-white" style={{ fontFamily: "ChosunGu", fontSize: ctaSize * SCALE }}>
+          <div className="absolute inset-x-0 flex justify-center px-2" style={{ top: `${ctaPos * 100}%`, pointerEvents: "none" }}>
+            <span
+              className={`cap-s text-center font-bold text-white ${onCtaPos ? "cursor-grab rounded px-1 hover:ring-1 hover:ring-pink-400/70" : ""} ${dragging ? "cursor-grabbing ring-1 ring-pink-400" : ""}`}
+              style={{ fontFamily: "ChosunGu", fontSize: ctaSize * SCALE, pointerEvents: onCtaPos ? "auto" : "none", touchAction: "none" }}
+              title={onCtaPos ? "드래그해서 위치 조정" : undefined}
+              onPointerDown={(e) => {
+                if (!onCtaPos) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setDragging(true);
+              }}
+              onPointerMove={(e) => { if (dragging) dragTo(e.clientY); }}
+              onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); setDragging(false); }}
+              onPointerCancel={() => setDragging(false)}
+            >
               {cta}
             </span>
           </div>
