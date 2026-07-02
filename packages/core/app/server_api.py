@@ -538,7 +538,9 @@ def quality_frames(req: QualityReq):
             "engine_note": job.get("subtitle_engine_note")}
 
 
-_SAFE_SEG = re.compile(r"^[A-Za-z0-9_.\-]+$")
+# 파일명 세그먼트 화이트리스트 — 유니코드 글자(한글 성우명 등) 허용, 경로 구분자/제어문자만 차단.
+# 슬래시·역슬래시·공백·'..' 불허 → is_relative_to(base) 가드와 함께 traversal 차단.
+_SAFE_SEG = re.compile(r"^[^\s/\\\x00-\x1f]+$")
 
 
 @app.get("/file/{jid}/{name}")
