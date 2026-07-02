@@ -74,10 +74,10 @@ export function CaptionStage({
     patch(i, { emph: Array.from(set).sort((a, b) => a - b) });
   }
 
-  // 텍스트 편집 시 단어 수 바뀌면 emph 인덱스 무효 → 초기화(자동강조로 복귀).
+  // 텍스트 편집 시: 단어 타임스탬프(words) 무효화(→애니 정적 폴백), 단어수 바뀌면 emph도 초기화.
   function editText(i: number, t: string) {
     const same = splitWords(t).length === splitWords(lines[i].text).length;
-    patch(i, same ? { text: t } : { text: t, emph: null });
+    patch(i, same ? { text: t, words: null } : { text: t, words: null, emph: null });
   }
 
   function addLine() {

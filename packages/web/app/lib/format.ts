@@ -27,5 +27,5 @@ export function parsePoints(t: string): { cat: string; points: string[] } {
 
 // 서버가 준 자막 줄 배열 → CaptionLineData[] 정규화(text/start/end/style/emph).
 export function normLines(arr: CaptionLineData[] | undefined | null): CaptionLineData[] {
-  return (arr || []).map((l) => ({ text: l.text, start: l.start, end: l.end, style: l.style ?? null, emph: l.emph ?? null }));
+  return (arr || []).map((l) => ({ text: l.text, start: l.start, end: l.end, style: l.style ?? null, emph: l.emph ?? null, words: l.words ?? null }));
 }

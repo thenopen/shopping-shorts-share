@@ -26,6 +26,7 @@ export type CaptionStyle = {
   posV: "top" | "middle" | "bottom";  // 자막 세로 위치
   emphasis: boolean;        // 가격·혜택 등 핵심 단어 자동 강조(색팝)
   emphasisColor: string;    // 강조 단어 색
+  animate: boolean;         // 워드바이워드 애니(말할 때 단어 팝 + 강조어 색). words 타임스탬프 필요
 };
 
 export const DEFAULT_STYLE: CaptionStyle = {
@@ -52,6 +53,7 @@ export const DEFAULT_STYLE: CaptionStyle = {
   posV: "bottom",
   emphasis: true,
   emphasisColor: "#ffe600",
+  animate: false,
 };
 
 // 핵심 강조 키워드(가격/숫자는 정규식이 따로 잡음) — 백엔드 caption.py와 동일 셋.

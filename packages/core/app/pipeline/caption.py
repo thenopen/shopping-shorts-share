@@ -48,6 +48,7 @@ class CaptionStyle:
     pos_v: str = "bottom"           # 자막 세로 위치: top/middle/bottom (ASS Alignment)
     emphasis: bool = True           # 가격·혜택 등 핵심 단어 자동 강조(인라인 색/크기 팝)
     emphasis_color: str = "FFE600"  # 강조 단어 색 (hex)
+    animate: bool = False           # 워드바이워드 애니(말할 때 단어 팝 + 강조어 색). words 타임스탬프 필요
 
 
 @dataclass
@@ -58,6 +59,7 @@ class CaptionLine:
     end: float            # 초
     style: CaptionStyle = field(default_factory=CaptionStyle)
     emph: list | None = None   # 수동 강조 단어 인덱스. None=자동(정규식), []/[i…]=그 단어만
+    words: list | None = None  # 워드바이워드 애니용 [{text,start,end}](절대초). 없으면 애니 불가(정적)
 
 
 def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> CaptionStyle:
@@ -98,6 +100,7 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         pos_v=str(d.get("posV", b.pos_v)),
         emphasis=bool(d.get("emphasis", b.emphasis)),
         emphasis_color=hx(d.get("emphasisColor"), b.emphasis_color),
+        animate=bool(d.get("animate", b.animate)),
     )
 
 
@@ -122,8 +125,10 @@ def lines_from_payload(payload: list, default_style: CaptionStyle) -> list:
         st = style_from_dict(it.get("style"), base=default_style)
         em = it.get("emph")
         emph = [int(x) for x in em] if isinstance(em, list) else None
+        wd = it.get("words")
+        words = wd if isinstance(wd, list) and wd else None
         out.append(CaptionLine(text=text, start=round(start, 2),
-                               end=round(end, 2), style=st, emph=emph))
+                               end=round(end, 2), style=st, emph=emph, words=words))
     return out
 
 
@@ -142,6 +147,7 @@ def lines_to_payload(lines: list, default_style: CaptionStyle) -> list:
             "end": round(float(ln.end), 2),
             "style": style_dict,
             "emph": getattr(ln, "emph", None),
+            "words": getattr(ln, "words", None),
         })
     return out
 
@@ -171,6 +177,7 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "posV": st.pos_v,
         "emphasis": st.emphasis,
         "emphasisColor": "#" + st.emphasis_color,
+        "animate": st.animate,
     }
 
 
@@ -283,6 +290,37 @@ def _ass_emphasis(text: str, style, emph: list | None = None) -> str:
     return _EMPH_RE.sub(lambda m: wrap % m.group(0), text)
 
 
+def _ass_animated(ln, st) -> str:
+    """워드바이워드 애니 — 말할 때 단어 팝(scale) + 강조어(가격/키워드) 색 유지.
+    \\t 오프셋은 라인 시작 기준 ms. words(단어별 절대초 타임스탬프) 필요.
+    """
+    words = getattr(ln, "words", None) or []
+    if not words:
+        return _ass_emphasis((ln.text or "").replace("\n", "\\N"), st, getattr(ln, "emph", None))
+    line_start = float(ln.start)
+    emph = getattr(ln, "emph", None)
+    if emph is not None:
+        emph_set = set(emph)
+    else:
+        emph_set = set(i for i, w in enumerate(words) if _EMPH_RE.search((w.get("text") or "")))
+    accent = _ass_c(getattr(st, "emphasis_color", "FFE600"))
+    use_emph = bool(getattr(st, "emphasis", True))
+    parts = []
+    for i, w in enumerate(words):
+        txt = (w.get("text") or "").strip()
+        if not txt:
+            continue
+        on = max(0, int(round((float(w.get("start", line_start)) - line_start) * 1000)))
+        is_e = use_emph and (i in emph_set)
+        pop = 130 if is_e else 118
+        anim = f"\\t({on},{on + 70},\\fscx{pop}\\fscy{pop})\\t({on + 70},{on + 170},\\fscx100\\fscy100)"
+        if is_e:
+            parts.append(f"{{\\1c{accent}\\b1{anim}}}{txt}{{\\r}}")
+        else:
+            parts.append(f"{{{anim}}}{txt}{{\\r}}")
+    return "{\\fad(100,0)}" + " ".join(parts)
+
+
 def build_lines_from_tts(
     timestamps: list,
     default_style: CaptionStyle,
@@ -307,6 +345,7 @@ def build_lines_from_tts(
 
     lines: list[CaptionLine] = []
     cur_words: list[str] = []
+    cur_wmeta: list = []   # [{text,start,end}] 워드바이워드 애니용
     cur_start: float | None = None
     cur_end: float = 0.0
 
@@ -314,13 +353,15 @@ def build_lines_from_tts(
         return " ".join(w for w in cur_words if w).strip()
 
     def flush():
-        nonlocal cur_words, cur_start, cur_end
+        nonlocal cur_words, cur_wmeta, cur_start, cur_end
         text = _clean_caption_text(joined_text())
         if text and cur_start is not None:
             lines.append(CaptionLine(text=text,
                                      start=round(cur_start, 2),
-                                     end=round(cur_end, 2), style=default_style))
+                                     end=round(cur_end, 2), style=default_style,
+                                     words=cur_wmeta or None))
         cur_words = []
+        cur_wmeta = []
         cur_start = None
 
     for ts in timestamps:
@@ -330,6 +371,8 @@ def build_lines_from_tts(
         if cur_start is None:
             cur_start = off
         cur_words.append(w)
+        if (w or "").strip():
+            cur_wmeta.append({"text": w, "start": round(off, 2), "end": round(off + dur, 2)})
         cur_end = off + dur
         clean = joined_text().rstrip()
         vis = _vis_len(clean)
@@ -439,6 +482,7 @@ def _style_sig(st) -> tuple:
         getattr(st, "pos_v", "bottom"),
         getattr(st, "emphasis", True),
         getattr(st, "emphasis_color", "FFE600"),
+        getattr(st, "animate", False),
     )
 
 
@@ -541,8 +585,11 @@ Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
                     f"\\1c{_ass_c(st.shadow_color)}\\blur{sb}}}")
             dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{stag}{text}")
         # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
-        # 핵심 단어(가격/혜택)는 인라인 태그로 색팝 강조(emphasis on일 때).
-        main_text = _ass_emphasis(text, st, getattr(ln, "emph", None))
+        # animate=on이고 단어 타임스탬프 있으면 워드바이워드 애니, 아니면 정적 색팝 강조.
+        if getattr(st, "animate", False) and getattr(ln, "words", None):
+            main_text = _ass_animated(ln, st)
+        else:
+            main_text = _ass_emphasis(text, st, getattr(ln, "emph", None))
         dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{main_text}")
     out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
     return out_ass

@@ -7,7 +7,7 @@ import { Film } from "lucide-react";
 import { PipelineProgress } from "../PipelineProgress";
 import type { JobState } from "../../lib/types";
 import type { CaptionLineData } from "../../caption/types";
-import { CaptionStyle, styleToCss, emphasizeNodes } from "../../caption/style";
+import { CaptionStyle, styleToCss, emphasizeNodes, autoEmphIndices } from "../../caption/style";
 
 // 실제 출력 폭 1080px → 프리뷰 폭 250px 축소 배율
 const SCALE = 250 / 1080;
@@ -66,9 +66,34 @@ export function PreviewPane(props: {
       css.padding = `${(eff.boxPadY ?? 6) * SCALE}px ${(eff.boxPadX ?? 16) * SCALE}px`;
       css.borderRadius = (eff.boxRadius ?? 8) * SCALE;
     }
+    // 애니(워드바이워드): 말하는 단어(t∈[start,end)) 팝 + 강조어 색 유지. 아니면 정적 emphasizeNodes.
+    let inner: React.ReactNode;
+    if (eff.animate && line.words && line.words.length) {
+      const emphSet = new Set(line.emph ?? autoEmphIndices(line.text));
+      inner = line.words.map((w, i) => {
+        const active = t >= w.start && t < w.end;
+        const isE = eff.emphasis && emphSet.has(i);
+        return (
+          <span
+            key={i}
+            style={{
+              display: "inline-block",
+              color: isE ? eff.emphasisColor : undefined,
+              fontWeight: isE ? 900 : undefined,
+              transform: active ? `scale(${isE ? 1.3 : 1.18})` : "scale(1)",
+              transition: "transform 90ms ease-out",
+            }}
+          >
+            {i > 0 ? " " : ""}{w.text}
+          </span>
+        );
+      });
+    } else {
+      inner = emphasizeNodes(line.text, eff, line.emph);
+    }
     return (
       <div className={`pointer-events-none absolute inset-x-0 flex justify-center px-2 ${POS_CLASS[eff.posV]}`}>
-        <span className="text-center" style={css}>{emphasizeNodes(line.text, eff, line.emph)}</span>
+        <span className="text-center" style={css}>{inner}</span>
       </div>
     );
   };
