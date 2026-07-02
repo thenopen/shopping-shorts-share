@@ -417,45 +417,35 @@ def _meaning_segments(text: str | None) -> list:
     return out
 
 
-def _split_balanced(items: list, max_chars: int) -> list:
-    """단어들을 화면폭(max_chars) 넘지 않게 균형 분할 — 꼬리 위도 안 생기게 목표길이 근처서 끊음."""
-    total = sum(_vis_len(t.get("text", "")) for t in items)
-    if total <= max_chars:
-        return [items]
-    k = max(2, -(-total // max_chars))      # 필요한 줄 수(ceil)
-    per = total / k                          # 줄당 목표 글자수
+def _split_text_balanced(text: str, max_chars: int) -> list:
+    """스크립트 텍스트(어절)를 화면폭 넘지 않게 균형 분할 → 텍스트 조각 리스트.
+    되도록 통째로(2줄 폭=2*max_chars까지 한 조각), 넘으면 목표길이 근처서 균형 분할(꼬리 위도 방지)."""
+    toks = text.split()
+    total = sum(_vis_len(t) for t in toks)
+    if total <= 2 * max_chars or len(toks) <= 1:
+        return [text]
+    k = max(2, -(-total // max_chars))       # 필요한 줄 수(ceil)
+    per = total / k
     groups: list = []
     cur: list = []
     cur_vis = 0
-    for i, t in enumerate(items):
-        cur.append(t)
-        cur_vis += _vis_len(t.get("text", ""))
+    for i, tk in enumerate(toks):
+        cur.append(tk)
+        cur_vis += _vis_len(tk)
         if len(groups) < k - 1:
-            nv = _vis_len(items[i + 1].get("text", "")) if i + 1 < len(items) else 0
-            # 목표 도달했거나, 다음 단어 붙이면 목표서 더 멀어지면 지금 끊음(균형)
+            nv = _vis_len(toks[i + 1]) if i + 1 < len(toks) else 0
             if cur_vis >= per or (nv and abs(cur_vis - per) <= abs(cur_vis + nv - per)):
-                groups.append(cur); cur = []; cur_vis = 0
+                groups.append(" ".join(cur)); cur = []; cur_vis = 0
     if cur:
-        groups.append(cur)
+        groups.append(" ".join(cur))
     return groups
-
-
-def _seg_line(items: list, style) -> "CaptionLine | None":
-    """단어 그룹 → CaptionLine 하나(텍스트=단어조인, 타이밍=단어 타임스탬프)."""
-    txt = _clean_caption_text(" ".join((g.get("text") or "") for g in items))
-    if not txt:
-        return None
-    start = float(items[0].get("offset", 0.0))
-    end = float(items[-1].get("offset", 0.0)) + float(items[-1].get("duration", 0.0))
-    return CaptionLine(text=txt, start=round(start, 2), end=round(end, 2),
-                       style=style, words=_wmeta(items) or None)
 
 
 def _lines_by_segments(segs: list, timestamps: list, style, ideal_chars: int,
                        min_chars: int, max_chars: int, max_dur: float) -> list:
     """스크립트 의미단위(segs)를 1차 경계로, TTS 단어를 글자수 기준으로 순서대로 배정.
-    세그먼트가 화면폭(max_chars) 넘으면 그 안에서만 균형 서브분할(의미 경계는 유지).
-    (발화시간이 길어도 한 의미단위면 한 줄로 — 천천히 말한 것뿐이라 안 쪼갬.)"""
+    자막 텍스트는 **스크립트 원문 그대로**(verbatim), 타이밍만 TTS 단어에서.
+    의미단위가 2줄 폭도 넘으면 스크립트 텍스트를 균형 서브분할(타이밍은 세그먼트 구간에 비례 배분)."""
     lens = [_vis_len(s) for s in segs]
     W = len(timestamps)
     lines: list[CaptionLine] = []
@@ -477,14 +467,21 @@ def _lines_by_segments(segs: list, timestamps: list, style, ideal_chars: int,
                 grp.append(timestamps[wi]); wi += 1
         if not grp:
             continue
-        gvis = _vis_len(_clean_caption_text(" ".join((g.get("text") or "") for g in grp)))
-        # 의미단위는 되도록 통째로 한 자막(빠른 플래시·위도 방지, 읽기시간 확보).
-        # 2줄에도 안 들어갈 만큼 길 때(> 2*max_chars)만 균형 서브분할.
-        parts = _split_balanced(grp, max_chars) if gvis > 2 * max_chars else [grp]
-        for sub in parts:
-            ln = _seg_line(sub, style)
-            if ln:
-                lines.append(ln)
+        seg_text = segs[si]                    # ← 스크립트 원문(그대로 표시)
+        t0 = float(grp[0].get("offset", 0.0))
+        t1 = float(grp[-1].get("offset", 0.0)) + float(grp[-1].get("duration", 0.0))
+        wmeta = _wmeta(grp)
+        chunks = _split_text_balanced(seg_text, max_chars)
+        cvis_total = sum(_vis_len(c) for c in chunks) or 1
+        cum = 0
+        for ci, chunk in enumerate(chunks):
+            cs = t0 + (cum / cvis_total) * (t1 - t0)
+            cum += _vis_len(chunk)
+            ce = t1 if ci == len(chunks) - 1 else t0 + (cum / cvis_total) * (t1 - t0)
+            # 애니용 words: 이 시간구간에 중심이 든 TTS 단어(1조각이면 전부)
+            cw = wmeta if len(chunks) == 1 else [w for w in wmeta if cs <= (w["start"] + w["end"]) / 2 < ce]
+            lines.append(CaptionLine(text=_clean_caption_text(chunk), start=round(cs, 2),
+                                     end=round(ce, 2), style=style, words=cw or None))
     return lines
 
 
