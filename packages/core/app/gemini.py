@@ -78,12 +78,19 @@ def generate(contents, model: str, retries: int = 3, record: bool = True,
         except Exception as e:
             last = e
             secs = _retry_seconds(e)
-            if secs is not None and record:
-                try:
-                    from app import usage
-                    usage.record_gemini_429(secs)
-                except Exception:
-                    pass
+            if secs is not None:
+                # 429/RESOURCE_EXHAUSTED = 쿼터/분당 레이트 한도. 빠른 재시도는 안 풀리고
+                # 오히려 분당 요청수(RPM)만 더 써서 악화 → 쿨다운 기록하고 즉시 실패.
+                if record:
+                    try:
+                        from app import usage
+                        usage.record_gemini_429(secs)
+                    except Exception:
+                        pass
+                if wrap_error:
+                    raise RuntimeError(f"Gemini 호출 실패(429 한도, {int(secs)}s 후): {str(last)[:120]}") from e
+                raise
+            # 진짜 일시 과부하(503·500·타임아웃 등)만 지수백오프 재시도.
             if any(c in str(e) for c in transient) and i < retries - 1:
                 time.sleep(backoff * (i + 1))
                 continue

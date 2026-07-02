@@ -172,7 +172,7 @@ function QuotaBadge({ refreshKey, active }: { refreshKey: number; active: boolea
       key: "gemini", icon: "🔹", label: "Gemini",
       value: `${g.remaining.toLocaleString()}/${g.limit.toLocaleString()}`, unit: "요청",
       cls: clr(g.remaining, g.limit),
-      help: `Gemini 무료 한도: 하루 ${g.limit.toLocaleString()}요청.\n남은 = 한도 − 오늘 사용 ${g.calls}회 (${g.tokens.toLocaleString()}토큰).\n리셋: 매일 ${g.reset} (KST) · 태평양 자정 기준.\n정확한 잔여는 AI Studio / Cloud Console.`,
+      help: `Gemini 하루 ${g.limit.toLocaleString()}요청 — 이 한도는 '설정값'이에요. 설정 → API 한도에서 본인 계정의 실제 한도로 바꾸세요.\n남은 = 한도 − 오늘 사용 ${g.calls}회 (${g.tokens.toLocaleString()}토큰).\n⚠ 무료 등급은 '분당 요청수(RPM)' 한도가 따로 있어, 일일 잔여가 남아도 요청이 몰리면 429가 나요(그땐 빨간 배지 표시). 이 배지의 일일 잔여와는 별개.\n리셋: 매일 ${g.reset} (KST). 정확한 실시간 잔여는 AI Studio / Cloud Console.`,
     },
     {
       key: "tts", icon: "🔸", label: "TTS",
