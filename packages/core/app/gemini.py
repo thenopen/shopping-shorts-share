@@ -100,3 +100,34 @@ def generate(contents, model: str, retries: int = 3, record: bool = True,
     if wrap_error:
         raise RuntimeError(f"Gemini 호출 실패(재시도 {retries}회): {str(last)[:160]}")
     raise last if last else RuntimeError("gemini call failed")
+
+
+# 과부하(503) 대응 모델 폴백 체인. 503은 모델 과부하라 tier·재시도로 잘 안 풀리고, 모델별
+# 용량 풀이 달라 다른 모델로 강등하면 대개 뚫린다(권장 해법 '모델 강등 체인'). flash-lite가
+# 특히 자주 붐벼서 flash·2.0-flash 순으로 폴백.
+TEXT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"]
+_OVERLOAD = ("503", "UNAVAILABLE", "overload", "high demand", "500", "INTERNAL")
+
+
+def generate_fallback(contents, models=None, retries: int = 1, record: bool = True,
+                      backoff: float = 1.5, wrap_error: bool = False) -> str:
+    """여러 모델을 순차 시도 — 앞 모델이 과부하(503/overload)면 다음 모델로 강등. 첫 성공 반환.
+
+    각 모델은 retries회(기본 1 — 503은 같은 모델 재시도가 잘 안 먹혀 바로 다음 모델로).
+    429(레이트 한도)는 generate가 즉시 raise → 폴백도 중단(모델 바꿔도 같은 계정 한도).
+    """
+    models = models or TEXT_MODELS
+    last = None
+    for i, model in enumerate(models):
+        try:
+            return generate(contents, model=model, retries=retries, record=record,
+                            backoff=backoff, transient=TRANSIENT_WIDE, wrap_error=False)
+        except Exception as e:
+            last = e
+            overloaded = any(c in str(e) for c in _OVERLOAD)
+            if overloaded and i < len(models) - 1:
+                continue                       # 다음 모델로 강등
+            if wrap_error:
+                raise RuntimeError(f"Gemini 호출 실패(모델 {model}: {str(last)[:120]})") from e
+            raise
+    raise last if last else RuntimeError("gemini fallback: 모든 모델 실패")

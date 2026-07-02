@@ -25,8 +25,12 @@ REFINE_PROMPT = """다음은 중국 쇼핑 영상의 한국어 1차 번역 대�
 
 
 def _call_gemini(prompt: str, retries: int = 3) -> str:
-    """Gemini(텍스트, flash-lite) 호출 — 공용 gemini.generate 래퍼(재시도·사용량 집계)."""
-    return gemini.generate(prompt, model=MODEL, retries=retries)
+    """Gemini(텍스트) 호출 — 과부하(503) 대비 모델 폴백 체인.
+
+    flash-lite가 자주 503(모델 과부하)나서, 실패 시 flash·2.0-flash로 자동 강등.
+    503은 모델별 용량 풀이 달라 다른 모델은 대개 뚫림(429 레이트 한도와는 다름).
+    """
+    return gemini.generate_fallback(prompt)
 
 
 def refine_script(script: str) -> str:

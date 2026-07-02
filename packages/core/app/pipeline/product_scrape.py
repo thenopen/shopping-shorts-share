@@ -114,15 +114,15 @@ _POINT_PROMPT = (
 )
 
 
-def _gemini_generate(contents, retries: int = 3) -> str:
-    """Gemini(비전/텍스트, flash) 호출 — 공용 gemini.generate 래퍼.
+def _gemini_generate(contents, retries: int = 1) -> str:
+    """Gemini(비전/텍스트) 호출 — 과부하(503) 대비 모델 폴백 체인.
 
-    원래 동작 보존: usage 미집계·백오프 2s·좁은 에러셋·최종실패 메시지 감쌈.
+    flash가 503(과부하)이면 2.0-flash·flash-lite로 자동 강등(모델별 용량 풀이 달라 뚫림).
     """
     from app import gemini
-    return gemini.generate(contents, model=VISION_MODEL, retries=retries,
-                           record=False, backoff=2.0,
-                           transient=gemini.TRANSIENT_NARROW, wrap_error=True)
+    return gemini.generate_fallback(
+        contents, models=[VISION_MODEL, "gemini-2.0-flash", "gemini-2.5-flash-lite"],
+        retries=retries, wrap_error=True)
 
 
 def points_from_image(image_bytes: bytes) -> str:
