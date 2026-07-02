@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import CaptionEditor from "./CaptionEditor";
 import CaptionTimeline, { CaptionLineData } from "./CaptionTimeline";
 import { Spinner, Switch } from "./ui";
@@ -18,6 +18,7 @@ import { useScriptHistory } from "./hooks/useScriptHistory";
 import { useModalDeploy } from "./hooks/useModalDeploy";
 import { useJobPolling } from "./hooks/useJobPolling";
 import { useProductScript } from "./hooks/useProductScript";
+import { useVoicePreview } from "./hooks/useVoicePreview";
 
 
 
@@ -96,14 +97,12 @@ export default function Home() {
     addImageFiles, onProductPaste, generateProductScript,
   } = useProductScript({ script, commitScript });
 
-  const [playing, setPlaying] = useState<string | null>(null);
-  const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
+  const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
   const [job, setJob] = useState<JobState | null>(null);
   const [busy, setBusy] = useState(false);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [refineBusy, setRefineBusy] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const { pollJob, resetEngineLogs } = useJobPolling({ setJob, setBusy, setScriptBusy, setScript, scriptDirtyRef });
 
   // 다운로드 라이브러리(최근 재사용 목록) 로드
@@ -319,31 +318,6 @@ export default function Home() {
     }
   }
 
-  function toggleVoice(nick: string) {
-    const el = audioRef.current;
-    if (!el) return;
-    if (playing === nick) {       // 같은 보이스 다시 누르면 정지
-      el.pause();
-      setPlaying(null);
-      return;
-    }
-    // iOS/인앱브라우저: play()는 사용자 제스처 안에서 동기 호출돼야 한다.
-    // load() 호출하면 진행중 play()가 AbortError로 취소됨 → src만 바꾸고 play().
-    const src = `${window.location.origin}/voices/${encodeURIComponent(nick)}.mp3`;
-    if (!el.src.endsWith(encodeURIComponent(nick) + ".mp3")) el.src = src;
-    el.currentTime = 0;
-    setLoadingVoice(nick);       // 클릭 즉시 로딩 표시
-    setPlaying(nick);
-    el.play()
-      .then(() => setLoadingVoice(null))
-      .catch((err: unknown) => {
-        const name = err instanceof Error ? err.name : "";
-        if (name === "AbortError") return; // 다른 보이스로 빠르게 전환 시 정상 — 무시
-        setLoadingVoice(null);
-        setPlaying(null);
-        alert(`미리듣기 재생 실패: ${err instanceof Error ? err.message : String(err)}`);
-      });
-  }
 
   async function pasteFromClipboard() {
     try {
@@ -364,7 +338,7 @@ export default function Home() {
   return (
     <div className="min-h-screen text-[var(--ink)]">
       {/* 보이스 미리듣기용 단일 오디오 엘리먼트(iOS 인앱브라우저 호환) */}
-      <audio ref={audioRef} onEnded={() => setPlaying(null)} preload="auto" className="hidden" />
+      <audio ref={audioRef} onEnded={onAudioEnded} preload="auto" className="hidden" />
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 pt-7 pb-2 sm:px-6">
         <div className="flex items-center gap-4">
           {/* S 박스: 제목+설명 2줄 높이에 맞춘 정사각형(고정). 커진 만큼 옆 텍스트는 gap으로 우측에 */}
