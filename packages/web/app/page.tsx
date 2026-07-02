@@ -1198,8 +1198,9 @@ export default function Home() {
   const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
   // 자막제거본(nosub) 전용 — 미리보기·품질확인은 이걸 쓰고, 완성 영상은 아래 전용 섹션에서(중복 방지).
   const nosubUrl = job?.preview ? `${apiBase()}${job.preview}` : null;
-  // 2단 레이아웃 게이팅 — 작업 시작(분석 job) 또는 대본 생성 전엔 우측 작업물 컬럼 숨김(단일열).
-  const showWork = !!script.trim() || !!job?.id;
+  // 2단 레이아웃 게이팅 — 대본 생성 전엔 우측 작업물 컬럼 숨김(단일열, 깔끔한 시작).
+  // 엄격: script 있을 때만 우측 등장. 영상→대본 진입점은 좌측 '자동 대본 생성' 버튼.
+  const showWork = !!script.trim();
   // 상대경로 → 절대경로(외부 기기/공유시 동작). 다운로드·공유 링크에만 적용.
   const absUrl = (rel: string) => (typeof window !== "undefined" ? new URL(rel, window.location.origin).href : rel);
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
@@ -1455,6 +1456,14 @@ export default function Home() {
             })()}
 
           </div>
+
+          {/* 영상 분석했지만 대본 없을 때 — 영상에서 자동 대본 생성 진입점(우측 대본창은 대본 있을 때만 등장) */}
+          {job?.id && !script.trim() && (
+            <button onClick={genScript} disabled={scriptBusy} className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white/70 px-5 py-3 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
+              {scriptBusy && <Spinner className="h-4 w-4 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />}
+              {scriptBusy ? "대본 생성 중..." : "🎬 영상에서 자동 대본 생성"}
+            </button>
+          )}
 
           {(busy || scriptBusy) && job?.status !== "done" && <PipelineProgress job={job} />}
 

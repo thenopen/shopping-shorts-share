@@ -419,11 +419,13 @@ def script_product(req: ProductScriptReq):
     quota_warn = ""
     if req.combine:
         script = product_script(req.video_content, points, debug=debug)
-        # 결합이 Gemini 429(무료 한도)로 실패했는지 debug에서 감지 → 조용한 폴백 대신 명확히 알림.
+        # 결합이 Gemini 429로 실패했는지 debug에서 감지 → 조용한 폴백 대신 명확히 알림.
+        # 429는 '일일 한도'뿐 아니라 분당 요청수(RPM)·순간 과부하일 때도 남 → 배지의 일일 잔여와 별개.
         if any(("RESOURCE_EXHAUSTED" in m or "429" in m) and "실패" in m for m in debug):
-            quota_warn = ("Gemini 무료 한도를 초과해 대본 자동 결합이 안 됐어요. 잠시 뒤 다시 시도하거나, "
-                          "아래 소구포인트를 보고 대본을 직접 작성·수정해 주세요.")
-            debug.append("■ 429 quota → 사용자 알림 표시(소구포인트는 유지)")
+            quota_warn = ("Gemini가 요청을 잠깐 거부했어요(429 — 무료 등급의 분당 요청 한도이거나 순간 과부하). "
+                          "쿼터 배지의 '오늘 남은 수'와는 별개예요. 1분쯤 뒤 다시 누르면 대개 됩니다. "
+                          "급하면 아래 소구포인트를 보고 대본을 직접 다듬어 주세요.")
+            debug.append("■ 429 → 사용자 알림 표시(소구포인트 유지). 원인: 분당/순간 한도 추정")
     debug.append(f"■ 완료: 소구포인트 {len(points)}자, 대본 {len(script)}자")
     return {"selling_points": points, "script": script,
             "source": sp.get("source", ""), "site": sp.get("site", ""),
