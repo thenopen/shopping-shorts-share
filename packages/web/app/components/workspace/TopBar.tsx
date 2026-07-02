@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clapperboard, Settings } from "lucide-react";
+import { Check, Clapperboard, Settings, FilePlus2 } from "lucide-react";
 import { StageKey, STAGES } from "../../lib/stage";
 import { Spinner } from "../../ui";
 import { QuotaBadge } from "../QuotaBadge";
@@ -18,6 +18,7 @@ export function TopBar(props: {
   onRender: () => void;
   renderDisabled: boolean;
   renderBusy: boolean;
+  onNewProject: () => void;   // 새 영상(현재 작업 초기화 → 소스)
 }) {
   // 스테이지 칩 1개 (데스크톱 중앙/모바일 하단 행 공용)
   const chip = (s: { key: StageKey; label: string }) => {
@@ -75,6 +76,13 @@ export function TopBar(props: {
           className="btn-ghost flex h-9 w-9 items-center justify-center rounded-lg"
         >
           <Settings className="h-4 w-4 text-slate-300" />
+        </button>
+        <button
+          onClick={props.onNewProject}
+          className="btn-ghost flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium"
+          title="현재 작업을 접고 새 영상을 시작"
+        >
+          <FilePlus2 className="h-4 w-4 text-slate-300" /> 새 영상
         </button>
         <button
           onClick={props.onRender}

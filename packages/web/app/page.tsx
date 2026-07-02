@@ -136,6 +136,31 @@ export default function Home() {
   }
   useEffect(() => { loadLibrary(); }, []);
 
+  // 새 영상 — 현재 작업(링크·대본·자막·job)을 접고 소스부터 새로 시작.
+  // 스타일/보이스/CTA 등 환경설정은 유지(반복 작업 편의). 다운로드/대본은 '이어하기'로 복구 가능.
+  function newProject() {
+    if ((url.trim() || script.trim() || job) &&
+        !window.confirm("새 영상을 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)")) return;
+    setUrl("");
+    setPreview(null);
+    setJob(null);
+    setScript("");
+    scriptDirtyRef.current = false;
+    setCaptionLines([]);
+    setSelectedCap(null);
+    setTtsUrl("");
+    setProductUrl("");
+    setProductImages([]);
+    setSellingPoints("");
+    setPointsEdit(false);
+    setQFrames([]);
+    setCurrentTime(0);
+    autoCapRef.current = "";
+    resetEngineLogs();
+    setStage("source");
+    loadLibrary();  // 방금 작업물이 라이브러리에 반영됐을 수 있으니 갱신
+  }
+
   // 다운로드 기록 항목 삭제(항목별). 확인 후 DELETE → 목록 새로고침.
   async function deleteLibraryEntry(key: string) {
     if (!window.confirm("이 다운로드 기록을 삭제할까요? (원본·자막제거본 캐시가 지워져요)")) return;
@@ -415,6 +440,7 @@ export default function Home() {
         onRender={startRender}
         renderDisabled={!job?.id || busy}
         renderBusy={busy && job?.status !== "analyzed"}
+        onNewProject={newProject}
       />
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={watchDeploy} />}
 
