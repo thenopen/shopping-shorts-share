@@ -7,12 +7,25 @@ import { Toggle } from "./components/ui/Toggle";
 
 const STORAGE_KEY = "caption_templates";
 
-// 기본 제공 프리셋 — 골라서 전체 자막에 한 번에 적용(삭제 불가). 세부는 위 컨트롤로 조정.
-const PRESET_TEMPLATES: { name: string; style: CaptionStyle }[] = [
-  { name: "굵은 흰색", style: { ...DEFAULT_STYLE } },
-  { name: "노랑 임팩트", style: { ...DEFAULT_STYLE, font: "BMDOHYEON", size: 54, outlineWidth: 4 } },
-  { name: "옐로 강조체", style: { ...DEFAULT_STYLE, font: "Jalnan", size: 50, color: "#ffe600", outlineWidth: 4 } },
-  { name: "검정 박스", style: { ...DEFAULT_STYLE, size: 46, box: true, boxColor: "#000000", boxOpacity: 0.6, outline: false } },
+// 기본 제공 프리셋 — 릴스/쇼츠 관행(리서치 기반)으로 세팅. 골라서 전체 자막에 한 번에 적용.
+// 공통: 무거운 폰트 + 두꺼운 외곽선 + 중앙~하단 + 키워드 색강조(무음 시청·복잡한 제품영상 가독).
+const PRESET_TEMPLATES: { name: string; desc: string; style: CaptionStyle }[] = [
+  { name: "비스트 팝", desc: "굵은 흰색·검정 외곽·중앙 (기본 추천)",
+    style: { ...DEFAULT_STYLE, font: "BlackHanSans", size: 68, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 6, shadow: true, shadowColor: "#000000", shadowBlur: 4, emphasis: true, emphasisColor: "#ffd400", posV: "middle" } },
+  { name: "호르모지 옐로", desc: "노랑 외곽선·강조 빨강",
+    style: { ...DEFAULT_STYLE, font: "GasoekOne", size: 64, color: "#ffffff", outline: true, outlineColor: "#ffd400", outlineWidth: 5, shadow: true, shadowBlur: 3, emphasis: true, emphasisColor: "#ff2d2d", posV: "middle" } },
+  { name: "카라오케 그린", desc: "흰 본문·강조 초록·하단",
+    style: { ...DEFAULT_STYLE, font: "GmarketSansBold", size: 60, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 5, emphasis: true, emphasisColor: "#22e06b", posV: "bottom" } },
+  { name: "클린 화이트", desc: "얇은 외곽·프리미엄·하단",
+    style: { ...DEFAULT_STYLE, font: "Pretendard", size: 52, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 3, shadow: true, shadowBlur: 4, emphasis: true, emphasisColor: "#ffc400", posV: "bottom" } },
+  { name: "박스 딜", desc: "반투명 검정 박스·하단",
+    style: { ...DEFAULT_STYLE, font: "GmarketSansBold", size: 50, color: "#ffffff", outline: false, box: true, boxColor: "#141414", boxOpacity: 0.72, boxPadX: 16, boxPadY: 8, emphasis: true, emphasisColor: "#ffe400", posV: "bottom" } },
+  { name: "세일 레드팝", desc: "커머스·가격 빨강 강조",
+    style: { ...DEFAULT_STYLE, font: "TmonMonsori", size: 62, color: "#ffffff", outline: true, outlineColor: "#000000", outlineWidth: 6, shadow: true, shadowBlur: 3, emphasis: true, emphasisColor: "#ff2e2e", posV: "middle" } },
+  { name: "네온 글로우", desc: "시안 글로우·마젠타 강조",
+    style: { ...DEFAULT_STYLE, font: "Jalnan", size: 58, color: "#ffffff", outline: true, outlineColor: "#001318", outlineWidth: 2, glow: true, glowColor: "#00e5ff", glowSize: 8, emphasis: true, emphasisColor: "#ff4fd8", posV: "middle" } },
+  { name: "손글씨 팝", desc: "손글씨·흰 외곽·라이프스타일",
+    style: { ...DEFAULT_STYLE, font: "OwnglyphMeetme", size: 56, color: "#333333", outline: true, outlineColor: "#ffffff", outlineWidth: 4, shadow: true, shadowBlur: 3, emphasis: true, emphasisColor: "#ff3b30", posV: "middle" } },
 ];
 
 // React.memo — value(captionStyle)/onChange(안정 setter) 동일하면 리렌더 skip.
@@ -243,7 +256,7 @@ function CaptionEditor({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-bold text-slate-100">{p.name}</div>
-                <div className="truncate text-[10px] text-slate-500">{p.style.font} · {p.style.size}px</div>
+                <div className="truncate text-[10px] text-slate-500">{p.desc}</div>
               </div>
             </button>
           ))}
