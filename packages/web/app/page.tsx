@@ -710,13 +710,16 @@ export default function Home() {
     if (!script.trim() || ttsBusy) return;  // 분석 전이어도 대본만 있으면 들어보기 가능
     setTtsBusy(true);
     try {
-      const d = await postJSON<{ audio?: string }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate });
+      const d = await postJSON<{ audio?: string; duration?: number; debug?: string[] }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate });
+      if (d.debug?.length) console.log("[TTS미리듣기 DEBUG] 서버 ↓\n" + d.debug.join("\n"));
+      console.log(`[TTS미리듣기] script ${script.length}자, 서버 duration=${d.duration}s, url=${d.audio}`);
       if (d.audio) {
         // 보이는 <audio controls autoPlay>로 재생(다시듣기·스크럽 가능). 숨은 audioRef는 보이스 미리듣기 전용.
         const el = audioRef.current;
         if (el && playing) { el.pause(); setPlaying(null); }   // 보이스 미리듣기 중이면 정지(겹침 방지)
         setTtsUrl(`${apiBase()}${d.audio}?t=${renderSeq}-${voice}`);
       } else {
+        console.warn("[TTS미리듣기] audio 없음", d);
         alert("음성 생성 실패.");
       }
     } catch {
@@ -1550,7 +1553,15 @@ export default function Home() {
             </button>
             {ttsUrl && (
               <div className="mt-2">
-                <audio key={ttsUrl} src={ttsUrl} controls autoPlay className="w-full" />
+                <audio
+                  key={ttsUrl}
+                  src={ttsUrl}
+                  controls
+                  autoPlay
+                  className="w-full"
+                  onLoadedMetadata={(e) => console.log(`[TTS미리듣기] 브라우저 오디오 로드 OK — duration=${e.currentTarget.duration.toFixed(2)}s`)}
+                  onError={(e) => console.error("[TTS미리듣기] 브라우저 오디오 로드 실패:", e.currentTarget.error, "src=", e.currentTarget.currentSrc)}
+                />
                 <p className="mt-1 text-center text-[11px] text-[var(--ink-soft)]">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>
               </div>
             )}

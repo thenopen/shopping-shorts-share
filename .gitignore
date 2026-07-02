@@ -73,3 +73,7 @@ _*_shot.png
 chrome-devtools-mcp/
 # ProPainter vendored repo(303MB, 가중치 191MB) — clone+자동패치로 재현(propainter_inpaint.ensure_propainter)
 packages/core/app/pipeline/ProPainter/
+
+# 서버 debug 로그(로컬 진단용)
+packages/core/_server.log
+packages/core/_server.err.log

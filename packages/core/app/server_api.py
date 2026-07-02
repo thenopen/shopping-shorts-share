@@ -208,12 +208,21 @@ def captions_preview(req: CaptionPreviewReq):
     _require_job(req.job_id)
     if not req.script.strip():
         raise HTTPException(400, "script is empty")
+    import re as _re2
+    from app.debuglog import make_dbg
+    dbg: list = []
+    _d = make_dbg(dbg, "자막생성")   # 서버 콘솔(로그) + 응답 debug(F12) 둘 다
+    _SUSPECT = _re2.compile(r"[ᄀ-ᇿ㄰-㆏ﾠ-ￜ]|[,，、]{2,}")   # 자모 필러/반복 쉼표
     try:
         from app.pipeline.tts import synthesize_by_nickname
         from app.pipeline.caption import (
             build_lines_from_tts, lines_to_payload, style_from_dict,
         )
 
+        _d(f"script {len(req.script)}자: {req.script[:100]!r}")
+        if _SUSPECT.search(req.script):
+            _d(f"⚠ 원본 대본에 의심문자 있음 → 자막뿐 아니라 대본 자체가 오염됨. "
+               f"codepoints={[hex(ord(c)) for c in req.script if _SUSPECT.match(c)][:20]}")
         job_dir = WORKDIR / req.job_id
         job_dir.mkdir(parents=True, exist_ok=True)
         dub = job_dir / "dub.mp3"
@@ -225,11 +234,22 @@ def captions_preview(req: CaptionPreviewReq):
             from app.pipeline.align import word_timestamps
             with GPU_SEM:
                 stamps = word_timestamps(_dub, language="ko")
+            _d(f"TTS 타임스탬프 없음 → whisper 재정렬 {len(stamps)}개")
+        else:
+            _d(f"TTS 타임스탬프 {len(stamps)}개")
         style = style_from_dict(req.caption_style)
         total = _probe_dur(_dub)
         lines = build_lines_from_tts(stamps, style, total_dur=total, full_text=req.script)
-        return {"lines": lines_to_payload(lines, style), "duration": total}
+        _d(f"자막 {len(lines)}줄 생성, 총 {total}s")
+        for i, ln in enumerate(lines):
+            txt = getattr(ln, "text", "")
+            if _SUSPECT.search(txt):
+                _d(f"  ⚠[{i}] {txt!r} codepoints={[hex(ord(c)) for c in txt]}")
+            else:
+                _d(f"  [{i}] {txt!r}")
+        return {"lines": lines_to_payload(lines, style), "duration": total, "debug": dbg}
     except Exception as e:
+        _d(f"✗ 예외: {str(e)[:200]}")
         raise HTTPException(500, f"caption preview failed: {str(e)[:300]}") from e
 
 
@@ -305,21 +325,55 @@ def tts_preview(req: CaptionPreviewReq):
     """
     if not req.script.strip():
         raise HTTPException(400, "script is empty")
+    import re
+    import subprocess
+    from pathlib import Path
+    from app.config import FFMPEG, FFPROBE
+    from app.debuglog import make_dbg
+    from app.pipeline.tts import synthesize_by_nickname
+    from app.pipeline import google_tts
+
+    dbg: list = []
+    _d = make_dbg(dbg, "TTS미리듣기")
     try:
-        from app.pipeline.tts import synthesize_by_nickname
-        import re
         # 서버 재기동으로 JOBS(메모리)가 비어도, 또는 분석 전이라도 미리듣기는 되게:
         # job_id 폴더가 있으면 쓰고, 없으면 '_ttspreview' 공용 폴더에 생성.
         jid = req.job_id if (req.job_id and (WORKDIR / req.job_id).exists()) else "_ttspreview"
         job_dir = WORKDIR / jid
         job_dir.mkdir(parents=True, exist_ok=True)
         safe_voice = re.sub(r"[^0-9A-Za-z가-힣]", "", req.voice) or "voice"
-        fname = f"preview_{safe_voice}.mp3"
+        _d(f"입력: script {len(req.script)}자, voice={req.voice}, rate={req.speaking_rate}, "
+           f"google_tts={google_tts.available()}")
+
+        # 합성(확장자 무관 임시). google TTS=LINEAR16(WAV), edge=mp3 — 내용이 확장자와 다를 수 있음.
+        synth = job_dir / f"_synth_{safe_voice}"
         _dub, _stamps = synthesize_by_nickname(
-            req.script, job_dir / fname, nickname=req.voice, speaking_rate=req.speaking_rate,
+            req.script, synth, nickname=req.voice, speaking_rate=req.speaking_rate,
         )
-        return {"audio": f"/file/{jid}/{fname}", "duration": _probe_dur(_dub)}
+        raw_sz = Path(_dub).stat().st_size if Path(_dub).exists() else 0
+        pr = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=format_name",
+                             "-of", "default=nokey=1:noprint_wrappers=1", str(_dub)],
+                            capture_output=True, text=True)
+        raw_fmt = (pr.stdout or "").strip()
+        _d(f"합성 결과: {raw_sz}바이트, 실제포맷={raw_fmt or '?'}, 타임스탬프 {len(_stamps)}개")
+
+        # 브라우저 재생용 실제 mp3로 트랜스코드(내용기반). WAV를 .mp3로 그냥 내보내면
+        # 브라우저가 audio/mpeg로 받아 디코드 실패→재생 0초. 그 버그 방지.
+        fname = f"preview_{safe_voice}.mp3"
+        final = job_dir / fname
+        tr = subprocess.run([FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
+                             "-i", str(_dub), "-c:a", "libmp3lame", "-b:a", "128k", str(final)],
+                            capture_output=True, text=True)
+        fin_sz = final.stat().st_size if final.exists() else 0
+        dur = _probe_dur(final)
+        _d(f"mp3 변환: {fin_sz}바이트, duration={dur}s, ffmpeg rc={tr.returncode}")
+        if fin_sz < 100:
+            _d(f"⚠ mp3 변환 실패/빈파일 — ffmpeg stderr: {(tr.stderr or '')[:200]}")
+        if not dur or dur <= 0:
+            _d(f"⚠ duration 0/None — 원본 {raw_sz}B/{raw_fmt}, 변환 {fin_sz}B. script 비었나? TTS 응답 확인")
+        return {"audio": f"/file/{jid}/{fname}", "duration": dur, "debug": dbg}
     except Exception as e:
+        _d(f"✗ 예외: {str(e)[:200]}")
         raise HTTPException(500, f"tts preview failed: {str(e)[:300]}") from e
 
 
