@@ -52,11 +52,12 @@ class CaptionStyle:
 
 @dataclass
 class CaptionLine:
-    """자막 한 줄 = 텍스트 + 타이밍 + 스타일."""
+    """자막 한 줄 = 텍스트 + 타이밍 + 스타일 + 수동 강조."""
     text: str
     start: float          # 초
     end: float            # 초
     style: CaptionStyle = field(default_factory=CaptionStyle)
+    emph: list | None = None   # 수동 강조 단어 인덱스. None=자동(정규식), []/[i…]=그 단어만
 
 
 def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> CaptionStyle:
@@ -119,8 +120,10 @@ def lines_from_payload(payload: list, default_style: CaptionStyle) -> list:
         if end < start:
             end = start
         st = style_from_dict(it.get("style"), base=default_style)
+        em = it.get("emph")
+        emph = [int(x) for x in em] if isinstance(em, list) else None
         out.append(CaptionLine(text=text, start=round(start, 2),
-                               end=round(end, 2), style=st))
+                               end=round(end, 2), style=st, emph=emph))
     return out
 
 
@@ -138,6 +141,7 @@ def lines_to_payload(lines: list, default_style: CaptionStyle) -> list:
             "start": round(float(ln.start), 2),
             "end": round(float(ln.end), 2),
             "style": style_dict,
+            "emph": getattr(ln, "emph", None),
         })
     return out
 
@@ -258,21 +262,25 @@ def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
     return [ln.strip() for ln in lines if ln.strip()]
 
 
-def _ass_emphasis(text: str, style) -> str:
-    """라인 텍스트의 핵심 단어(가격/혜택)를 ASS 인라인 태그로 강조.
+def _ass_emphasis(text: str, style, emph: list | None = None) -> str:
+    """라인 텍스트의 핵심 단어를 ASS 인라인 태그로 강조.
 
     매칭 구간을 {\\1c색\\fscx112\\fscy112\\b1}...{\\r} 로 감싸 색팝+살짝 키움.
-    \\r은 해당 줄의 Style로 리셋. style.emphasis=False면 원문 그대로.
+    emph(단어 인덱스 list) 지정 시 그 단어만(수동), None이면 자동(가격/키워드 정규식).
+    style.emphasis=False면 원문 그대로.
     """
     if not getattr(style, "emphasis", True) or not text:
         return text
     col = _ass_c(getattr(style, "emphasis_color", "FFE600"))
+    wrap = f"{{\\1c{col}\\fscx112\\fscy112\\b1}}%s{{\\r}}"
 
-    def repl(m):
-        seg = m.group(0)
-        return f"{{\\1c{col}\\fscx112\\fscy112\\b1}}{seg}{{\\r}}"
+    if emph is not None:
+        # 수동: 공백런 분할 단어(프론트 splitWords와 동일) 중 지정 인덱스만 강조.
+        sel = set(emph)
+        words = text.split()
+        return " ".join(wrap % w if i in sel else w for i, w in enumerate(words))
 
-    return _EMPH_RE.sub(repl, text)
+    return _EMPH_RE.sub(lambda m: wrap % m.group(0), text)
 
 
 def build_lines_from_tts(
@@ -534,7 +542,7 @@ Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
             dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{stag}{text}")
         # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
         # 핵심 단어(가격/혜택)는 인라인 태그로 색팝 강조(emphasis on일 때).
-        main_text = _ass_emphasis(text, st)
+        main_text = _ass_emphasis(text, st, getattr(ln, "emph", None))
         dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{main_text}")
     out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
     return out_ass

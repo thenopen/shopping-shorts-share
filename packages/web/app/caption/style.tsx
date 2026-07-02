@@ -66,9 +66,35 @@ const EMPH_RE = new RegExp(
   "g"
 );
 
+// 공백 기준 단어 분할 — 수동 강조 토글의 단위.
+export function splitWords(text: string): string[] {
+  return (text || "").split(/\s+/).filter(Boolean);
+}
+
+// 자동 강조(정규식) 대상 단어 인덱스 — 수동 조정의 시작점(사용자가 칩 누르면 이 셋에서 가감).
+export function autoEmphIndices(text: string): number[] {
+  const words = splitWords(text);
+  const out: number[] = [];
+  words.forEach((w, i) => { EMPH_RE.lastIndex = 0; if (EMPH_RE.test(w)) out.push(i); });
+  return out;
+}
+
 // 자막 텍스트의 핵심 단어를 강조색으로 칠한 React 노드(웹 미리보기용 — 최종 영상과 동일 룩).
-export function emphasizeNodes(text: string, s: CaptionStyle): React.ReactNode {
+// emph 지정(number[])이면 그 단어 인덱스만 강조(수동), null/undefined면 자동(정규식 span).
+export function emphasizeNodes(text: string, s: CaptionStyle, emph?: number[] | null): React.ReactNode {
   if (!s.emphasis || !text) return text;
+  if (emph != null) {
+    const words = splitWords(text);
+    const set = new Set(emph);
+    return words.map((w, i) => (
+      <span key={i}>
+        {i > 0 ? " " : ""}
+        {set.has(i)
+          ? <span style={{ color: s.emphasisColor, fontWeight: 900, fontSize: "1.12em" }}>{w}</span>
+          : w}
+      </span>
+    ));
+  }
   const out: React.ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;

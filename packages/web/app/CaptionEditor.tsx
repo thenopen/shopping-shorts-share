@@ -7,6 +7,14 @@ import { Toggle } from "./components/ui/Toggle";
 
 const STORAGE_KEY = "caption_templates";
 
+// 기본 제공 프리셋 — 골라서 전체 자막에 한 번에 적용(삭제 불가). 세부는 위 컨트롤로 조정.
+const PRESET_TEMPLATES: { name: string; style: CaptionStyle }[] = [
+  { name: "굵은 흰색", style: { ...DEFAULT_STYLE } },
+  { name: "노랑 임팩트", style: { ...DEFAULT_STYLE, font: "BMDOHYEON", size: 54, outlineWidth: 4 } },
+  { name: "옐로 강조체", style: { ...DEFAULT_STYLE, font: "Jalnan", size: 50, color: "#ffe600", outlineWidth: 4 } },
+  { name: "검정 박스", style: { ...DEFAULT_STYLE, size: 46, box: true, boxColor: "#000000", boxOpacity: 0.6, outline: false } },
+];
+
 // React.memo — value(captionStyle)/onChange(안정 setter) 동일하면 리렌더 skip.
 // 링크·대본 등 부모 상태 타이핑 시 이 무거운 편집기(539 폰트 option) 재조정 방지.
 function CaptionEditor({
@@ -214,36 +222,64 @@ function CaptionEditor({
       </div>
 
       <div className="mt-6 border-t border-[var(--line)] pt-4">
-        <div className="mb-3 flex items-center justify-between">
+        {/* 프리셋 — 클릭 한 번에 전체 자막 스타일 세트 적용 */}
+        <div className="mb-1 text-xs font-bold text-slate-400">스타일 프리셋</div>
+        <p className="mb-2.5 text-[11px] leading-relaxed text-slate-500">
+          클릭하면 폰트·크기·색·외곽선을 <b className="text-slate-400">한 세트로</b> 적용해요. 이후 위 컨트롤로 세부 조정.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {PRESET_TEMPLATES.map((p) => (
+            <button
+              key={p.name}
+              onClick={() => onChange(p.style)}
+              title="이 스타일로 전체 자막 적용"
+              className="panel-2 flex items-center gap-2 overflow-hidden rounded-2xl p-2 text-left transition hover:ring-1 hover:ring-pink-500/50"
+            >
+              <div
+                className="flex h-11 w-16 flex-none items-center justify-center overflow-hidden rounded-lg"
+                style={{ background: "#3a3f4a" }}
+              >
+                <span style={{ ...styleToCss(p.style), fontSize: Math.min(15, p.style.size / 3.4) }}>가나다</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-bold text-slate-100">{p.name}</div>
+                <div className="truncate text-[10px] text-slate-500">{p.style.font} · {p.style.size}px</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* 내 템플릿 — 지금 만든 스타일을 이름 붙여 저장 */}
+        <div className="mt-4 mb-2 flex items-center justify-between">
           <div className="text-xs font-bold text-slate-400">
-            스타일 템플릿 {Object.keys(templates).length > 0 && <span className="opacity-60">({Object.keys(templates).length})</span>}
+            내 템플릿 {Object.keys(templates).length > 0 && <span className="opacity-60">({Object.keys(templates).length})</span>}
           </div>
           <button
             onClick={() => { setTplName(""); setSaveModalOpen(true); }}
-            className="btn-primary rounded-full px-4 py-2 text-xs font-bold transition"
+            className="btn-ghost rounded-full px-3 py-1.5 text-xs font-bold transition"
           >
             + 현재 스타일 저장
           </button>
         </div>
 
         {Object.keys(templates).length === 0 ? (
-          <p className="panel-2 rounded-2xl px-3 py-4 text-center text-xs text-slate-500">
-            저장된 템플릿이 없습니다. 스타일을 만든 뒤 저장하세요.
+          <p className="panel-2 rounded-2xl px-3 py-3 text-center text-[11px] text-slate-500">
+            자주 쓰는 스타일을 만든 뒤 저장해두면 여기서 바로 불러와요.
           </p>
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {Object.entries(templates).map(([name, st]) => (
               <div key={name} className="group panel-2 flex items-center gap-2 overflow-hidden rounded-2xl p-2">
                 <div
-                  className="flex h-12 w-20 flex-none items-center justify-center overflow-hidden rounded-xl"
-                  style={{ background: "#6a7180" }}
+                  className="flex h-11 w-16 flex-none items-center justify-center overflow-hidden rounded-lg"
+                  style={{ background: "#3a3f4a" }}
                   title="미리보기"
                 >
-                  <span style={{ ...styleToCss(st), fontSize: Math.min(16, st.size / 3) }}>가나다</span>
+                  <span style={{ ...styleToCss(st), fontSize: Math.min(15, st.size / 3.4) }}>가나다</span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-bold text-slate-100">{name}</div>
-                  <div className="truncate text-[11px] text-slate-500">{st.font} · {st.size}px</div>
+                  <div className="truncate text-[13px] font-bold text-slate-100">{name}</div>
+                  <div className="truncate text-[10px] text-slate-500">{st.font} · {st.size}px</div>
                 </div>
                 <div className="flex flex-none gap-1">
                   <button onClick={() => loadTemplate(name)} className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-[var(--text-strong)] transition hover:bg-white/20">

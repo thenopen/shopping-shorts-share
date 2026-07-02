@@ -68,7 +68,7 @@ export function PreviewPane(props: {
     }
     return (
       <div className={`pointer-events-none absolute inset-x-0 flex justify-center px-2 ${POS_CLASS[eff.posV]}`}>
-        <span className="text-center" style={css}>{emphasizeNodes(line.text, eff)}</span>
+        <span className="text-center" style={css}>{emphasizeNodes(line.text, eff, line.emph)}</span>
       </div>
     );
   };

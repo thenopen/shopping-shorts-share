@@ -4,7 +4,7 @@
 // proto-vrew 룩으로 이식. 프리뷰 currentTime과 활성 줄 싱크 + 줄 클릭 시 시크.
 import { useEffect, useRef, useState } from "react";
 import { Captions, ChevronsDownUp, ChevronsUpDown, Info, Plus, RefreshCw, Undo2, X } from "lucide-react";
-import { CaptionStyle, styleToCss, emphasizeNodes } from "../../caption/style";
+import { CaptionStyle, splitWords, autoEmphIndices } from "../../caption/style";
 import { CaptionLineData } from "../../caption/types";
 import { FONTS } from "../../data/fonts";
 import { Spinner, Switch } from "../../ui";
@@ -64,6 +64,20 @@ export function CaptionStage({
 
   function patch(i: number, p: Partial<CaptionLineData>) {
     onChange(lines.map((l, idx) => (idx === i ? { ...l, ...p } : l)));
+  }
+
+  // 단어 강조 토글 — emph 없으면 자동강조 셋에서 시작(사용자가 가감). 이후 명시적 인덱스.
+  function toggleEmph(i: number, wi: number) {
+    const ln = lines[i];
+    const set = new Set(ln.emph ?? autoEmphIndices(ln.text));
+    if (set.has(wi)) set.delete(wi); else set.add(wi);
+    patch(i, { emph: Array.from(set).sort((a, b) => a - b) });
+  }
+
+  // 텍스트 편집 시 단어 수 바뀌면 emph 인덱스 무효 → 초기화(자동강조로 복귀).
+  function editText(i: number, t: string) {
+    const same = splitWords(t).length === splitWords(lines[i].text).length;
+    patch(i, same ? { text: t } : { text: t, emph: null });
   }
 
   function addLine() {
@@ -158,7 +172,7 @@ export function CaptionStage({
       {lines.length > 0 && (
         <div className="flex items-center gap-1.5 border-b border-[var(--line)] bg-white/[.02] px-5 py-1.5 text-[11px] text-slate-500">
           <Info className="h-3 w-3 flex-none" />
-          문구·톤 변경은 <b className="text-slate-400">대본 단계</b>에서 — 자막은 성우 음성과 맞춰져 있어요. 여기선 <b className="text-slate-400">타이밍·줄나눔·스타일</b>만.
+          <span><b className="text-slate-400">단어를 눌러</b> 강조(노랑)를 켜고 끌 수 있어요. 문구·톤 변경은 <b className="text-slate-400">대본 단계</b>에서 — 자막은 성우 음성과 맞춰져 있어요.</span>
         </div>
       )}
 
@@ -219,21 +233,28 @@ export function CaptionStage({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      {/* 단어 칩(표시용) */}
+                      {/* 단어 칩 — 클릭해서 강조 켜고 끄기(노랑=강조). 최종 룩은 왼쪽 프리뷰. */}
                       <div className="flex flex-wrap items-center gap-1">
-                        {ln.text.split(/\s+/).filter(Boolean).map((w, wi) => (
-                          <span key={wi} className="rounded-md border border-[var(--line)] bg-white/5 px-1.5 py-0.5 text-[12px] text-slate-200">
-                            {w}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* 실제 자막 렌더(효과 적용 축소판 — 최종 영상과 동일 룩) */}
-                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-500">
-                        <Captions className="h-3 w-3 flex-none" />
-                        <span style={{ ...styleToCss(eff), fontSize: Math.min(20, eff.size * 0.35) }}>
-                          {ln.text ? emphasizeNodes(ln.text, eff) : "미리보기"}
-                        </span>
+                        {(() => {
+                          const emphSet = new Set(ln.emph ?? autoEmphIndices(ln.text));
+                          return splitWords(ln.text).map((w, wi) => {
+                            const on = emphSet.has(wi);
+                            return (
+                              <button
+                                key={wi}
+                                onClick={(e) => { e.stopPropagation(); toggleEmph(i, wi); }}
+                                title={on ? "강조 끄기" : "이 단어 강조"}
+                                className={`rounded-md border px-1.5 py-0.5 text-[12px] transition ${
+                                  on
+                                    ? "border-yellow-400/50 bg-yellow-400/15 font-bold text-yellow-300"
+                                    : "border-[var(--line)] bg-white/5 text-slate-200 hover:border-yellow-400/40 hover:text-yellow-200"
+                                }`}
+                              >
+                                {w}
+                              </button>
+                            );
+                          });
+                        })()}
                       </div>
 
                       {/* 시간·텍스트 편집 행 */}
@@ -262,7 +283,7 @@ export function CaptionStage({
                         </span>
                         <input
                           value={ln.text}
-                          onChange={(e) => patch(i, { text: e.target.value })}
+                          onChange={(e) => editText(i, e.target.value)}
                           className="field min-w-0 flex-1 rounded-lg px-3 py-1 text-sm outline-none"
                           placeholder="자막 내용"
                         />
