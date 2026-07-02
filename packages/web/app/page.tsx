@@ -136,6 +136,15 @@ export default function Home() {
   }
   useEffect(() => { loadLibrary(); }, []);
 
+  // 다운로드 기록 항목 삭제(항목별). 확인 후 DELETE → 목록 새로고침.
+  async function deleteLibraryEntry(key: string) {
+    if (!window.confirm("이 다운로드 기록을 삭제할까요? (원본·자막제거본 캐시가 지워져요)")) return;
+    try {
+      await fetch(`${apiBase()}/library/${key}`, { method: "DELETE" });
+    } catch {}
+    loadLibrary();
+  }
+
   // 현재 대본(제품/AI가공/직접편집)을 job+라이브러리에 저장 — STT만 저장하던 구멍 보완.
   // 이어하기/새로고침에서 최신 대본 복구. job 없으면(영상 없이 제품만) 서버 저장 대상 없음.
   async function saveScriptToLibrary() {
@@ -453,7 +462,7 @@ export default function Home() {
               libEntries={libEntries}
               onPickLibrary={(u) => { setUrl(u); checkUrl(u); }}
               onResume={resumeFromLibrary}
-              onReRemoveSubtitle={(u) => analyze({ reuseNosub: false, url: u })}
+              onDeleteLibrary={deleteLibraryEntry}
               job={job}
               qFrames={qFrames} qBusy={qBusy} qEngine={qEngine} onCheckQuality={checkQuality}
             />

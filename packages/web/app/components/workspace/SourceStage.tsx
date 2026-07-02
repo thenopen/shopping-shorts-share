@@ -1,6 +1,6 @@
 "use client";
 
-import { Film, ClipboardPaste, Search, Play, RefreshCw, FolderOpen, ScanSearch } from "lucide-react";
+import { Film, ClipboardPaste, Search, Play, X, FolderOpen, ScanSearch } from "lucide-react";
 import { Spinner } from "../../ui";
 import { apiBase } from "../../lib/api";
 import { fmtSec } from "../../lib/format";
@@ -18,14 +18,14 @@ export function SourceStage(props: {
   libEntries: LibraryEntry[];
   onPickLibrary: (url: string) => void;      // setUrl+checkUrl
   onResume: (url: string) => void;           // 이어하기
-  onReRemoveSubtitle: (url: string) => void; // 자막제거 다시
+  onDeleteLibrary: (key: string) => void;    // 다운로드 기록 항목 삭제
   job: JobState | null;
   qFrames: { t: number; source: string | null; nosub: string | null }[];
   qBusy: boolean; qEngine: string | null; onCheckQuality: () => void;
 }) {
   const {
     url, setUrl, onPasteClipboard, onCheck, previewBusy, onAnalyze, busy,
-    preview, libEntries, onPickLibrary, onResume, onReRemoveSubtitle,
+    preview, libEntries, onPickLibrary, onResume, onDeleteLibrary,
     job, qFrames, qBusy, qEngine, onCheckQuality,
   } = props;
 
@@ -104,19 +104,8 @@ export function SourceStage(props: {
                     className="btn-primary flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs"
                   >
                     <Play className="h-3.5 w-3.5" />
-                    이어하기 {preview.stages ? `(${preview.stages.script ? "대본까지" : preview.stages.nosub ? "자막제거본까지" : "원본"} 불러오기)` : ""}
+                    이어하기
                   </button>
-                  {preview.stages?.nosub && (
-                    <button
-                      onClick={() => onReRemoveSubtitle(preview.url)}
-                      disabled={busy}
-                      title="다운로드는 재사용하고 자막제거만 다시 실행(지금은 ProPainter). 캐시 덮어씀"
-                      className="btn-ghost flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5 text-slate-400" />
-                      자막제거 다시
-                    </button>
-                  )}
                 </div>
               )}
               {preview.note && <div className="mt-1 text-[11px] text-amber-400">{preview.note}</div>}
@@ -134,25 +123,35 @@ export function SourceStage(props: {
             </summary>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
               {libEntries.map((e) => (
-                <button
-                  key={e.key}
-                  onClick={() => onPickLibrary(e.url)}
-                  title={e.title || e.url}
-                  className="flex-none transition hover:opacity-80"
-                >
-                  {e.has_thumb ? (
-                    <img
-                      src={`${apiBase()}/library/thumb/${e.key}`}
-                      alt=""
-                      className="h-20 w-[45px] rounded-lg object-cover ring-1 ring-white/10"
-                      style={{ aspectRatio: "9/16" }}
-                    />
-                  ) : (
-                    <div className="flex h-20 w-[45px] items-center justify-center rounded-lg bg-white/5">
-                      <Film className="h-4 w-4 text-slate-500" />
-                    </div>
-                  )}
-                </button>
+                <div key={e.key} className="group relative flex-none">
+                  <button
+                    onClick={() => onPickLibrary(e.url)}
+                    title={e.title || e.url}
+                    className="block transition hover:opacity-80"
+                  >
+                    {e.has_thumb ? (
+                      <img
+                        src={`${apiBase()}/library/thumb/${e.key}`}
+                        alt=""
+                        className="h-20 w-[45px] rounded-lg object-cover ring-1 ring-white/10"
+                        style={{ aspectRatio: "9/16" }}
+                      />
+                    ) : (
+                      <div className="flex h-20 w-[45px] items-center justify-center rounded-lg bg-white/5">
+                        <Film className="h-4 w-4 text-slate-500" />
+                      </div>
+                    )}
+                  </button>
+                  {/* 항목별 삭제 — 호버 시 노출 */}
+                  <button
+                    onClick={() => onDeleteLibrary(e.key)}
+                    title="이 기록 삭제"
+                    aria-label="다운로드 기록 삭제"
+                    className="absolute right-0.5 top-0.5 rounded bg-black/60 p-0.5 text-slate-200 opacity-0 transition hover:bg-rose-500/80 hover:text-white group-hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
               ))}
             </div>
           </details>
