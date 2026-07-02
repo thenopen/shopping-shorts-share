@@ -246,7 +246,7 @@ function CaptionEditor({
                   <div className="truncate text-[11px] text-slate-500">{st.font} · {st.size}px</div>
                 </div>
                 <div className="flex flex-none gap-1">
-                  <button onClick={() => loadTemplate(name)} className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white transition hover:bg-white/20">
+                  <button onClick={() => loadTemplate(name)} className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-[var(--text-strong)] transition hover:bg-white/20">
                     적용
                   </button>
                   <button onClick={() => { if (window.confirm(`'${name}' 템플릿을 삭제할까요?`)) deleteTemplate(name); }} className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400">

@@ -89,7 +89,7 @@ export function PipelineProgress({ job }: { job: JobState | null }) {
           const done = status === "done" || i < stepIdx;
           const active = i === stepIdx && !done;
           return (
-            <span key={label} className={done ? "text-emerald-400" : active ? "text-white" : "text-slate-600"}>
+            <span key={label} className={done ? "text-emerald-400" : active ? "text-[var(--text-strong)]" : "text-slate-600"}>
               {done ? "✓" : active ? "⟳" : "○"} {label}
             </span>
           );

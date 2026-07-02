@@ -40,7 +40,7 @@ export function VoiceStage(props: {
             <button
               key={g}
               onClick={() => setGenderFilter(g)}
-              className={`rounded-md px-3 py-1 transition ${genderFilter === g ? "bg-white/10 text-white" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
+              className={`rounded-md px-3 py-1 transition ${genderFilter === g ? "bg-white/10 text-[var(--text-strong)]" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
             >
               {lbl}
             </button>
@@ -56,7 +56,7 @@ export function VoiceStage(props: {
             onClick={() => setVoice(v.name)}
             className={`flex cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-sm transition ${
               voice === v.name
-                ? "bg-pink-500/10 font-semibold text-white ring-1 ring-pink-500/40"
+                ? "bg-pink-500/10 font-semibold text-[var(--text-strong)] ring-1 ring-pink-500/40"
                 : "bg-white/5 text-slate-300 ring-1 ring-[var(--line)] hover:bg-white/10"
             }`}
           >

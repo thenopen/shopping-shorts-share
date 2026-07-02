@@ -25,6 +25,12 @@ export default function RootLayout({
       className={`${inter.variable} h-full antialiased`}
     >
       <head>
+        {/* 테마 초기화 — 첫 페인트 전에 localStorage 반영(라이트 선택 시 다크 플래시 방지) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("theme")==="light")document.documentElement.dataset.theme="light"}catch(e){}`,
+          }}
+        />
         <link
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"

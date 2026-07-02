@@ -4,6 +4,7 @@ import { Check, Clapperboard, Settings } from "lucide-react";
 import { StageKey, STAGES } from "../../lib/stage";
 import { Spinner } from "../../ui";
 import { QuotaBadge } from "../QuotaBadge";
+import { ThemeToggle } from "../ThemeToggle";
 
 // 워크스페이스 상단바 — 좌: 로고/타이틀, 중앙: 스테이지 칩 내비(lg+), 우: 사용량·설정·영상 생성 CTA.
 export function TopBar(props: {
@@ -27,7 +28,7 @@ export function TopBar(props: {
         onClick={() => props.onStage(s.key)}
         className={`flex flex-none items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
           active
-            ? "bg-pink-500/15 text-white ring-1 ring-pink-500/40"
+            ? "bg-pink-500/15 text-[var(--text-strong)] ring-1 ring-pink-500/40"
             : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
         }`}
       >
@@ -67,6 +68,7 @@ export function TopBar(props: {
           </button>
         )}
         <QuotaBadge refreshKey={props.usageRefresh} active={props.usageActive} />
+        <ThemeToggle />
         <button
           onClick={props.onOpenSettings}
           aria-label="설정"

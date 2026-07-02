@@ -10,6 +10,7 @@
   --panel-2: #1E293B;
   --line: rgba(255, 255, 255, 0.08);
   --text: #E2E8F0;
+  --text-strong: #FFFFFF;   /* 활성 칩/선택 카드 강조 글자(라이트에선 진한 잉크로 반전) */
   --text-mut: #94A3B8;
   --text-dim: #64748B;
   --brand: #EC4899;
@@ -29,6 +30,44 @@
   --c-lilac: #1E293B;
   --c-pink: #1E293B;
 }
+
+/* ── 라이트 테마 — html[data-theme="light"] 오버라이드 ─────────────────────
+   토큰 반전 + (임시 브리지) 다크 전제로 하드코딩된 slate/white-알파 유틸 리맵.
+   TODO(개선트랙): 컴포넌트들을 전부 var 토큰으로 옮기면 아래 유틸 리맵 블록 삭제. */
+html[data-theme="light"] {
+  --bg: #F3F5FA;
+  --panel: #FFFFFF;
+  --panel-2: #EAEEF6;
+  --line: rgba(15, 23, 42, 0.10);
+  --text: #1E293B;
+  --text-strong: #0F172A;
+  --text-mut: #64748B;
+  --text-dim: #64748B;
+
+  /* 레거시 별칭도 반전 */
+  --background: #F3F5FA;
+  --foreground: #1E293B;
+  --ink: #1E293B;
+  --ink-soft: #64748B;
+  --c-blue: #EAEEF6; --c-blue2: #EAEEF6; --c-violet: #EAEEF6; --c-lilac: #EAEEF6; --c-pink: #EAEEF6;
+}
+/* 다크 전제 텍스트 유틸 → 라이트 잉크 스케일 */
+html[data-theme="light"] .text-slate-100 { color: #0F172A; }
+html[data-theme="light"] .text-slate-200 { color: #1E293B; }
+html[data-theme="light"] .text-slate-300 { color: #334155; }
+html[data-theme="light"] .text-slate-400 { color: #64748B; }
+html[data-theme="light"] .text-slate-500 { color: #64748B; }
+/* 다크 전제 white-알파 표면 → 라이트 잉크 틴트 */
+html[data-theme="light"] .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05); }
+html[data-theme="light"] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.08); }
+html[data-theme="light"] .bg-white\/15 { background-color: rgba(15, 23, 42, 0.10); }
+html[data-theme="light"] .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05); }
+html[data-theme="light"] .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08); }
+html[data-theme="light"] .hover\:bg-white\/20:hover { background-color: rgba(15, 23, 42, 0.12); }
+/* 내 유틸 클래스 라이트 보정 */
+html[data-theme="light"] .btn-ghost { background: rgba(15, 23, 42, 0.04); }
+html[data-theme="light"] .btn-ghost:hover { background: rgba(15, 23, 42, 0.08); }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.2); }
 
 @theme inline {
   --color-background: var(--background);
