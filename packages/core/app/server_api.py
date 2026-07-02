@@ -416,11 +416,18 @@ def script_product(req: ProductScriptReq):
                 "site": sp.get("site", ""), "error": sp["error"], "debug": debug}
 
     script = ""
+    quota_warn = ""
     if req.combine:
         script = product_script(req.video_content, points, debug=debug)
+        # 결합이 Gemini 429(무료 한도)로 실패했는지 debug에서 감지 → 조용한 폴백 대신 명확히 알림.
+        if any(("RESOURCE_EXHAUSTED" in m or "429" in m) and "실패" in m for m in debug):
+            quota_warn = ("Gemini 무료 한도를 초과해 대본 자동 결합이 안 됐어요. 잠시 뒤 다시 시도하거나, "
+                          "아래 소구포인트를 보고 대본을 직접 작성·수정해 주세요.")
+            debug.append("■ 429 quota → 사용자 알림 표시(소구포인트는 유지)")
     debug.append(f"■ 완료: 소구포인트 {len(points)}자, 대본 {len(script)}자")
     return {"selling_points": points, "script": script,
-            "source": sp.get("source", ""), "site": sp.get("site", ""), "error": "", "debug": debug}
+            "source": sp.get("source", ""), "site": sp.get("site", ""),
+            "error": quota_warn, "debug": debug}
 
 
 def _decode_image_b64(s: str) -> bytes | None:
