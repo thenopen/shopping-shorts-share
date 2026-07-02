@@ -2,8 +2,8 @@
 
 // 좌측 프리뷰 패널 — 9:16 영상(250x444) + 자막/CTA 라이브 오버레이 + 파이프라인 진행 + TTS 미리듣기.
 // 오버레이는 1080px 출력 기준 스타일을 250px 프리뷰로 축소(SCALE)해 최종 룩과 동일하게 보여준다.
-import { useRef, useState, type CSSProperties } from "react";
-import { Film } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Film, Volume2, Play, Pause, X } from "lucide-react";
 import { PipelineProgress } from "../PipelineProgress";
 import type { JobState } from "../../lib/types";
 import type { CaptionLineData } from "../../caption/types";
@@ -11,6 +11,88 @@ import { CaptionStyle, styleToCss, emphasizeNodes, autoEmphIndices } from "../..
 
 // 실제 출력 폭 1080px → 프리뷰 폭 250px 축소 배율
 const SCALE = 250 / 1080;
+
+function ptime(t: number) {
+  if (!isFinite(t) || t < 0) t = 0;
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// 대본 TTS 미리듣기 전용 커스텀 플레이어 — 무슨 플레이어인지 소제목으로 명시 + 세련된 컨트롤.
+function TtsPlayer({ url, voice, onClose }: { url: string; voice?: string; onClose?: () => void }) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+
+  useEffect(() => {           // url 바뀌면(보이스 변경) 처음부터 자동재생
+    setCur(0); setPlaying(false);
+    const el = ref.current;
+    if (el) el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  }, [url]);
+
+  const toggle = () => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.paused) el.play().then(() => setPlaying(true)).catch(() => {});
+    else { el.pause(); setPlaying(false); }
+  };
+  const seek = (v: number) => { const el = ref.current; if (el) { el.currentTime = v; setCur(v); } };
+
+  return (
+    <div className="mt-3 w-full rounded-xl border border-[var(--line)] bg-[var(--panel-2)] p-3">
+      <audio
+        ref={ref}
+        src={url}
+        onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
+        onEnded={() => setPlaying(false)}
+        className="hidden"
+      />
+      <div className="mb-2.5 flex items-center gap-2">
+        <div className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-pink-500/15 text-pink-400">
+          <Volume2 className="h-3.5 w-3.5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-bold text-slate-100">대본 미리듣기</div>
+          <div className="truncate text-[10px] text-slate-500">성우 {voice || "—"} · 내 대본 전체</div>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-500 transition hover:bg-white/10 hover:text-slate-300"
+            aria-label="미리듣기 닫기"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2.5">
+        <button
+          onClick={toggle}
+          className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-pink-500 text-white shadow-sm transition hover:bg-pink-400"
+          aria-label={playing ? "일시정지" : "재생"}
+        >
+          {playing ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
+        </button>
+        <span className="w-8 flex-none text-right text-[10px] tabular-nums text-slate-400">{ptime(cur)}</span>
+        <input
+          type="range"
+          min={0}
+          max={dur || 0}
+          step={0.05}
+          value={cur}
+          onChange={(e) => seek(+e.target.value)}
+          className="h-1 flex-1 cursor-pointer accent-pink-500"
+          aria-label="재생 위치"
+        />
+        <span className="w-8 flex-none text-[10px] tabular-nums text-slate-500">{ptime(dur)}</span>
+      </div>
+      <p className="mt-2 text-center text-[10px] text-slate-500">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>
+    </div>
+  );
+}
 
 // 자막 세로 위치(posV) → 오버레이 배치 클래스
 const POS_CLASS: Record<CaptionStyle["posV"], string> = {
@@ -34,10 +116,13 @@ export function PreviewPane(props: {
   onCtaPos?: (p: number) => void; // CTA 세로 위치 드래그(0~1) — 주면 프리뷰에서 직접 끌 수 있음
   onCaptionPos?: (x: number, y: number) => void; // 자막 자유위치 드래그(중심 0~1) — 선택/전체에 반영
   selectedCap?: number | null;   // 선택된 자막 줄 — 정지 중 이 줄을 드래그 핸들로 표시
+  ttsVoice?: string;             // TTS 미리듣기 성우명(플레이어 소제목)
+  onCloseTts?: () => void;       // 미리듣기 닫기
 }) {
   const {
     videoUrl, isFinal, captionLines, captionsOn, defaultStyle,
     ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos, onCaptionPos, selectedCap,
+    ttsVoice, onCloseTts,
   } = props;
 
   // CTA 드래그 — 9:16 박스 기준 상대 y → ctaPos(0~1). 드래그 중엔 세이프존 가이드 표시.
@@ -229,13 +314,8 @@ export function PreviewPane(props: {
         </p>
       )}
 
-      {/* 대본 TTS 미리듣기(보이스 단계에서 생성) */}
-      {ttsUrl && (
-        <div className="mt-2 w-full">
-          <audio key={ttsUrl} src={ttsUrl} controls autoPlay className="w-full" />
-          <p className="mt-1 text-center text-[11px] text-slate-500">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>
-        </div>
-      )}
+      {/* 대본 TTS 미리듣기(보이스 단계에서 생성) — 커스텀 플레이어 */}
+      {ttsUrl && <TtsPlayer key={ttsUrl} url={ttsUrl} voice={ttsVoice} onClose={onCloseTts} />}
     </section>
   );
 }

@@ -424,6 +424,8 @@ export default function Home() {
           ctaSize={ctaSize}
           ctaPos={ctaPos}
           ttsUrl={ttsUrl}
+          ttsVoice={voice}
+          onCloseTts={() => setTtsUrl("")}
           busy={busy || scriptBusy}
           job={job}
           videoRef={videoRef}
