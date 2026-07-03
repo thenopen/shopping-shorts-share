@@ -322,7 +322,14 @@ export default function Home() {
     setScriptBusy(true);
     try {
       await postJSON("/transcribe", { job_id: job.id });
-      pollJob(job.id, ["transcribed", "error"]);
+      // 받아쓰기는 '명시 요청' — 폴링의 dirty 게이트(타이핑 보호)에 막히지 않게
+      // 완료 시점에 commitScript로 반영(기존 대본은 Ctrl+Z 복구 가능).
+      pollJob(job.id, ["transcribed", "error"], (j) => {
+        if (j.status === "transcribed" && j.script) {
+          commitScript(j.script);
+          lastSavedScriptRef.current = j.script;
+        }
+      });
     } catch {
       setScriptBusy(false);
       alert("자동 대본 생성 실패.");
