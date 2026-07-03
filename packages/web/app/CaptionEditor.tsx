@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { FONTS } from "./data/fonts";
 import { CaptionStyle, styleToCss, styleToCssScaled, emphasizeNodes, animCss, ANIMS, PRESET_TEMPLATES } from "./caption/style";
+import { displayLines } from "./caption/linebreak";
 import { Toggle } from "./components/ui/Toggle";
 
 const STORAGE_KEY = "caption_templates";
@@ -24,7 +25,11 @@ function ScaledPreview({ s, text }: { s: CaptionStyle; text: string }) {
   return (
     <div ref={ref} className="flex w-full justify-center">
       <span key={s.anim ?? "none"} className="text-center" style={{ ...styleToCssScaled(s, scale), ...animCss(s) }}>
-        {text ? emphasizeNodes(text, s) : "미리보기"}
+        {text
+          ? displayLines(text).map((sg, i) => (
+              <span key={i} className="block">{emphasizeNodes(sg.text, s, sg.emph)}</span>
+            ))
+          : "미리보기"}
       </span>
     </div>
   );

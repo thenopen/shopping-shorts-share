@@ -2,12 +2,13 @@
 
 // 좌측 프리뷰 패널 — 9:16 영상(250x444) + 자막/CTA 라이브 오버레이 + 파이프라인 진행 + TTS 미리듣기.
 // 오버레이는 1080px 출력 기준 스타일을 250px 프리뷰로 축소(SCALE)해 최종 룩과 동일하게 보여준다.
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Film, Volume2, Play, Pause, X } from "lucide-react";
 import { PipelineProgress } from "../PipelineProgress";
 import type { JobState } from "../../lib/types";
 import type { CaptionLineData } from "../../caption/types";
 import { CaptionStyle, styleToCssScaled, emphasizeNodes, animCss, autoEmphIndices } from "../../caption/style";
+import { breakIndex, displayLines } from "../../caption/linebreak";
 
 // 실제 출력 폭 1080px → 프리뷰 폭 250px 축소 배율
 const SCALE = 250 / 1080;
@@ -160,31 +161,37 @@ export function PreviewPane(props: {
     const eff = line.style ?? defaultStyle;
     const css: CSSProperties = styleToCssScaled(eff, SCALE);
     // 애니(워드바이워드): 말하는 단어(t∈[start,end)) 팝 + 강조어 색 유지. 아니면 정적 emphasizeNodes.
+    // 2줄 배치는 caption/linebreak.ts(백엔드 \N과 동일 분할점) — 프리뷰=렌더 줄바꿈 일치.
     let inner: React.ReactNode;
     if (eff.animate && line.words && line.words.length) {
       const emphSet = new Set(line.emph ?? autoEmphIndices(line.text));
+      const bk = breakIndex(line.text);
       inner = line.words.map((w, i) => {
         // 팝은 단어 시작 후 0.17초만(최종 ASS \t 70+100ms와 동일) — 발화 내내 커져 있으면 렌더와 다르게 보임
         const dt = t - w.start;
         const popping = dt >= 0 && dt < 0.17 && t < w.end;
         const isE = eff.emphasis && emphSet.has(i);
         return (
-          <span
-            key={i}
-            style={{
-              display: "inline-block",
-              color: isE ? eff.emphasisColor : undefined,
-              fontWeight: isE ? 900 : undefined,
-              transform: popping ? `scale(${isE ? 1.3 : 1.18})` : "scale(1)",
-              transition: "transform 90ms ease-out",
-            }}
-          >
-            {i > 0 ? " " : ""}{w.text}
-          </span>
+          <Fragment key={i}>
+            {i > 0 && (i === bk ? <br /> : " ")}
+            <span
+              style={{
+                display: "inline-block",
+                color: isE ? eff.emphasisColor : undefined,
+                fontWeight: isE ? 900 : undefined,
+                transform: popping ? `scale(${isE ? 1.3 : 1.18})` : "scale(1)",
+                transition: "transform 90ms ease-out",
+              }}
+            >
+              {w.text}
+            </span>
+          </Fragment>
         );
       });
     } else {
-      inner = emphasizeNodes(line.text, eff, line.emph);
+      inner = displayLines(line.text, line.emph).map((sg, si) => (
+        <span key={si} className="block">{emphasizeNodes(sg.text, eff, sg.emph)}</span>
+      ));
     }
     // 자유위치(posX/posY)면 중심 앵커 절대배치, 아니면 posV 프리셋. onCaptionPos 있으면 드래그 가능.
     const free = eff.posX != null && eff.posY != null;
