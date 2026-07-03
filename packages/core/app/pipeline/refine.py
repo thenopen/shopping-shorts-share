@@ -104,8 +104,11 @@ def _call_gemini(prompt: str, retries: int = 3) -> str:
 
 # 최초 대본 생성 전용 모델 체인 — 품질 민감(문장력·구성)이라 flash를 1순위로.
 # 가공(refine)·자막 다듬기는 기존 lite 체인 유지(비용/속도). env로 상향 가능(예: gemini-2.5-pro).
+# 기본 pro — 실측(올리브영 60초 ×3): 분량 안착 3/3(flash 4/5) + 훅 구체성·경험담 톤 우위.
+# 비용 생성 1클릭 ≈ $0.03(flash의 ~4배, 절대값 미미), 대기 +40~60초. env로 flash 강등 가능.
 SCRIPT_MODELS = [
-    os.environ.get("GEMINI_SCRIPT_MODEL", "gemini-2.5-flash"),
+    os.environ.get("GEMINI_SCRIPT_MODEL", "gemini-2.5-pro"),
+    "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
 ]
 
