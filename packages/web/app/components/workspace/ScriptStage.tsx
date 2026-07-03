@@ -68,6 +68,7 @@ export function ScriptStage(props: {
         <div className="flex flex-wrap items-center gap-1.5 text-[12px] font-medium">
           <button
             onClick={() => setProductOpen((v) => !v)}
+            title="상품 상세페이지 링크·캡처에서 소구포인트를 뽑아 대본을 만들어요"
             className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 transition ${
               productOpen
                 ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
@@ -89,7 +90,6 @@ export function ScriptStage(props: {
             {scriptBusy ? <Spinner className="h-3.5 w-3.5 border-pink-500/40 border-t-pink-500" /> : <Mic className="h-3.5 w-3.5 text-blue-400" />}
             {scriptBusy ? "받아쓰는 중…" : "영상 음성 받아쓰기"}
           </button>
-          <span className="text-[11px] text-slate-500">직접 입력은 아래 에디터에서</span>
         </div>
       </div>
 
@@ -137,7 +137,7 @@ export function ScriptStage(props: {
                   productErr && productImages.length === 0 ? "ring-2 ring-amber-400/60" : ""
                 }`}
               >
-                <ImagePlus className="h-3.5 w-3.5 text-slate-400" /> 캡쳐 이미지 올리기
+                <ImagePlus className="h-3.5 w-3.5 text-slate-400" /> 캡처 이미지 올리기
                 <input
                   type="file"
                   accept="image/*"
@@ -147,7 +147,7 @@ export function ScriptStage(props: {
                 />
               </label>
               <span className="text-[11px] text-slate-500">
-                또는 캡쳐 후 이 영역에서 <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">Ctrl+V</kbd> 붙여넣기
+                또는 캡처 후 이 영역에서 <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">Ctrl+V</kbd> 붙여넣기
               </span>
               {productImages.length > 0 && (
                 <button onClick={() => setProductImages([])} className="text-[11px] font-semibold text-rose-400 hover:underline">

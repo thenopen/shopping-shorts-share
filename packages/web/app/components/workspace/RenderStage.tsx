@@ -77,6 +77,7 @@ export function RenderStage({
         <button
           onClick={onRender}
           disabled={!job?.id || busy}
+          title="TTS 더빙 → 영상 합성 → 자막 굽기까지 한 번에 실행돼요 (수 분)"
           className="btn-primary flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm"
         >
           {busy ? <Spinner className="h-4 w-4 border-white/40 border-t-white" /> : <Clapperboard className="h-4 w-4" />}

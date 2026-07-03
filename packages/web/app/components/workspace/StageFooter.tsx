@@ -30,7 +30,7 @@ export function StageFooter({ stage, onStage }: { stage: StageKey; onStage: (s: 
         </button>
       ) : (
         <span className="text-[11px] text-slate-500">
-          마지막 단계 — 우측 상단 <b className="text-slate-400">영상 생성</b>으로 완성
+          마지막 단계 — 옵션 확인 후 위 <b className="text-slate-400">영상 생성</b> 버튼으로 완성
         </span>
       )}
     </div>

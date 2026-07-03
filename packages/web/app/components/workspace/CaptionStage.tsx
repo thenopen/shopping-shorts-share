@@ -104,7 +104,7 @@ export function CaptionStage({
         <div className="flex items-center gap-2.5 text-[12px]">
           <span className="font-semibold text-slate-100">자막 타임라인</span>
           <span className="text-slate-500">{lines.length}줄</span>
-          <span className="flex items-center gap-1.5 text-slate-400">
+          <span className="flex items-center gap-1.5 text-slate-400" title="끄면 최종 영상에 자막을 넣지 않아요">
             <Switch on={captionsOn} onToggle={() => setCaptionsOn(!captionsOn)} ariaLabel="자동 자막 켜기/끄기" />
             자동 자막
           </span>

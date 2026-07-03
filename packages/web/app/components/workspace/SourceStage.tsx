@@ -52,6 +52,7 @@ export function SourceStage(props: {
             <button
               onClick={onCheck}
               disabled={previewBusy || !url.trim()}
+              title="다운로드 없이 제목·썸네일·보관 여부만 미리 확인"
               className="btn-ghost flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium"
             >
               <Search className="h-4 w-4 text-slate-400" />
@@ -60,6 +61,7 @@ export function SourceStage(props: {
             <button
               onClick={onAnalyze}
               disabled={busy || !url.trim()}
+              title="영상 다운로드 + 원본 자막 제거까지 실행 (수십 초~수 분)"
               className="btn-primary flex items-center gap-2 whitespace-nowrap rounded-lg px-5 py-2 text-sm"
             >
               {busy && job?.status !== "done" && <Spinner className="h-3.5 w-3.5 border-white/40 border-t-white" />}
@@ -170,8 +172,9 @@ export function SourceStage(props: {
               {qBusy
                 ? <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-500" />
                 : <ScanSearch className="h-3.5 w-3.5 text-slate-400" />}
-              {qBusy ? "프레임 추출 중…" : "자막 제거 품질 확인 (군데군데)"}
+              {qBusy ? "프레임 추출 중…" : "자막 제거 품질 확인"}
             </button>
+            <span className="text-[11px] text-slate-500">여러 구간의 원본↔제거본 프레임을 나란히 비교해요</span>
             {qEngine && <span className="text-[11px] text-slate-500">엔진: {qEngine}</span>}
           </div>
           {qFrames.length > 0 && (

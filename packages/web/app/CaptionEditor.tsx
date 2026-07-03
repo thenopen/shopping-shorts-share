@@ -107,7 +107,7 @@ function CaptionEditor({
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Text를 입력하세요."
+        placeholder="미리보기용 예시 문구 (영상에는 안 들어가요)"
         className="field mb-4 w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
       />
 

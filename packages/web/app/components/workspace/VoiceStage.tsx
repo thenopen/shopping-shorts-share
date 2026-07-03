@@ -2,7 +2,7 @@
 
 // 보이스 스테이지 — 성별 필터 + 보이스 카드 그리드 + 말하기 속도 + TTS 미리듣기.
 // 로직은 전부 props 주입(useVoicePreview/previewTts는 page.tsx 쪽). 여기는 표시만.
-import { Mic, Play, Pause } from "lucide-react";
+import { Mic, Play, Pause, Volume2 } from "lucide-react";
 import { VOICES } from "../../data/voices";
 import { Spinner } from "../../ui";
 
@@ -104,6 +104,7 @@ export function VoiceStage(props: {
           className="mt-1.5 w-full accent-pink-500"
           aria-label="말하기 속도"
         />
+        <p className="mt-1 text-[11px] text-slate-500">0.5x 느리게 ~ 2.0x 빠르게 · 최종 영상 길이와 자막 타이밍이 함께 바뀌어요</p>
       </div>
 
       {/* 대본 전체 TTS 미리듣기 — 오디오 플레이어는 좌측 프리뷰 아래에 뜸 */}
@@ -113,8 +114,8 @@ export function VoiceStage(props: {
         title={!hasScript ? "먼저 대본을 만들어 주세요" : undefined}
         className="btn-ghost flex w-full items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition"
       >
-        {ttsBusy && <Spinner className="h-4 w-4 border-pink-500/40 border-t-pink-500" />}
-        {ttsBusy ? "음성 생성 중…" : `🔊 '${voice}' 목소리로 대본 들어보기`}
+        {ttsBusy ? <Spinner className="h-4 w-4 border-pink-500/40 border-t-pink-500" /> : <Volume2 className="h-4 w-4 text-pink-400" />}
+        {ttsBusy ? "음성 생성 중…" : `'${voice}' 목소리로 대본 들어보기`}
       </button>
       <p className="text-center text-[11px] text-slate-500">생성된 음성은 왼쪽 프리뷰 아래에서 재생돼요. 보이스를 바꾼 뒤 다시 누르면 새로 만들어요.</p>
     </div>
