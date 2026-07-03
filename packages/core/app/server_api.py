@@ -128,8 +128,10 @@ class RefineReq(BaseModel):
 class RenderReq(BaseModel):
     job_id: str
     script: str = ""
-    voice: str = "소담"
+    voice: str = ""                  # Typecast voice_id(tc_/uc_). 빈값=기본 보이스
     speaking_rate: float = 1.0
+    emotion: str = "smart"           # smart(문맥) | happy/sad/angry/whisper/toneup/tonedown
+    emotion_intensity: float = 1.3   # 프리셋 강도(0~2)
     cta: str = "profile"
     cta_on: bool = True              # CTA 자막 넣기/빼기(체크박스)
     cta_size: int = 56               # CTA 글자 크기(px)
@@ -142,8 +144,10 @@ class RenderReq(BaseModel):
 class CaptionPreviewReq(BaseModel):
     job_id: str
     script: str = ""
-    voice: str = "소담"
+    voice: str = ""                  # Typecast voice_id
     speaking_rate: float = 1.0
+    emotion: str = "smart"
+    emotion_intensity: float = 1.3
     caption_style: dict | None = None
 
 
@@ -285,6 +289,7 @@ def captions_preview(req: CaptionPreviewReq):
         dub = job_dir / "dub.mp3"
         _dub, stamps = synthesize_by_nickname(
             req.script, dub, nickname=req.voice, speaking_rate=req.speaking_rate,
+            emotion=req.emotion, emotion_intensity=req.emotion_intensity,
         )
         # 프리뷰도 렌더와 동일하게: 타임스탬프 없으면 whisper 재정렬(싱크 일치).
         if not stamps and _dub:
@@ -406,6 +411,7 @@ def tts_preview(req: CaptionPreviewReq):
         synth = job_dir / f"_synth_{safe_voice}"
         _dub, _stamps = synthesize_by_nickname(
             req.script, synth, nickname=req.voice, speaking_rate=req.speaking_rate,
+            emotion=req.emotion, emotion_intensity=req.emotion_intensity,
         )
         raw_sz = Path(_dub).stat().st_size if Path(_dub).exists() else 0
         pr = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=format_name",
@@ -998,8 +1004,10 @@ def _render_worker(jid: str, req: RenderReq):
                 job_dir / "dub.mp3",
                 nickname=req.voice,
                 speaking_rate=req.speaking_rate,
+                emotion=req.emotion,
+                emotion_intensity=req.emotion_intensity,
             )
-            # Google TTS는 단어 타임스탬프를 안 줌([]) → 더빙 음성을 whisper로 재정렬해
+            # Typecast는 네이티브 단어 타임스탬프를 줌 → 아래 whisper 재정렬은 stamps 없을 때만(폴백).
             # 자막 싱크 정확도 확보(없으면 caption이 글자수 균등분할로 폴백).
             if not stamps and dub:
                 from app.pipeline.align import word_timestamps

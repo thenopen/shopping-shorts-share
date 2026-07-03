@@ -19,6 +19,7 @@ def usage_stats():
 
 class SettingsReq(BaseModel):
     gemini_key: str | None = None
+    typecast_key: str | None = None   # Typecast(talescale) TTS API 키(BYOK)
     tts_json: str | None = None
     modal_token_id: str | None = None
     modal_token_secret: str | None = None
@@ -50,6 +51,12 @@ def save_settings(req: SettingsReq):
             settings.save_gemini_key(req.gemini_key)
         except Exception as e:
             errs["gemini"] = str(e)[:140]
+    if req.typecast_key:
+        try:
+            from app.pipeline import typecast_tts
+            typecast_tts.save_key(req.typecast_key)
+        except Exception as e:
+            errs["typecast"] = str(e)[:140]
     if req.tts_json:
         try:
             settings.save_tts_json(req.tts_json)
@@ -78,11 +85,48 @@ def save_settings(req: SettingsReq):
     return {"ok": not errs, "errors": errs, "status": settings.status()}
 
 
+@router.get("/tts/typecast/status")
+def typecast_status():
+    """Typecast 키 상태 + 잔여 크레딧(설정 배지·보이스 화면용)."""
+    from app.pipeline import typecast_tts
+    if not typecast_tts.available():
+        return {"set": False}
+    return {"set": True, **typecast_tts.check_key()}
+
+
+@router.get("/tts/voices")
+def tts_voices():
+    """Typecast 보이스 목록(프론트 검색/필터용). 감정은 ssfm-v30 기준."""
+    from app.pipeline import typecast_tts
+    if not typecast_tts.available():
+        raise HTTPException(400, "Typecast 키가 필요합니다.")
+    out = []
+    for v in typecast_tts.list_voices():
+        em = next((m.get("emotions") for m in v.get("models", [])
+                   if m.get("version") == "ssfm-v30"), []) or []
+        out.append({
+            "voice_id": v.get("voice_id"),
+            "name": v.get("voice_name", ""),
+            "gender": v.get("gender", ""),
+            "age": v.get("age", ""),
+            "use_cases": v.get("use_cases") or [],
+            "emotions": list(em),
+            "shorts": "TikTok/Reels/Shorts" in (v.get("use_cases") or []),
+        })
+    return {"voices": out, "default": typecast_tts.DEFAULT_VOICE_ID}
+
+
 @router.post("/settings/test")
 def test_settings(req: SettingsTestReq):
     """설정 패널 '테스트' — 서비스별 유효성 확인(gemini는 요청 1회 소모)."""
     from app import settings
     s = (req.service or "").lower()
+    if s == "typecast":
+        from app.pipeline import typecast_tts
+        c = typecast_tts.check_key()
+        if c.get("ok"):
+            return {"ok": True, "msg": f"{c.get('plan')} · 잔여 {c.get('remaining'):,}자"}
+        return {"ok": False, "msg": c.get("error", "실패")}
     if s == "gemini":
         return settings.test_gemini()
     if s == "tts":
