@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>쇼핑쇼츠 대본 Good-Case 모음 — 공식·훅·프롬프트</title>
+<title>쇼핑쇼츠 대본 Good-Case — 전환형 공식·훅·프롬프트</title>
 <style>
   :root {
     --bg: #0f1117; --panel: #171a23; --panel2: #1e2230; --line: #2a2f3f;
@@ -14,15 +14,14 @@
   body { background: var(--bg); color: var(--text); font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; line-height: 1.7; }
   .wrap { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; }
   h1 { color: var(--strong); font-size: 26px; margin-bottom: 6px; }
-  .sub { color: var(--dim); font-size: 13px; margin-bottom: 36px; }
+  .sub { color: var(--dim); font-size: 13px; margin-bottom: 32px; }
   h2 { color: var(--pink); font-size: 19px; margin: 44px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  h2.appendix { color: var(--dim); }
   h3 { color: var(--strong); font-size: 15px; margin: 24px 0 8px; }
   p { font-size: 14px; margin-bottom: 10px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 14px 0; }
   .card.accent { border-color: rgba(236, 72, 153, 0.35); }
   .quote { background: var(--panel2); border-left: 3px solid var(--pink); border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 10px 0; font-size: 13.5px; }
-  .quote.a { border-left-color: var(--amber); }
-  .quote.g { border-left-color: var(--emerald); }
   ul, ol { margin: 8px 0 12px 20px; font-size: 14px; }
   li { margin-bottom: 5px; }
   b { color: var(--strong); }
@@ -33,243 +32,232 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
   th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
   th { background: var(--panel2); color: var(--strong); white-space: nowrap; }
+  .tscroll { overflow-x: auto; }
   a { color: var(--blue); text-decoration: none; }
   a:hover { text-decoration: underline; }
   .src { font-size: 11.5px; color: var(--dim); margin-top: 6px; }
   code { background: var(--panel2); border-radius: 6px; padding: 1px 6px; font-size: 12.5px; color: var(--amber); }
   .toc { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; font-size: 13.5px; }
   .toc a { display: block; padding: 2px 0; }
+  .toc .dim { color: var(--dim); }
   .note { font-size: 12.5px; color: var(--dim); background: var(--panel2); border-radius: 10px; padding: 10px 14px; margin-top: 8px; }
+  .skel { background: var(--panel2); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin: 8px 0; color: var(--strong); }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<h1>쇼핑쇼츠 대본 Good-Case 모음</h1>
-<div class="sub">공식·훅 실례·AI 툴 프롬프트·카테고리 소구·프롬프트 엔지니어링 — 2026-07-03 웹 리서치 정리 · Shorts Generator 내부 참고 문서</div>
+<h1>쇼핑쇼츠 대본 Good-Case</h1>
+<div class="sub">전환(판매) 목적 커머스 숏폼 전용 — 틱톡샵·쿠팡 파트너스·네이버 숏클립·더우인 리서치 종합 · 2026-07-03 · Shorts Generator 내부 문서<br>
+※ 범용 숏폼/카피 이론(1차 조사분)은 문서 하단 부록.</div>
 
 <div class="toc">
-  <a href="#s1">1. 검증된 대본 공식/구조</a>
-  <a href="#s2">2. 훅(첫 3초) 유형별 실례</a>
-  <a href="#s3">3. AI 대본 툴들의 프롬프트 Good Case</a>
-  <a href="#s4">4. 카테고리별 소구 문법</a>
-  <a href="#s5">5. LLM 프롬프트 엔지니어링 모범 사례</a>
-  <a href="#s6">6. 우리 파이프라인 반영 현황</a>
+  <b style="color:var(--pink)">본편 — 쇼핑쇼츠 특화</b>
+  <a href="#k0">0. 핵심 발견 3가지</a>
+  <a href="#k1">1. 틱톡샵 — 공식 구조와 '제품 노출 타이밍' 2학파</a>
+  <a href="#k2">2. 한국 어필리에이트 (쿠팡 파트너스·네이버 숏클립·공구 릴스)</a>
+  <a href="#k3">3. 더우인(抖音) 커머스 대본 공식 — 최선진 정식화</a>
+  <a href="#k4">4. 고전환 실사례 · 일반 쇼츠와의 차이</a>
+  <a href="#k5">5. 제품 데모 포맷 6종 — 대본 뼈대</a>
+  <a href="#k6">6. 우리 파이프라인 반영 현황</a>
+  <b class="dim" style="display:block;margin-top:8px">부록 — 범용 숏폼/카피 이론 (1차 조사)</b>
+  <a class="dim" href="#a1">A. 범용 대본 공식 (HPSC·PAS·3초 완성)</a>
+  <a class="dim" href="#a2">B. 범용 훅 유형·템플릿</a>
+  <a class="dim" href="#a3">C. AI 툴 프롬프트 사례 · 카테고리 소구 · 프롬프트 기법</a>
 </div>
 
-<h2 id="s1">1. 검증된 대본 공식/구조</h2>
-
+<h2 id="k0">0. 핵심 발견 3가지</h2>
 <div class="card accent">
-  <span class="tag">표준</span><b>Hook → Problem → Solution → CTA</b> (60초 기준 초 배분)
-  <ul>
-    <li><b>Hook (0~3초)</b> — 강한 한 문장·결과 선공개. 예: "이 영상 하나로 매출이 두 배가 됐어요"</li>
-    <li><b>Problem (3~10초)</b> — 문제 제시 한 번에</li>
-    <li><b>Solution (10~40초)</b> — 갈등→시도→변화의 미니 서사</li>
-    <li><b>요약·CTA (마지막 10초)</b> — 감정 회수 + 행동 유도</li>
-  </ul>
-  <p>실무 체크법: 문장마다 "이건 훅인가, 서사인가, 전환인가, 회수인가?" 자문.</p>
-  <div class="src">출처: <a href="https://www.threads.com/@human__bro/post/DIqtiUGy0mc">Threads @human__bro</a> · <a href="https://www.threads.com/@nomadbuffett/post/DH6BxjrSc9W">@nomadbuffett</a></div>
-</div>
-
-<div class="card">
-  <span class="tag y">UGC 광고</span><b>세분화 6단</b>: Hook(0–3s) → Problem(3–8s) → Solution(8–15s) → Product showcase(15–30s) → Social proof(30–40s) → CTA(40–45s). 60초 미만 유지. 30초 압축형: Hook/Problem/Demo/Payoff/CTA.
-  <div class="src">출처: <a href="https://ugcfast.ai/en/blog/ugc-ads-guide">UGCFast</a> · <a href="https://influee.co/landing/chatgpt_prompts">Influee</a></div>
-</div>
-
-<div class="card">
-  <span class="tag g">단문 최강</span><b>PAS (Problem–Agitation–Solution)</b> — 약한 표현 vs 강한 표현:
-  <table>
-    <tr><th>단계</th><th>약함</th><th>강함</th></tr>
-    <tr><td>Problem</td><td>"마케팅이 어렵다고 느끼시나요?"</td><td>"광고비는 쓰는데 문의는 한 건도 없다면?"</td></tr>
-    <tr><td>Agitation</td><td>"방치하면 손해입니다"</td><td>"한 달 지나면 광고비는 날아가고 경쟁사 제품만 팔린다"</td></tr>
-    <tr><td>Solution</td><td>기능 나열</td><td>"3시간 걸리던 작업을 20분 안에" — <b>기능이 아니라 결과</b></td></tr>
-  </table>
-  <p>핵심: 고객이 <b>댓글·후기에서 실제로 쓰는 표현</b>을 그대로 가져와라.</p>
-  <div class="src">출처: <a href="https://theawesomestyle.com/entry/8%ED%8E%B8-PAS-%EC%B9%B4%ED%94%BC%EB%9D%BC%EC%9D%B4%ED%8C%85%EC%9C%BC%EB%A1%9C-%EB%AC%B8%EC%A0%9C%EB%A5%BC-%EC%84%A4%EB%93%9D%EC%9C%BC%EB%A1%9C-%EB%B0%94%EA%BE%B8%EB%8A%94-%EB%B2%95">theawesomestyle — PAS</a></div>
-</div>
-
-<div class="card">
-  <span class="tag b">3초 완성</span><b>HOOK + FORESHADOW + TRANSITION</b> — 100만 조회 숏폼 분석.
-  <div class="quote">"맥도날드가 이 메뉴를 금지시켰대요" (HOOK) → "제가 만들어봤습니다" (FORESHADOW) → 요리 시작 (TRANSITION)</div>
-  <ul>
-    <li>오디오 없이도 이해되게(자막 필수) · 불필요한 초수 무조건 제거</li>
-    <li>공유되려면 "매우 유용하거나 매우 재밌거나" 둘 중 하나</li>
-    <li>15초 넘으면 강한 매력 필요, 60초 이상 비선호</li>
-  </ul>
-  <div class="src">출처: <a href="https://www.openads.co.kr/content/contentDetail?contsId=14251">OpenAds — 100만 조회수 숏폼 8요소</a> · <a href="https://sovran.ai/blog/hook-body-cta-video-ad-structure">Sovran — Hook/Body/CTA</a>(비주얼 비트 2~3초마다 전환, CTA는 혜택 반복형 구체 지시)</div>
-</div>
-
-<h2 id="s2">2. 훅(첫 3초) 유형별 실례</h2>
-
-<div class="card accent">
-  <b>12가지 카피 훅 유형 + 한국어 예문</b> (발췌)
-  <table>
-    <tr><th>유형</th><th>예문</th></tr>
-    <tr><td>결론 선공개</td><td>"하루 만에 천만 원을 날렸습니다"</td></tr>
-    <tr><td>반전(상식 깨기)</td><td>"사실 팔로워 수는 하나도 중요하지 않아요"</td></tr>
-    <tr><td>가치 약속</td><td>"세일즈 성과를 2배로 올려준 12가지 심리 원칙"</td></tr>
-    <tr><td>타겟 직접 호명</td><td>"주식계좌에 마이너스 있다면 꼭 따라 해보세요"</td></tr>
-    <tr><td>투자 자원 강조</td><td>"리뷰를 위해 1000만 원 태운 미친 X의 리뷰"</td></tr>
-    <tr><td>손해회피</td><td>"이게 없으면 돈이 많아도 인생이 불행해집니다"</td></tr>
-    <tr><td>FOMO</td><td>"현명한 사람들은 이미 다 ㅇㅇ을 시작하고 있어요"</td></tr>
-    <tr><td>호기심 질문</td><td>"명품은 도대체 왜 비싼 걸까?"</td></tr>
-  </table>
-  <div class="src">전체 12유형: <a href="https://brunch.co.kr/@planbro/240">brunch @planbro — 훅 카피 유형 12가지</a></div>
-</div>
-
-<div class="card">
-  <b>후킹 문구 템플릿</b> — <code>[ ]</code>에 제품/결과 대입 (발췌 12개, 전체 50개는 출처)
-  <ul>
-    <li>"당신이 진작 알았으면 좋았을 [N]가지 팁"</li>
-    <li>"아무도 말하지 않은 [주제]에 관한 진실"</li>
-    <li>"[하기 싫은 것]을 하지 않고 [결과]를 얻는 법"</li>
-    <li>"이것을 공개하면 [누구]가 싫어합니다"</li>
-    <li>"이제 [행동]은 그만하세요. 이것도 모르면."</li>
-    <li>"하루 [N시간]만 투자하면 [결과]를 얻습니다"</li>
-    <li>"[특정 상황의 타겟]만 보세요"</li>
-    <li>"만일 [결과]를 원한다면 [행동]을 멈추세요"</li>
-    <li>"이것만 바꿔도 [결과]가 달라집니다"</li>
-    <li>"[N]%의 사람들이 [결과]를 실패하는 이유"</li>
-    <li>"이것 없이는 절대로 [결과]를 만들 수 없습니다"</li>
-    <li>"이것만 빨리 알았어도 [결과]가 달랐을 겁니다"</li>
-  </ul>
-  <div class="src">출처(50개 전문): <a href="https://selfmarketing.imweb.me/19/?bmode=view&idx=17266541">스스로마케팅연구소 — 후킹 문구 50가지</a></div>
-</div>
-
-<div class="card">
-  <b>조회수 검증 3대 패턴</b>
-  <ul>
-    <li><span class="tag">질문형</span>"아직도 해시태그로만 조회수 올리세요?"</li>
-    <li><span class="tag y">희소성형</span>"나만 알고 싶은 OOO 꿀팁"</li>
-    <li><span class="tag g">결과·숫자형</span>"조회수 OOO회 터진 비결" — 직접 경험한 수치가 신뢰를 만든다</li>
-  </ul>
-  <p>추가 검증 문구: "이거 몰랐으면 큰일날 뻔했어요" / "99%가 틀리게 하는 방법" / "3초 만에 확인하세요"</p>
-  <div class="src">출처: <a href="https://www.threads.com/@hatozzang7/post/DWlAW3HADsa">Threads @hatozzang7</a></div>
-</div>
-
-<div class="card">
-  <b>실제 집행된 커머스 카피</b> (매체별)
-  <ul>
-    <li>타겟 호명·문제 자극: "뱃살 있으면 누르세요" / "아픈 무릎 이제 참지 마세요"</li>
-    <li>공감 질문: "텀블러 대충 씻고 계신가요? 한 알이면 충분해요"</li>
-    <li>할인 숫자 선행: "[86%] 99,000원 → 12,900원 / 첫 구매!"</li>
-    <li>라이브커머스 한정 혜택(손실 회피): "딱 1시간 동안만 20% 할인" / "오늘만 구매 시 에코백 증정"</li>
-  </ul>
-  <div class="src">출처: <a href="https://www.tosspayments.com/blog/articles/semo-110">토스페이먼츠 세모가이드</a> · <a href="https://ko.wix.com/blog/post/live-stream-shopping">Wix 라이브커머스</a></div>
-</div>
-
-<h2 id="s3">3. AI 대본 툴들의 프롬프트 Good Case</h2>
-
-<div class="card accent">
-  <span class="tag">국내 검증</span><b>쇼츠 대본 풀세트 프롬프트</b>
-  <div class="quote">"너는 유튜브 쇼츠/인스타 릴스용 대본을 기획부터 제작까지 설계하는 전문가야. [주제]를 아래 구조로 60초 대본으로 작성해줘. Hook(3초): 시선 끌기 / 상황 설명(10초): 문제 제시 / 솔루션(30초): 핵심 팁 / 요약&CTA(10초): 실천 유도 → 각 파트가 몇 초 분량인지도 명시해줘."</div>
-  <div class="quote a">훅 생성기: "30대 직장인이 관심 가질만한 인스타 릴스 콘텐츠 오프닝 훅 문구 10개 만들어줘."</div>
-  <div class="src">출처: <a href="https://www.threads.com/@human__bro/post/DIqtiUGy0mc">@human__bro</a> · <a href="https://www.threads.com/@platformtree_/post/DHnHllOPgma">@platformtree_</a></div>
-</div>
-
-<div class="card">
-  <b>Arcads</b> — Hook→Problem→Solution→Benefits→CTA 고정. AI 배우 감정 지정(훅=Surprised, 본문=Calm). 운영법: <b>같은 대본×5명 배우, 같은 배우×5개 훅</b> 다변량 테스트.
-  <div class="src"><a href="https://www.arcads.ai/">arcads.ai</a></div>
-</div>
-<div class="card">
-  <b>Creatify</b> — 상위 퍼포먼스 틱톡 광고로 학습된 훅-우선 스크립트. 방법론: <b>바디·CTA 고정, 훅 3~5개 먼저 테스트, 한 번에 변수 1개만</b>. 제품당 훅 변형 10개+.
-  <div class="src"><a href="https://creatify.ai/features">creatify.ai</a></div>
-</div>
-<div class="card">
-  <b>CapCut</b> — 제품명·소구포인트 입력 → 서로 다른 스크립트 5종 생성 후 택1. <b>브이캣(VCAT)</b> — 상품 URL → 상세페이지 분석 → 용도별(SNS/광고/브랜딩) 카피 분리 생성.
-  <div class="src"><a href="https://www.capcut.com/ko-kr/tools/ad-script-generator">CapCut</a> · <a href="https://vcat.ai/">vcat.ai</a></div>
-</div>
-<div class="card">
-  <b>UGC 프롬프트 템플릿 시장</b> — Influee(problem/solution·founder story·unboxing·comparison 등 10개 앵글), PromptBase, AIPRM. 공통 구조: <b>역할 지정 + 제품 정보 + 초 단위 구조 강제</b>.
-  <div class="src"><a href="https://influee.co/landing/chatgpt_prompts">Influee</a> · <a href="https://promptbase.com/prompt/tiktoks-and-reels-ugc-ad-scripter-2">PromptBase</a></div>
-</div>
-
-<h2 id="s4">4. 카테고리별 소구 문법</h2>
-
-<div class="card">
-  <span class="tag">뷰티</span><b>공감 상황 + 숫자 + 감각어</b>
-  <ul>
-    <li>일상 공감: "밤새 쌓인 노폐물, 운동 후 피지까지"</li>
-    <li>숫자 신뢰: "48시간 무너지지 않는 메이크업" / "사용 10일 차부터 달라지는 피부 결" — "깊은 보습"보다 "11중 수분 침투"</li>
-    <li>감각어: "피지 순삭", "깊숙이 스며드는", "보들보들한"</li>
-    <li>콘텐츠 유형: 비포&애프터, 제형·발림감 클로즈업</li>
-  </ul>
-  <div class="note">⚠ 화장품법 금지: "여드름 치료", "트러블 개선", "아토피 완화", "피부 재생"(의약품 오인), "업계 최초", "100% 천연"(무인증). 대체: 치료→"피부 결 정돈", 개선→"피부 진정". <a href="https://kcia.or.kr/">대한화장품협회 광고자문 기준</a> 참조.</div>
-  <div class="src"><a href="https://blog.gencystudio.com/cosmetic-advertising-strategies">GENCY Studio</a> · <a href="https://daplan.com/marketing_FAQ/?bmode=view&idx=169986407">다플랜</a></div>
-</div>
-
-<div class="card">
-  <span class="tag y">식품</span><b>감각 자극 + 상황 소환</b> — 릴스 최고 인기 주제(44.1%). ASMR 먹방·짧은 레시피·꿀조합. 카피: "밥을 부르는 치킨" / "입은 즐겁게 몸은 가볍게".
-</div>
-<div class="card">
-  <span class="tag g">생활용품</span><b>불편 공감 질문 → 한 번에 해결</b> — "텀블러 대충 씻고 계신가요? 한 알이면 충분해요" / "누구나 예쁜집에 살수있어"(오늘의집).
-</div>
-<div class="card">
-  <span class="tag b">가전</span><b>스펙의 감성 번역</b> — 기능이 바꾸는 생활 장면: "화질이 좋아지면 보는 표정까지 밝아집니다"(삼성 파브). 퍼포먼스형은 할인 숫자 선행.
-</div>
-<div class="card">
-  <span class="tag">패션</span><b>비주얼이 곧 소구</b> — 체형별 핏 비교·360도 디테일·"아이템 하나로 3가지 스타일링". W컨셉 숏폼 도입 후 구매 전환율 6.2%(일반 대비 4배).
-  <div class="src">공통 출처: <a href="https://daplan.com/marketing_FAQ/?bmode=view&idx=169986407">다플랜 — 업종별 숏폼 가이드</a> · <a href="https://www.tosspayments.com/blog/articles/semo-110">토스페이먼츠</a> · <a href="https://channel.io/ko/blog/articles/copy222-ffa64ebe">채널톡 카피 222</a> · <a href="https://imweb.me/blog?idx=367">imweb 사례집</a></div>
-</div>
-
-<div class="card accent">
-  <b>공통 원칙</b>: 카피는 <b>하나의 메시지</b>만. 최다 실수 = 많은 내용을 다 담으려는 것. 담을 후보 5요소: 제품 장점 / 필요한 상황 공감 / 프로모션 / 이벤트 / 브랜드 메시지 — 이 중 하나만 고른다.
-</div>
-
-<h2 id="s5">5. LLM 프롬프트 엔지니어링 모범 사례</h2>
-
-<div class="card">
-  <b>CO-STAR</b> (GovTech 프롬프트 대회 우승 구조) — Context / Objective / Style / Tone / Audience / Response format. 광고 대본이면: 제품·시장 맥락 → 전환 목표 → 숏폼 구어체 → 톤 → 타겟 페르소나 → 초 단위 표 형식 출력 지정.
-  <div class="src"><a href="https://brunch.co.kr/@acc9b16b9f0f430/148">brunch — 프롬프트 6요소</a></div>
-</div>
-
-<div class="card">
-  <b>와디즈 디렉터의 6단계 협업 프로세스</b>
   <ol>
-    <li>역할 지정 + 역할 이해 확인</li>
-    <li>타깃 도출 — 구체적 숫자로 요구("타깃 5가지")</li>
-    <li><b>역설계</b> — 제품 특징을 먼저 말하지 말고 "그 타깃에게 어필하려면 어떤 특징이 중요할지" 역으로 질문</li>
-    <li>변수 추가 — 시즌·타깃만의 페인 포인트</li>
-    <li>카피 작성 의뢰</li>
-    <li>수정 — 구체적 숫자로 가이드, 표현 방식 변경으로 새 콘셉트</li>
+    <li><b>훅은 반드시 제품/효용과 연관되어야 한다.</b> 제품과 무관한 어그로 훅은 조회수는 만들어도 판매 대목에서 이탈을 만든다 — 틱톡샵 공식 가이드와 더우인 데이터의 공통 결론. 일반 쇼츠 문법과 갈라지는 첫 지점.</li>
+    <li><b>제품 노출 타이밍은 단일 정답이 없다 — 2학파.</b> 효과가 눈에 보이는 저관여 상품은 '첫 프레임에 제품'(제품 선행형), 사연·공감이 필요한 상품은 '40% 지점에 해결책으로 등장'(문제 선행형). 상품 유형이 포맷을 결정.</li>
+    <li><b>CTA 문법은 플랫폼 결제 구조가 결정.</b> 인앱 결제(틱톡샵·네이버)는 장바구니 직행 지령, 외부 링크(유튜브 쇼츠+쿠팡)는 고정댓글 유도 + 댓글 수를 노출 연료로 쓰는 설계.</li>
   </ol>
-  <p>철학: "챗GPT와 협업하세요, 의존하지 말고" — 최종 킬러 콘셉트는 사람이 보탠다.</p>
-  <div class="src"><a href="https://www.fpost.co.kr/board/bbs/board.php?bo_table=fsp52&wr_id=30">패션포스트 — 콘텐츠 디렉터의 10분 카피</a></div>
 </div>
 
+<h2 id="k1">1. 틱톡샵 — 공식 구조와 '제품 노출 타이밍' 2학파</h2>
+
 <div class="card">
-  <b>Few-shot과 제약 조건</b>
+  <span class="tag">공식</span><b>훅(3~6초) → 핵심 메시지 → CTA</b> — 틱톡샵 셀러 아카데미
   <ul>
-    <li>잘 쓴 카피 예시를 먼저 주고 시작 — "예시 데이터가 잘 정리돼 있으면 AI는 엄청난 결과물을 출력"</li>
-    <li>나쁜 예 → 좋은 예: "콜라 카피 만들어줘" → "제로 슈가 콜라를 2~30대에게 팔고 싶어. 홍보 카피 한 줄"(타겟+제품+분량)</li>
-    <li>초 단위 구조를 프롬프트에 강제 + "각 파트 몇 초인지 명시" 요구</li>
-    <li>규제(화장품법 등) 금지 표현을 negative constraint로 명시, 대체 표현 매핑을 few-shot으로</li>
+    <li>훅: <b>제품 연관 필수</b>. 무관한 엔터테인먼트 훅은 판매 전환 시점 이탈 유발.</li>
+    <li>CTA: 음성 + 화면 텍스트 <b>둘 다</b>(무음 시청자 대비). 시청 직후 바로 따라 할 수 있는 행동.</li>
+    <li>공식 인정 4대 포맷: 사용 후기 / 비포&애프터 / 언박싱 / 튜토리얼.</li>
+    <li>데이터: 독일 상위 셀러 매출 60~70%가 쇼퍼블 비디오+라이브 발생.</li>
   </ul>
-  <div class="src"><a href="https://www.i-boss.co.kr/ab-6141-63788">아이보스</a> · <a href="https://seo.tbwakorea.com/blog/how-to-use-chatgpt-in-digital-markeitng/">TBWA</a> · <a href="https://adlibrary.com/guides/ai-prompting-guide-ugc-content-creators">AdLibrary</a></div>
+  <div class="src">출처: <a href="https://ppc.land/tiktok-shops-shoppable-video-content-guide-tells-creators-what-actually-works/">ppc.land — 틱톡샵 가이드 요약</a> · <a href="https://seller-us.tiktok.com/university/course?learning_id=5970955314923306&content_id=5970955314661162&lang=en">Seller University</a></div>
+</div>
+
+<div class="card accent">
+  <b>제품 노출 타이밍 — 2학파</b>
+  <div class="tscroll"><table>
+    <tr><th></th><th>A. 제품 선행형</th><th>B. 문제 선행형 ('40% 룰')</th></tr>
+    <tr><td><b>구조</b></td><td>첫 프레임에 제품, 3~5초 안에 혜택 공개</td><td>영상 길이의 40% 지점에서 제품을 '해결책'으로 등장. 앞부분은 통점을 구체 디테일로 쌓음</td></tr>
+    <tr><td><b>맞는 상품</b></td><td>저가·충동구매·시각 임팩트(클렌저, 청소용품, 가젯)</td><td>사연·공감 필요(건강, 수면, 고가)</td></tr>
+    <tr><td><b>훅 예</b></td><td>결과/제품 임팩트 장면</td><td>통점 장면 재현("베개에 각질 떨어진 채로 매일 아침 깼다"급 구체성), 스테이크 선언("이거 찾기 전에 세 개 반품했다")</td></tr>
+  </table></div>
+  <p>절충안(전환 특화 브리프): 훅 3초 내(제품명 필수 아님, 제품 '결과'와 연결만) → <b>7~15초에 제품을 손으로 만지며 등장</b> → 장바구니 오버레이는 제품 첫 접촉 순간 + 마지막 5초 재노출. 전환 최적 길이 <b>30~45초</b>.</p>
+  <div class="src">출처: <a href="https://www.ecommop.com/blog/tiktok-shop-conversion-rate">ecommop</a> · <a href="https://www.influencers-time.com/tiktok-shop-sponsored-videos-hooks-timing-and-disclosure/">Influencers Time — 훅·타이밍</a> · <a href="https://www.influencers-time.com/tiktok-shop-creator-brief-for-immediate-purchase-conversion/">전환 브리프</a></div>
 </div>
 
 <div class="card">
-  <b>변형 대량 생성 + 단일 변수 테스트</b> — Arcads·Creatify 공통: 훅 5~10개 변형(바디 고정) → 훅 A/B → 이긴 훅으로 앵글 테스트 → <b>한 번에 한 변수만</b>. LLM엔 "같은 구조로 훅만 다른 N개" 형태로 이식.
+  <b>가격·CTA 문법</b>
+  <ul>
+    <li>긴급성은 <b>실제 가격 조건에만</b> 묶기: "내가 산 가격이 지금 링크에 떠 있는데 언제까지일지 모른다" — 가짜 마감시한 금지(정책 위반 시 상품 태그 권한 박탈).</li>
+    <li>CTA 3요소: <b>정확한 행동 명명 + 다음에 벌어질 일 + 구체성 기반 긴급성</b>. 예: "아래 장바구니 누르면 바로 결제 화면으로 가요."</li>
+    <li>훅의 언어를 CTA에서 다시 받아 수미상관으로 닫기.</li>
+    <li>협찬 표기(라벨+초반 구두 언급)는 신뢰 신호로 작동해 오히려 전환 상승.</li>
+  </ul>
+  <div class="src">출처: <a href="https://www.influencers-time.com/tiktok-shop-sponsored-videos-hooks-timing-and-disclosure/">Influencers Time</a> · <a href="https://videowise.com/live-commerce/tiktok-shoppable-video-guidelines-for-shopify-brands">videowise</a></div>
 </div>
 
-<h2 id="s6">6. 우리 파이프라인 반영 현황 (2026-07-03)</h2>
+<div class="card">
+  <span class="tag y">한국 실전</span><b>틱톡샵 어필리에이트 (아이보스/오픈애즈)</b>
+  <ul>
+    <li>제1원칙: <b>"광고처럼 보이면 자동 노출 페널티 — 친구가 추천하는 톤이 정답."</b></li>
+    <li>밀 제품 기준 = 편집 없이도 임팩트가 나오는 제품: 즉각 비포&애프터, 독특한 텍스처, 번들 가능 상품.</li>
+    <li><b>조회수≠매출</b>: 100만 뷰 구매 0 vs 1만 뷰 고ROAS 공존. 전환 패턴 찾은 뒤 광고(GMV Max)로 증폭이 정석 순서.</li>
+  </ul>
+  <div class="src">출처: <a href="https://openads.co.kr/content/contentDetail?contsId=18843">오픈애즈 — 틱톡샵 8단계</a> · <a href="https://www.i-boss.co.kr/ab-74668-5495">아이보스판</a></div>
+</div>
+
+<h2 id="k2">2. 한국 어필리에이트 — 쿠팡 파트너스·네이버 숏클립·공구 릴스</h2>
+
+<div class="card">
+  <span class="tag">쿠팡 파트너스</span><b>링크 구조가 대본을 결정</b>
+  <ul>
+    <li>유튜브 쇼츠는 본문 외부링크 불가 → <b>설명란+고정댓글</b>에 링크. 대본 CTA는 "링크 클릭"이 아니라 <b>"고정댓글 확인"</b> 지시로.</li>
+    <li>파이프라인 표준: ChatGPT 대본 → Vrew 자동 영상(9:16, 자막 상단 배치) → 훅 두괄식·정보격차로 앞 3초 방어.</li>
+    <li>전환 요소 배치: 첫 프레임 훅 + <b>관심 정점인 중반에 '제품 보기' 유도 문구</b>.</li>
+    <li>커뮤니티 경험담: 제품 나열식 저품질 쇼츠는 전환 극악 — "진짜 문제 해결을 보여주는" 영상만 지속 수익.</li>
+    <li>댓글 유도 최신 기법: "댓글 달아주세요" 사멸 → <b>지적 유도</b>(의도적 빈틈으로 지적 댓글 유발 = 노출 부스트 = 고정댓글 링크 노출↑).</li>
+  </ul>
+  <div class="src">출처: <a href="https://tilnote.io/en/pages/68841eea65132c82f7203c69">TILNOTE — 30분 쇼핑쇼츠</a> · <a href="https://blog.fikad.boo/92487">피카클립</a> · <a href="https://www.teamblind.com/kr/post/%EC%B1%97GPT%EB%A1%9C-%EC%87%BC%EC%B8%A0%EC%9C%A0%ED%8A%9C%EB%B8%8C%EC%87%BC%EC%B8%A0%EB%A6%B4%EC%8A%A4-%EB%A7%8C%EB%93%A4%EA%B8%B0-3%EA%B0%9C%EC%9B%94-%ED%9B%84%EA%B8%B0-PXyKzOGP">블라인드 3개월 후기</a> · <a href="https://www.threads.com/@shortsmoney/post/DJssXDcBkMj">@shortsmoney</a></div>
+</div>
+
+<div class="card">
+  <span class="tag g">네이버 숏클립</span> 10초~2분, 상품 태그·라이브 예고 겸용. 전환 문법 = <b>제품 클로즈업·먹방 등 근접 질감 촬영</b>(도입 판매자 거래액 최대 +318% 사례). 알고리즘이 라이브 병행 점수를 봐서 숏클립 단독보다 라이브:숏클립 병행 운용이 전제.
+  <div class="src">출처: <a href="https://www.paxetv.com/news/articleView.html?idxno=175626">팍스경제TV</a> · <a href="https://openads.co.kr/content/contentDetail?contsId=9312">오픈애즈</a></div>
+</div>
+
+<div class="card">
+  <span class="tag b">인스타 공구 릴스</span> 릴스 = 판매 페이지가 아니라 <b>신청폼으로 보내는 예고·오픈·마감 콘텐츠</b>. 공구는 기간·수량 한정이 <b>실제로 참</b>이라 사실 기반 긴급성이 합법적으로 작동. "내가 직접 써보고 가져온" 서사 필수 — 팔로워 신뢰가 곧 전환율.
+  <div class="src">출처: <a href="https://forcreator.co.kr/blog/instagram-group-buy-howto">포크레터 — 공구 하우투</a></div>
+</div>
+
+<h2 id="k3">3. 더우인(抖音) 커머스 대본 공식 — 최선진 정식화</h2>
+
 <div class="card accent">
-  <table>
-    <tr><th>리서치 인사이트</th><th>반영</th></tr>
-    <tr><td>구조 공식 고정 (Hook→Problem→제품→증거→CTA)</td><td>✅ PRODUCT_SCRIPT_PROMPT 구성 5단 고정</td></tr>
-    <tr><td>훅 유형 라이브러리 few-shot</td><td>✅ HOOK_PATTERNS 8유형 주입</td></tr>
-    <tr><td>훅 변형 N개 → 택1</td><td>✅ /script/hooks + '훅 바꾸기' UI (3후보)</td></tr>
-    <tr><td>best-of-N + 채점</td><td>✅ 후보 3개 + 5축 루브릭 채점</td></tr>
-    <tr><td>카테고리별 소구 문법</td><td>✅ CATEGORY_GUIDES 6종 분기</td></tr>
-    <tr><td>잘 쓴 대본 few-shot</td><td>✅ script_bank.json (시드 3 — 계속 추가할 것)</td></tr>
-    <tr><td>목표 길이 역산</td><td>✅ 목표 초 × 5.5자 분량 제약</td></tr>
-    <tr><td>단일 변수 테스트 운영법</td><td>⬜ 미반영 — 훅 A/B 성과 추적은 업로드 지표 연동 후</td></tr>
-    <tr><td>화장품법 금지 표현 negative constraint</td><td>⬜ 미반영 — 뷰티 카테고리 금지어 목록 프롬프트 추가 후보</td></tr>
-    <tr><td>PAS '고객 실제 표현 인용'</td><td>⬜ 미반영 — 상세페이지 리뷰 크롤 시 후기 문장 소구포인트에 포함 후보</td></tr>
-  </table>
+  <b>5단계 인지 모델</b> (인기 TOP50 데이터 기반 — 가장 정교한 전환 대본 정식화)
+  <ol>
+    <li><b>첫 3초 = 인지 충돌</b> — 제품 소개가 아니라 반상식으로 뇌를 멈춤. 실패례: "안녕하세요, 오늘 소개할 제품은…". 성공례(보온컵): 동료가 컵을 가져가는 이유가 '예뻐서'가 아니라는 반전. 이런 훅은 완주율 평균 대비 +216%.</li>
+    <li><b>4~8초 = 타깃 신원 못박기</b> — 폭발 대본의 92%가 5초 안에 타깃의 직업·상태·통점 디테일 명시("아침에 뜨거운 두유 담아 출근하는 사무직").</li>
+    <li><b>중반 = 통점 3연문</b> — ①"~해본 적 있죠?(장면 재현)" ②"그러다 ~됐죠(후과 확대)" ③"이제는요(해결책=제품 등장)". <b>제품은 감정 사이클이 닫힌 뒤에야 등장.</b></li>
+    <li><b>증거 = 검증 가능한 미시 증거</b> — "판매량 10만+", "연예인 pick" 대신 온도계 실측, 방수 실험, 실제 송장 화면. "작지만 진짜인 것이 유명인 추천보다 세다."</li>
+    <li><b>엔딩 = 무사고(無思考) 구매 지령</b> — 시청자는 결정피로 상태. 생각이 1스텝이라도 필요한 CTA("프로필 가서 봐")는 전멸. 구체 행동+즉시 혜택 병기 시 장바구니 클릭률 4.3배.</li>
+  </ol>
+  <div class="src">출처: <a href="https://www.chanmama.com/yunyingquan/article/1288.html">蝉妈妈 — 5단계 인지 모델</a></div>
 </div>
 
-<p class="note">조사 한계: 일부 출처(Threads 이미지 게시물, waveon.io 404, Influee 이메일 게이트)는 원문 전체 확인 불가 — 구조/발췌만 수록.</p>
+<div class="card">
+  <b>3대 문안 구조 + 5단계 촬영 공식</b>
+  <div class="tscroll"><table>
+    <tr><th>구조</th><th>흐름</th><th>맞는 상황</th></tr>
+    <tr><td>통점법(痛点法)</td><td>통점 직격 → 해결책 → 구매 유도</td><td>문제 해결형 제품</td></tr>
+    <tr><td>가격법(价格法)</td><td>가격 파격 선언("100도 50도 아니고 29.9") → 제품 전시 → 구매 유도</td><td>가격 우위 제품</td></tr>
+    <tr><td>효과법(效果法)</td><td>효과 먼저 시연 → 통점 설명 → 혜택으로 마감</td><td>효과 가시 제품</td></tr>
+  </table></div>
+  <p><b>촬영 5단계 "喊亮拆测卖"</b>: ①소리쳐 세우기("넘기지 마요") → ②제품 공개 → ③뜯기/까기 → ④즉석 테스트 → ⑤팔기(혜택+가격+주문). 30초 내 완결. 공통 수칙: 실물 손에 들기·구어체·직접 시연·가격 우위 명시.</p>
+  <div class="src">출처: <a href="https://www.woshipm.com/share/6045242.html">人人都是产品经理 — 7요소·3구조·5단계</a> · <a href="https://www.yunyingpai.com/news/688562.html">运营派 — 8종 성사 화법</a></div>
+</div>
+
+<h2 id="k4">4. 고전환 실사례 · 일반 쇼츠와의 차이</h2>
+
+<div class="card">
+  <b>실사례 데이터</b>
+  <ul>
+    <li>광고비 $6K → GMV $45K 사례: 크리에이티브당 <b>혜택 딱 하나</b>만 강조, 훅 A/B 3~5일 → 승자 증폭. 28.1만 뷰 영상보다 <b>절반 뷰 영상이 매출 더 큼</b> — 차이는 훅·페이싱·CTA.</li>
+    <li>이미 오가닉으로 팔린 영상을 광고(GMV Max)로 증폭하는 순서가 정석 (전환율 +22%).</li>
+    <li>벤치마크: 쇼퍼블 비디오 전환율 2~8%(뷰티·가젯 상위 10%+), 일반 오가닉 0.5~1.5%.</li>
+  </ul>
+  <div class="src">출처: <a href="https://signalytics.ai/gmv-on-tiktok-shop-success/">Signalytics</a> · <a href="https://joinbrands.com/blog/how-tiktok-shoppable-videos-turn-views-into-sales-in-2025/">JoinBrands</a></div>
+</div>
+
+<div class="card accent">
+  <b>일반 쇼츠 vs 쇼핑쇼츠</b>
+  <div class="tscroll"><table>
+    <tr><th></th><th>일반(조회수) 쇼츠</th><th>쇼핑쇼츠</th></tr>
+    <tr><td>목표</td><td>시청유지·완주·공유</td><td><b>같은 세션 내 구매 완결</b></td></tr>
+    <tr><td>훅</td><td>무엇이든 멈추게 하면 됨</td><td><b>제품 연관 필수</b></td></tr>
+    <tr><td>중반</td><td>긴장 유지 장치</td><td>혜택 시연 + 검증 가능 증거</td></tr>
+    <tr><td>엔딩</td><td>반복시청·팔로우 유도</td><td>무사고 구매 지령</td></tr>
+    <tr><td>지표</td><td>조회수·완주율</td><td>GMV·전환율 (조회수와 자주 역상관)</td></tr>
+  </table></div>
+  <p><b>'광고 같으면 죽는다' 균형의 정확한 해석</b>: 죽이는 것은 '판매 행위'가 아니라 <b>'광고 질감'</b>(스톡영상·성우 톤·과장 효능·상품페이지 이미지 재활용). 명시적 CTA·가격·사실 기반 긴급성은 오히려 필수. 훅 톤 5종(혜택/질문/수치/스토리/직접CTA)을 섞어 돌리는 계정이 CVR 30~45% 높음.</p>
+  <div class="src">출처: <a href="https://www.ecommop.com/blog/tiktok-shop-conversion-rate">ecommop</a> · <a href="https://www.gotolstoy.com/blog/tiktok-shop-shoppable-videos-guide">Tolstoy</a> · <a href="https://terg.kr/youtube-shorts-ad-creative-guide/">테라그로스</a></div>
+</div>
+
+<h2 id="k5">5. 제품 데모 포맷 6종 — 대본 뼈대</h2>
+
+<div class="card">
+  <span class="tag">①</span><b>언박싱형</b> (신규·생소 제품 — 효능 주장 없이 서스펜스로 판매)
+  <div class="skel">도착 선언/기대감 훅 → 개봉(질감·구성품 클로즈업) → 리얼 첫 반응 → 구성 대비 가격 공개 → CTA</div>
+  <span class="tag">②</span><b>비포&애프터형</b> (뷰티·청소·정리 — 효과 가시 상품)
+  <div class="skel">비포(과장 없는 실상) → 제품 3초 등장 → 시연 → 애프터 대비샷 → 가격·혜택 → CTA</div>
+  <span class="tag">③</span><b>결과 선행형</b> (효과법)
+  <div class="skel">애프터를 훅으로 → "어떻게 했게?" 정보격차 → 통점 짧게 → 제품+사용법 → 혜택 마감</div>
+  <span class="tag">④</span><b>가격 공개 연출형</b> (초저가·가격 우위)
+  <div class="skel">가격 파격 훅/하향 계단식 → 물량·실물 전시 → 즉석 품질 테스트 → 무배·사은품 → 주문 지령</div>
+  <span class="tag">⑤</span><b>후기·리뷰형</b> (신뢰 자산 있는 계정)
+  <div class="skel">문제 서사(40% 룰) → 7~15초 제품 첫 접촉 → 구체 수치 주장 → 미시 증거 → 실가격 긴급성 CTA</div>
+  <span class="tag">⑥</span><b>튜토리얼형</b> (사용법이 곧 셀링포인트)
+  <div class="skel">"~하는 법" 훅 → 단계별 시연(단계=기능 1개) → 완성 결과 → 태그/링크 CTA</div>
+  <div class="src">근거: 틱톡샵 공식 4포맷 + 더우인 공식 결합. 교육형이 재구매 견인 최고(<a href="https://signalytics.ai/gmv-on-tiktok-shop-success/">Signalytics</a>)</div>
+</div>
+
+<h2 id="k6">6. 우리 파이프라인 반영 현황 (2026-07-03 재조사 반영)</h2>
+<div class="card accent">
+  <div class="tscroll"><table>
+    <tr><th>인사이트</th><th>반영</th></tr>
+    <tr><td>훅의 제품 연관성 필수</td><td>✅ HOOK_PATTERNS 전환형 재작성 + 루브릭 ①에 "무관 어그로 감점"</td></tr>
+    <tr><td>2학파(제품 선행 vs 문제 선행)</td><td>✅ 프롬프트: 효과 가시형=결과 선행, 공감형=통점 재현으로 분기 지시</td></tr>
+    <tr><td>타깃 신원 못박기(4~8초)</td><td>✅ 구성 2단계로 추가("구체 장면 디테일" 요구)</td></tr>
+    <tr><td>미시 증거(추상 자랑 금지)</td><td>✅ 구성 4단계 + 루브릭 ② 반영</td></tr>
+    <tr><td>무사고 구매 지령 + 가짜 긴급성 금지</td><td>✅ 구성 5단계 + 안전필터(긴급성 날조 검출)</td></tr>
+    <tr><td>친구 추천 톤(광고 질감 감점)</td><td>✅ 루브릭 ③ 반영</td></tr>
+    <tr><td>포맷 6종 스켈레톤 분기</td><td>⬜ 후보 — 제품 유형별 포맷 선택 UI/프롬프트 분기</td></tr>
+    <tr><td>훅 5종 톤 로테이션(A/B)</td><td>⬜ 후보 — '훅 바꾸기'가 기반, 성과 추적 연동 필요</td></tr>
+    <tr><td>CTA 플랫폼 분기(인앱 vs 고정댓글)</td><td>⬜ 후보 — 타겟 플랫폼 선택 옵션 추가 시</td></tr>
+    <tr><td>script_bank 확충(포맷 6종별 예시)</td><td>⬜ 진행형 — 좋은 결과 나올 때마다 추가</td></tr>
+  </table></div>
+</div>
+
+<h2 id="a1" class="appendix">부록 A. 범용 대본 공식 (1차 조사)</h2>
+<div class="card">
+  <ul>
+    <li><b>Hook→Problem→Solution→CTA</b> (60초: 3/10/30/10초 배분) — 문장마다 "훅인가 서사인가 전환인가 회수인가" 자문. <span class="src"><a href="https://www.threads.com/@human__bro/post/DIqtiUGy0mc">@human__bro</a></span></li>
+    <li><b>PAS</b> — Problem("광고비는 쓰는데 문의 0이라면?") → Agitation(방치 비용) → Solution(기능 아닌 <b>결과</b>: "3시간 작업을 20분에"). 고객이 후기에서 실제 쓰는 표현을 가져오기. <span class="src"><a href="https://theawesomestyle.com/entry/8%ED%8E%B8-PAS-%EC%B9%B4%ED%94%BC%EB%9D%BC%EC%9D%B4%ED%8C%85%EC%9C%BC%EB%A1%9C-%EB%AC%B8%EC%A0%9C%EB%A5%BC-%EC%84%A4%EB%93%9D%EC%9C%BC%EB%A1%9C-%EB%B0%94%EA%BE%B8%EB%8A%94-%EB%B2%95">theawesomestyle</a></span></li>
+    <li><b>HOOK+FORESHADOW+TRANSITION</b> 3초 완성 — 무음 이해 가능하게, 불필요한 초수 제거, "매우 유용하거나 매우 재밌거나". <span class="src"><a href="https://www.openads.co.kr/content/contentDetail?contsId=14251">OpenAds</a></span></li>
+  </ul>
+</div>
+
+<h2 id="a2" class="appendix">부록 B. 범용 훅 유형·템플릿 (1차 조사)</h2>
+<div class="card">
+  <p>12유형 발췌: 결론 선공개("하루 만에 천만 원을 날렸습니다") / 반전("모닝루틴은 쓰레기입니다") / 타겟 호명("주식계좌에 마이너스 있다면") / 손해회피 / FOMO / 호기심 질문. <span class="src"><a href="https://brunch.co.kr/@planbro/240">brunch @planbro</a></span></p>
+  <p>템플릿 예: "당신이 진작 알았으면 좋았을 [N]가지" / "이제 [행동]은 그만하세요" / "이것만 바꿔도 [결과]가 달라집니다" / "[N]%의 사람들이 [결과]를 실패하는 이유" — 전체 50개는 출처. <span class="src"><a href="https://selfmarketing.imweb.me/19/?bmode=view&idx=17266541">스스로마케팅연구소</a></span></p>
+  <p>실집행 커머스 카피: "뱃살 있으면 누르세요" / "텀블러 대충 씻고 계신가요?" / "[86%] 99,000원 → 12,900원". <span class="src"><a href="https://www.tosspayments.com/blog/articles/semo-110">토스페이먼츠</a></span></p>
+</div>
+
+<h2 id="a3" class="appendix">부록 C. AI 툴·카테고리 소구·프롬프트 기법 (1차 조사)</h2>
+<div class="card">
+  <ul>
+    <li><b>Arcads</b>: 같은 대본×5배우, 같은 배우×5훅 다변량. <b>Creatify</b>: 바디 고정·훅만 먼저 A/B·변수 1개씩. <b>CapCut</b>: 5종 생성 택1. <b>브이캣</b>: URL→용도별 카피 분리 생성. <span class="src"><a href="https://www.arcads.ai/">arcads</a> · <a href="https://creatify.ai/features">creatify</a> · <a href="https://vcat.ai/">vcat</a></span></li>
+    <li><b>카테고리 소구</b>: 뷰티=공감 상황+숫자+감각어("48시간 무너지지 않는", ⚠화장품법: "여드름 치료"→"피부 결 정돈") / 식품=감각 자극 / 생활=불편 질문→해결 / 가전=스펙의 감성 번역 / 패션=비주얼 증명(핏 비교). <span class="src"><a href="https://blog.gencystudio.com/cosmetic-advertising-strategies">GENCY</a> · <a href="https://daplan.com/marketing_FAQ/?bmode=view&idx=169986407">다플랜</a></span></li>
+    <li><b>프롬프트 기법</b>: CO-STAR 6요소 / 와디즈 6단계(역할→타깃→역설계→변수→작성→숫자로 수정 가이드) / few-shot 예시 선행 / 초 단위 구조 강제 / 규제 금지어 negative constraint. <span class="src"><a href="https://brunch.co.kr/@acc9b16b9f0f430/148">brunch</a> · <a href="https://www.fpost.co.kr/board/bbs/board.php?bo_table=fsp52&wr_id=30">패션포스트</a></span></li>
+  </ul>
+</div>
+
+<p class="note">조사 한계: 더우인 원문 일부(青瓜传媒·奇赞·Kalodata)는 403/500으로 대체 소스로 보강. 네이버 숏클립은 공개된 '대본 공식' 자료가 얇음(스펙·통계 중심). Threads 이미지 게시물·Influee 이메일 게이트 자료는 구조만 확인.</p>
 
 </div>
 </body>
