@@ -117,11 +117,11 @@ _POINT_PROMPT = (
 def _gemini_generate(contents, retries: int = 1) -> str:
     """Gemini(비전/텍스트) 호출 — 과부하(503) 대비 모델 폴백 체인.
 
-    flash가 503(과부하)이면 2.0-flash·flash-lite로 자동 강등(모델별 용량 풀이 달라 뚫림).
+    flash가 503(과부하)이면 flash-lite로 자동 강등(2.0-flash는 지원 종료로 제거).
     """
     from app import gemini
     return gemini.generate_fallback(
-        contents, models=[VISION_MODEL, "gemini-2.0-flash", "gemini-2.5-flash-lite"],
+        contents, models=[VISION_MODEL, "gemini-2.5-flash-lite"],
         retries=retries, wrap_error=True)
 
 

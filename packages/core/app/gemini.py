@@ -105,7 +105,8 @@ def generate(contents, model: str, retries: int = 3, record: bool = True,
 # 과부하(503) 대응 모델 폴백 체인. 503은 모델 과부하라 tier·재시도로 잘 안 풀리고, 모델별
 # 용량 풀이 달라 다른 모델로 강등하면 대개 뚫린다(권장 해법 '모델 강등 체인'). flash-lite가
 # 특히 자주 붐벼서 flash·2.0-flash 순으로 폴백.
-TEXT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"]
+# 2.0-flash는 2026-07 지원 종료(404 NOT_FOUND 실측) — 체인에서 제거.
+TEXT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
 _OVERLOAD = ("503", "UNAVAILABLE", "overload", "high demand", "500", "INTERNAL")
 
 
@@ -127,7 +128,9 @@ def generate_fallback(contents, models=None, retries: int = 1, record: bool = Tr
         except Exception as e:
             last = e
             s = str(e)
-            degradable = any(c in s for c in _OVERLOAD) or "429" in s or "RESOURCE_EXHAUSTED" in s
+            # 404/NOT_FOUND = 모델 retire — 다음 모델로(하드코딩된 죽은 모델에 견고하게)
+            degradable = (any(c in s for c in _OVERLOAD) or "429" in s
+                          or "RESOURCE_EXHAUSTED" in s or "404" in s or "NOT_FOUND" in s)
             if degradable and i < len(models) - 1:
                 continue                       # 다음 모델로 강등(과부하·모델별 레이트 한도)
             if wrap_error:

@@ -107,7 +107,6 @@ def _call_gemini(prompt: str, retries: int = 3) -> str:
 SCRIPT_MODELS = [
     os.environ.get("GEMINI_SCRIPT_MODEL", "gemini-2.5-flash"),
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
 ]
 
 
@@ -250,7 +249,9 @@ def _length_hint(target_seconds: float | None) -> str:
     if not target_seconds or target_seconds < 3:
         return "20~45초 분량."
     sec = int(round(target_seconds))
-    chars = int(round(target_seconds * 5.5))
+    # 실측(올리브영 60초 반복): 모델 산출은 요청 글자수의 ~93%(유료 flash 기준.
+    # +15% 보정 때 317~371로 살짝 초과 → +8%로 재조정). 체계적 미달 선보정.
+    chars = int(round(target_seconds * 5.5 * 1.08))
     lo, hi = int(chars * 0.9), int(chars * 1.1)
     # 줄 수는 실측 줄 밀도(공백 제외 ~11자/줄) 기준 — 과대평가(16자/줄)하면 모델이
     # '줄 수만 맞추고 글자수 미달'로 제약을 게이밍한다(실측: 21줄 241자).
@@ -289,26 +290,37 @@ EXPAND_PROMPT = """# Context (맥락)
 
 
 def _ensure_length(script: str, target_seconds: float | None, points: str, _d) -> str:
-    """사후 분량 검증 — 목표의 85% 미만이면 확장 1회, 125% 초과면 압축 1회. 실패 시 원본 유지."""
+    """사후 분량 검증 — 목표의 90% 미만이면 확장(최대 2회), 125% 초과면 압축 1회.
+
+    채택 기준은 '목표에 더 가까워졌는가' — 과거 절대범위 기준은 171→244처럼
+    명백한 개선도 '범위 밖'이라며 버렸다(실측 버그). 확장 요청 글자수도 +10%
+    선보정(모델이 요청 대비 ~85%만 쓰는 경향)."""
     if not target_seconds or target_seconds < 3 or not script:
         return script
     target = int(round(float(target_seconds) * 5.5))
     cur = _script_chars(script)
-    if cur < target * 0.85:
-        _d(f"분량 미달({cur}자 < 목표 {target}자 85%) → 확장 1회")
+    tries = 0
+    while cur < target * 0.9 and tries < 2:
+        tries += 1
+        _d(f"분량 미달({cur}자 < 목표 {target}자 90%) → 확장 {tries}회차")
         try:
+            # 확장 요청은 target 그대로 — 유료 flash 순응률(~93%)에선 +10% 부풀리면
+            # 과잉(실측 263→385)됨. 미세 미달은 판정 밴드(±10%)가 흡수.
             out = _normalize_script(_narration_only(_call_gemini(EXPAND_PROMPT.format(
-                cur=cur, target=target, script=script, points=(points or "")[:2000],
-                format_rules=SCRIPT_FORMAT_RULES))))
+                cur=cur, target=target, script=script,
+                points=(points or "")[:2000], format_rules=SCRIPT_FORMAT_RULES))))
             nc = _script_chars(out)
-            if target * 0.8 <= nc <= target * 1.35:   # 확장 결과가 상식 범위일 때만 채택
-                _d(f"확장 성공: {cur} → {nc}자")
-                return out
-            _d(f"확장 결과 범위 밖({nc}자) — 원본 유지")
+            if out and abs(nc - target) < abs(cur - target):
+                _d(f"확장 채택: {cur} → {nc}자")
+                script, cur = out, nc
+            else:
+                _d(f"확장 미개선({nc}자) — 중단")
+                break
         except Exception as e:
-            _d(f"확장 실패, 원본 유지: {str(e)[:80]}")
-    elif cur > target * 1.25:
-        _d(f"분량 초과({cur}자 > 목표 {target}자 125%) → 압축 1회")
+            _d(f"확장 실패: {str(e)[:80]}")
+            break
+    if cur > target * 1.15:
+        _d(f"분량 초과({cur}자 > 목표 {target}자 115%) → 압축 1회")
         try:
             out = refine_script(script, direction="concise", target_sec=target_seconds)
             if out and out != script:
