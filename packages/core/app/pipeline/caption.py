@@ -301,12 +301,52 @@ def _ass_emphasis(text: str, style, emph: list | None = None, inline: str = "") 
     return _EMPH_RE.sub(lambda m: wrap % m.group(0), text)
 
 
+def _align_words_to_text(text: str, words: list) -> list:
+    """대본 원문 어절 ↔ TTS/whisper 단어 타임스탬프 정렬 → [{text,start,end}].
+
+    화면 텍스트는 **대본 원문**(verbatim), 타이밍만 words에서 가져온다 —
+    whisper가 발음대로 받아쓴 표기('달걀'→'달개', '맞아요!'→'맞아요.')가 자막에 노출되는 것 방지.
+    어절 수 같으면 1:1 매핑, 다르면 글자수 누적 비율로 words 시간축에 보간.
+    """
+    toks = [t for t in (text or "").split() if t]
+    ws = [w for w in (words or []) if (w.get("text") or "").strip()]
+    if not toks or not ws:
+        return []
+    if len(toks) == len(ws):
+        return [{"text": t, "start": round(float(w["start"]), 2), "end": round(float(w["end"]), 2)}
+                for t, w in zip(toks, ws)]
+    # 글자수 비례 보간 — words를 글자수 가중 구간으로 보고 스크립트 누적 비율 위치의 시각을 계산.
+    wchars = [max(1, _vis_len(w.get("text") or "")) for w in ws]
+    wtot = sum(wchars)
+
+    def at(frac: float) -> float:
+        target = frac * wtot
+        acc = 0.0
+        for w, c in zip(ws, wchars):
+            if acc + c >= target - 1e-9:
+                r = min(1.0, max(0.0, (target - acc) / c))
+                return float(w["start"]) + r * (float(w["end"]) - float(w["start"]))
+            acc += c
+        return float(ws[-1]["end"])
+
+    ttot = sum(_vis_len(t) for t in toks) or 1
+    out = []
+    acc = 0
+    for t in toks:
+        f0 = acc / ttot
+        acc += _vis_len(t)
+        f1 = acc / ttot
+        out.append({"text": t, "start": round(at(f0), 2), "end": round(at(f1), 2)})
+    return out
+
+
 def _ass_animated(ln, st, intro_fad: bool = True) -> str:
     """워드바이워드 애니 — 말할 때 단어 팝(scale) + 강조어(가격/키워드) 색 유지.
     \\t 오프셋은 라인 시작 기준 ms. words(단어별 절대초 타임스탬프) 필요.
     intro_fad=False면 기본 \\fad(100,0) 생략(등장 효과 anim이 이벤트 태그로 대신 넣음).
+    화면 텍스트는 ln.text(대본 원문) 기준 — words의 발음 표기는 타이밍으로만 사용.
     """
-    words = getattr(ln, "words", None) or []
+    words = _align_words_to_text((ln.text or "").replace("\n", " "), getattr(ln, "words", None) or [])
     if not words:
         return _ass_emphasis((ln.text or "").replace("\n", "\\N"), st, getattr(ln, "emph", None))
     line_start = float(ln.start)
@@ -379,8 +419,9 @@ def _group_words(items: list, style, ideal_chars: int, min_chars: int,
         text = _clean_caption_text(joined())
         if text and cur_start is not None:
             end = float(cur[-1].get("offset", 0.0)) + float(cur[-1].get("duration", 0.0))
+            # words 텍스트를 자막 텍스트 어절로 정렬 — 클리닝으로 어절 수/표기가 달라져도 일치 보장.
             lines.append(CaptionLine(text=text, start=round(cur_start, 2), end=round(end, 2),
-                                     style=style, words=_wmeta(cur) or None))
+                                     style=style, words=_align_words_to_text(text, _wmeta(cur)) or None))
         cur = []
         cur_start = None
 
@@ -461,8 +502,11 @@ def _emit_seg(lines: list, seg_text: str, cs: float, ce: float, wmeta: list,
         e = ce if ci == len(chunks) - 1 else cs + (cum / cvis_total) * span
         cw = wmeta if (len(chunks) == 1 and wmeta) else [w for w in (wmeta or [])
                                                          if s <= (w["start"] + w["end"]) / 2 < e]
-        lines.append(CaptionLine(text=_clean_caption_text(chunk), start=round(s, 2),
-                                 end=round(e, 2), style=style, words=cw or None))
+        clean = _clean_caption_text(chunk)
+        # words 텍스트를 대본 원문 어절로 정렬(타이밍만 유지) — 웹 미리보기/애니에 발음 표기 노출 방지.
+        aligned = _align_words_to_text(clean, cw)
+        lines.append(CaptionLine(text=clean, start=round(s, 2),
+                                 end=round(e, 2), style=style, words=aligned or None))
 
 
 def _lines_by_segments(segs: list, timestamps: list, style, ideal_chars: int,
