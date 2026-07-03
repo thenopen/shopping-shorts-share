@@ -400,6 +400,10 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
     제품 상세페이지 정보를 의도적으로 주입하는 경로라 refine_script의
     '원문에 없는 속성 추가 금지' 안전필터를 적용하지 않는다(소구포인트는
     실제 상세페이지 근거가 있는 사실). debug(list)면 단계 append.
+
+    실패 시 **빈 문자열 반환** — 과거엔 video_content(기존 대본)를 돌려줘서,
+    이미 대본이 있으면 실패가 '성공(내용 동일)'으로 위장돼 조용히 삼켜졌다
+    ("소구포인트→대본이 반영 안 됨" 증상). 폴백 여부는 호출자(server)가 결정.
     """
     from app.debuglog import make_dbg
     _d = make_dbg(debug, "제품대본")
@@ -407,12 +411,12 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
     video_content = (video_content or "").strip()
     selling_points = (selling_points or "").strip()
     if not selling_points:
-        _d("대본 결합 생략: 소구포인트 없음 → 영상내용 그대로")
-        return video_content
+        _d("대본 결합 실패: 소구포인트 없음")
+        return ""
     key = _api_key()
     if not key:
-        _d("대본 결합 생략: Gemini 키 없음 → 영상내용 그대로")
-        return video_content
+        _d("대본 생성 실패: Gemini 키 없음")
+        return ""
     _d(f"대본 결합(Gemini {MODEL}): 영상내용 {len(video_content)}자 + 소구포인트 {len(selling_points)}자")
     try:
         cat = _detect_category(selling_points, video_content)
@@ -449,11 +453,11 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
             except Exception as e:
                 _d(f"후보 {k + 1} 생성 실패: {str(e)[:80]}")
                 if not cands:
-                    raise                      # 첫 후보부터 실패면 기존 폴백 경로로
+                    raise                      # 첫 후보부터 실패면 아래 except → "" 반환
                 break                          # 일부 성공했으면 그걸로 진행(추가 호출 낭비 방지)
         if not cands:
-            _d("✗ 후보 없음, 영상내용 유지")
-            return video_content
+            _d("✗ 대본 생성 실패: 후보 없음")
+            return ""
         _d(f"후보 {len(cands)}개 생성" + (" → 루브릭 채점" if len(cands) > 1 else ""))
         # 루브릭 참고자료에 역설계 결과 포함 — 타깃 정합성까지 보고 고르게.
         judge_ref = selling_points + (f"\n\n[타깃 역설계]\n{analysis}" if analysis else "")
@@ -464,8 +468,8 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
            + (f" / 목표 {int(target_seconds * 5.5)}자" if target_seconds else ""))
         return result
     except Exception as e:
-        _d(f"✗ 대본 생성 실패, 영상내용 유지: {str(e)[:120]}")
-        return video_content
+        _d(f"✗ 대본 생성 실패: {str(e)[:120]}")
+        return ""
 
 
 HOOKS_PROMPT = """# Context (맥락)

@@ -483,11 +483,15 @@ def script_product(req: ProductScriptReq):
         if req.combine:
             script = product_script(req.video_content, points, debug=debug,
                                     target_seconds=req.target_seconds)
-            # 결합 실패(429 한도·503 과부하 등)를 debug에서 잡아 조용한 폴백 대신 원인별로 안내.
-            fail = next((m for m in debug if "대본 생성 실패" in m), "")
-            if fail and not script.strip():
+            # product_script는 실패 시 ""(기존 대본 폴백 금지 — 성공 위장 방지). 원인별 안내 생성.
+            fail = next((m for m in debug if "대본 생성 실패" in m or "대본 결합 실패" in m), "")
+            if not script.strip():
                 f = fail.lower()
-                if "429" in fail or "resource_exhausted" in f:
+                if not fail:
+                    combine_err = "대본 결합에 실패했어요. '🔄 대본 다시'로 재시도해 주세요."
+                elif "키 없음" in fail:
+                    combine_err = "Gemini API 키가 없어 대본 결합을 못 했어요. 설정에서 키를 넣어주세요(소구포인트는 뽑아놨어요)."
+                elif "429" in fail or "resource_exhausted" in f:
                     combine_err = ("Gemini 무료 한도(분당/일일)에 걸려 대본 결합이 안 됐어요. 배지의 '오늘 남은 수'와는 "
                                    "별개(분당 한도)예요. 1분쯤 뒤 아래 소구포인트의 '🔄 대본 다시'를 눌러주세요.")
                 elif "503" in fail or "unavailable" in f or "overload" in f or "high demand" in f:
