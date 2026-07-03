@@ -122,6 +122,46 @@ HOOK_PATTERNS = """[훅 패턴 — 소구포인트와 가장 잘 맞는 유형 �
 - 공감 질문형: "화장 무너지는 오후 2시, 다들 알죠?"
 - 비교/검증형: "비싼 거랑 뭐가 다른지 직접 비교해봤어요\""""
 
+# 역설계(와디즈 6단계 中) — 제품 특징을 먼저 말하지 않고 '누가 왜 사는가'부터 역으로:
+# 타깃 구체화 → 결정적 통점 → 그 통점에 답하는 소구만 선별(나머지는 버림).
+# 이 산출물이 본 생성 프롬프트의 Context로 들어가 best-of-N 후보 전체의 뼈대가 된다.
+TARGET_ANALYSIS_PROMPT = """# Context (맥락)
+너는 한국 커머스 타깃 분석가다. 아래는 쇼핑 숏츠로 팔 제품의 자료다.
+
+(A) 영상 내용:
+{video}
+
+(B) 제품 소구포인트:
+{points}
+
+# Objective (목표 — 역설계)
+제품 특징을 나열하지 말고 '누가 왜 사는가'부터 역으로 설계해라:
+1) 핵심 타깃 1명 — 나이대·직업/상황·구매 맥락을 한 줄로 구체화.
+   (나쁨: "20~30대 여성" / 좋음: "재택 시작하고 어깨 결림 생긴 30대 초반 사무직")
+2) 그 타깃의 결정적 통점 1개 — 구체 생활 장면으로. 두루뭉술("피부가 안 좋다") 금지.
+3) 소구포인트 중 그 통점에 직접 답하는 것 2~3개만 선별 + 각각 왜 이 타깃에게 먹히는지 한 줄.
+4) 버릴 소구포인트 — 이 타깃에겐 안 먹히는 것. 대본에서 제외할 목록.
+
+# Response Format (출력 형식 — 이 형식 그대로, 다른 말 금지)
+타깃: (한 줄)
+통점: (구체 장면 한 줄)
+핵심 소구: 1) …(이유) 2) …(이유) 3) …(이유)
+제외: (쉼표 구분)
+"""
+
+
+def target_analysis(video_content: str, selling_points: str) -> str:
+    """역설계 1단계 — 타깃/통점/선별 소구. 실패 시 빈 문자열(생성은 그대로 진행)."""
+    try:
+        out = _call_gemini(TARGET_ANALYSIS_PROMPT.format(
+            video=(video_content or "(없음)")[:2000], points=(selling_points or "")[:3000]))
+        out = (out or "").strip()
+        # 형식 최소 검증 — '타깃:' 없으면 버림(오염된 분석이 본 생성을 흐리지 않게)
+        return out if "타깃:" in out else ""
+    except Exception:
+        return ""
+
+
 # CO-STAR 구조(Context/Objective/Style/Tone/Audience/Response format) — 섹션별로 역할을 분리해
 # 모델이 '무엇을·어떤 문체로·누구에게·어떤 형식으로'를 놓치지 않게 한다.
 PRODUCT_SCRIPT_PROMPT = """# Context (맥락)
@@ -133,18 +173,20 @@ PRODUCT_SCRIPT_PROMPT = """# Context (맥락)
 
 (B) 제품 소구포인트 — **여기 있는 사실만 사용 가능**(없는 효능·가격·할인·수량·성능 날조 금지):
 {points}
-{examples}
+{analysis}{examples}
 # Objective (목표)
 '구매 전환'이 목적인 쇼핑 숏츠 내레이션 대본 1편. 조회수용 쇼츠가 아니다 —
 훅부터 마지막 문장까지 이 제품을 사게 만드는 한 세션 퍼널이다.
 구성(순서 고정):
 1) 훅 — 첫 1~2문장. 반드시 제품/효용과 연관된 훅(무관한 어그로 금지). 효과가 눈에 보이는 제품이면
    결과 선행형, 공감이 필요한 제품이면 통점 장면 재현형.
+   금지 오프닝: 인사("안녕하세요"), 자기소개, "오늘 소개할 제품은…", 제품명 선언.
 2) 타깃 못박기 — 누구의 어떤 불편인지 구체 장면 한 문장("아침에 뜨거운 두유 담아 출근하는" 수준의 디테일).
 3) 제품 등장 — 통점 공감이 닫힌 뒤 지시어("요거", "이 제품")로. 브랜드·상품명 직접 언급 금지.
-4) 미시 증거 — 소구포인트 중 검증 가능한 구체 증거 1~2개(수치·사용감·실측). "판매량 1위" 같은 추상 자랑 금지.
-5) 구매 지령 — 생각이 필요 없는 구체 행동 한 문장. 근거 없는 긴급성("품절 임박") 금지 —
-   소구포인트의 실제 조건(가격·구성)이 있으면 그걸 근거로.
+4) 미시 증거 — 핵심 소구 중 검증 가능한 구체 증거 1~2개(수치·사용감·실측). "판매량 1위" 같은 추상 자랑 금지.
+5) 구매 지령 — 생각이 필요 없는 구체 행동 한 문장.
+   (나쁨: "관심 있으면 찾아보세요" / 좋음: "지금 화면 아래 링크에서 구성 확인해 보세요")
+   근거 없는 긴급성("품절 임박") 금지 — 소구포인트의 실제 조건(가격·구성)이 있으면 그걸 근거로.
 분량: {length}
 
 # Style (문체)
@@ -160,6 +202,7 @@ PRODUCT_SCRIPT_PROMPT = """# Context (맥락)
 
 # Audience (대상)
 - 소리를 끄고 빠르게 스크롤하는 모바일 쇼핑 시청자 — 첫 문장에서 못 잡으면 없다.
+- (C) 타깃 역설계가 있으면 **그 타깃 한 명에게 말하듯** 써라. '제외' 소구는 쓰지 마라.
 - 카테고리 특성: {category_rules}
 
 # Response Format (출력 형식)
@@ -289,9 +332,19 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
     try:
         cat = _detect_category(selling_points)
         _d(f"카테고리 추정: {cat}")
+        # 역설계 1단계 — 타깃/통점/소구 선별. 이 결과가 모든 후보의 공통 뼈대.
+        analysis = target_analysis(video_content, selling_points)
+        if analysis:
+            _d(f"역설계: {analysis.splitlines()[0][:60]}")
+            analysis_block = ("\n(C) 타깃 역설계 결과 — 이 타깃·통점에 맞춰 쓰고, '제외' 소구는 쓰지 마라:\n"
+                              f"{analysis}\n")
+        else:
+            _d("역설계 생략(실패) — 소구포인트에서 직접 판단")
+            analysis_block = ""
         prompt = PRODUCT_SCRIPT_PROMPT.format(
             video=video_content or "(영상 내용 없음 — 소구포인트 중심으로 작성)",
             points=selling_points,
+            analysis=analysis_block,
             hooks=HOOK_PATTERNS,
             shorts_rules=SHORTS_RULES,
             length=_length_hint(target_seconds),
@@ -315,8 +368,10 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
         if not cands:
             _d("✗ 후보 없음, 영상내용 유지")
             return video_content
-        _d(f"후보 {len(cands)}개 생성" + (f" → 루브릭 채점" if len(cands) > 1 else ""))
-        result = _pick_best(cands, selling_points, target_seconds, _d)
+        _d(f"후보 {len(cands)}개 생성" + (" → 루브릭 채점" if len(cands) > 1 else ""))
+        # 루브릭 참고자료에 역설계 결과 포함 — 타깃 정합성까지 보고 고르게.
+        judge_ref = selling_points + (f"\n\n[타깃 역설계]\n{analysis}" if analysis else "")
+        result = _pick_best(cands, judge_ref, target_seconds, _d)
         _d(f"→ 결합 대본 생성 성공: {len(result)}자")
         return result
     except Exception as e:
