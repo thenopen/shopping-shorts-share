@@ -279,17 +279,24 @@ function CaptionEditor({
       </div>
 
       <div className="mt-6 border-t border-[var(--line)] pt-4">
-        {/* 프리셋 — 클릭 한 번에 전체 자막 스타일 세트 적용 */}
+        {/* 프리셋 — 클릭 한 번에 스타일 세트 적용(적용 대상은 현재 scope 따름) */}
         <div className="mb-1 text-xs font-bold text-slate-400">스타일 프리셋</div>
-        <p className="mb-2.5 text-[11px] leading-relaxed text-slate-500">
-          클릭하면 폰트·크기·색·외곽선을 <b className="text-slate-400">한 세트로</b> 적용해요. 이후 위 컨트롤로 세부 조정.
-        </p>
+        {scope === "selected" ? (
+          <p className="mb-2.5 rounded-lg bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-300 ring-1 ring-amber-400/25">
+            ⚠ 지금은 <b>선택 자막 모드</b> — 프리셋이 <b>{scopeLabel ?? "선택한 줄"}에만</b> 적용돼요.
+            전체에 적용하려면 위 <b>전체 자막</b> 탭으로 전환.
+          </p>
+        ) : (
+          <p className="mb-2.5 text-[11px] leading-relaxed text-slate-500">
+            클릭하면 폰트·크기·색·외곽선을 <b className="text-slate-400">모든 자막 줄에 한 세트로</b> 적용해요(잠긴 줄 제외). 이후 위 컨트롤로 세부 조정.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           {PRESET_TEMPLATES.map((p) => (
             <button
               key={p.name}
               onClick={() => onChange(p.style)}
-              title="이 스타일로 전체 자막 적용"
+              title={scope === "selected" ? "이 스타일을 선택한 줄에만 적용" : "이 스타일로 전체 자막 적용"}
               className="panel-2 flex items-center gap-2 overflow-hidden rounded-2xl p-2 text-left transition hover:ring-1 hover:ring-pink-500/50"
             >
               <div

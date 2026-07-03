@@ -313,6 +313,9 @@ export default function Home() {
   // 대본 → 서버서 TTS 돌려 자동자막 줄(타임코드) 받아 타임라인 편집기에 채움.
   async function genCaptions() {
     if (!job?.id || !script.trim() || capBusy) return;
+    // 재생성은 서버가 새 줄을 만들어 줄별 스타일(잠금)·수동 강조가 전부 초기화됨 — 편집분 있으면 확인.
+    if (captionLines.some((l) => l.style || l.emph) &&
+        !window.confirm("자막을 다시 생성하면 줄별 스타일(잠금)·단어 강조 편집이 초기화돼요. 계속할까요?")) return;
     setCapBusy(true);
     try {
       const r = await fetch(`${apiBase()}/captions/preview`, {
