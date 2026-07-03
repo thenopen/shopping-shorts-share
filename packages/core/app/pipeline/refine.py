@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re as _re
 
 from app import gemini
 from app.gemini import api_key as _api_key, available  # noqa: F401 (재export: 다른 모듈이 refine.available 사용)
@@ -13,6 +14,22 @@ MODEL = os.environ.get("GEMINI_REFINE_MODEL", "gemini-2.5-flash-lite")
 SHORTS_RULES = """- 쇼츠 자막으로 잘리기 좋게: 한 문장 = 한 메시지, 한 호흡(대략 15자 안쪽)으로 짧게.
 - 긴 문장은 둘로 쪼개고, 접속사로 길게 잇지 마라.
 - 첫 문장은 3초 안에 시선을 잡는 도입(질문·반전·구체 숫자)."""
+
+# 대본 형식 계약(모든 대본 경로 공통) — 생성·가공·훅·확장이 전부 이 형식으로 수렴해야
+# '가공하면 엔터/띄어쓰기가 달라진다' 같은 형식 널뜀이 없다. 줄바꿈 = 자막 경계.
+SCRIPT_FORMAT_RULES = """[대본 형식 — 반드시 지켜라]
+- 한 줄 = 한 호흡(자막 한 개 분량, 6~16자). 문장이 길면 의미 단위로 줄을 나눠라.
+- 줄바꿈은 오직 호흡 구분용. 빈 줄·연속 공백·탭 금지. 문장부호는 유지."""
+
+
+def _normalize_script(text: str) -> str:
+    """대본 형식 정규화 — 경로(생성/가공/받아쓰기)마다 널뛰는 공백·빈 줄을 계약 형식으로 수렴."""
+    lines = []
+    for ln in (text or "").splitlines():
+        s = _re.sub(r"[ \t]{2,}", " ", ln).strip()
+        if s:
+            lines.append(s)
+    return "\n".join(lines)
 
 # 대본 AI 가공 8방향(8각 다이얼) — 프론트 ScriptStage와 키 동일.
 # 각 방향 = 지시 + 잘된 변환 예시(before→after) 1개. 예시가 '잘함'의 기준을 보여준다.
@@ -59,7 +76,10 @@ REFINE_PROMPT = """# Context (맥락)
 - 소리를 끄고 스크롤하는 모바일 쇼핑 시청자 — 자막으로 읽혀도 통해야 한다.
 
 # Response Format (출력 형식)
-- 결과 대본만 출력(설명·머리말·마크다운 금지). 문장(의미단위)마다 줄바꿈.
+- 결과 대본만 출력(설명·머리말·마크다운 금지).
+- 원문의 줄 구성(줄바꿈 위치)을 최대한 유지해라 — 줄바꿈은 자막 경계라 가공으로 형식이
+  널뛰면 안 된다. 문장을 쪼갠 경우에만 그 자리에 줄을 추가.
+{format_rules}
 """
 
 # direction 미지정 시 기본 가공(기존 동작): 번역투 정리 + 자연스러운 구어체.
@@ -103,8 +123,9 @@ def refine_script(script: str, direction: str | None = None,
                         f"(공백 제외 약 {chars}자 안팎)가 되도록 분량을 맞춰라. 핵심 소구는 유지.")
     try:
         out = _call_gemini(REFINE_PROMPT.format(
-            instruction=instruction, shorts_rules=SHORTS_RULES, script=script))
-        return _safe_refined_output(script, out) or script
+            instruction=instruction, shorts_rules=SHORTS_RULES,
+            format_rules=SCRIPT_FORMAT_RULES, script=script))
+        return _normalize_script(_safe_refined_output(script, out)) or script
     except Exception as e:
         print(f"  [Gemini refine failed, keeping original: {str(e)[:120]}]")
         return script
@@ -208,18 +229,80 @@ PRODUCT_SCRIPT_PROMPT = """# Context (맥락)
 # Response Format (출력 형식)
 - **오직 입으로 읽을 내레이션 문장만** 출력. 장면 지시(괄호 콘티), 마크다운 기호(**, [영상 끝] 등),
   머리말·설명 절대 금지.
-- 문장(의미단위)마다 줄바꿈으로 구분 — 이 줄바꿈이 그대로 자막 경계가 된다.
+{format_rules}
 """
 
 
 # 영상 길이(초) → 대본 분량 지시. 한국어 TTS 1.0x ≈ 초당 5.5자(공백 제외) — 웹 duration.ts와 동일 기준.
+# LLM은 분량 '하한'을 잘 못 지켜 목표 미달(45초 설정→30초 분량)이 흔함 → 글자 범위 + 문장 수
+# 이중 제약 + 미달 경고를 명시하고, 생성 후 _ensure_length가 사후 검증·확장까지 한다.
 def _length_hint(target_seconds: float | None) -> str:
     if not target_seconds or target_seconds < 3:
         return "20~45초 분량."
     sec = int(round(target_seconds))
     chars = int(round(target_seconds * 5.5))
-    return (f"목표 길이 약 {sec}초에 맞춰라 — 한국어 내레이션 초당 약 5.5자(공백 제외) 기준 "
-            f"총 {chars}자 내외(±15%). 목표보다 길거나 짧지 않게.")
+    lo, hi = int(chars * 0.9), int(chars * 1.1)
+    sents = max(4, int(round(chars / 16)))
+    return (f"목표 길이 {sec}초 = 공백 제외 {lo}~{hi}자, 줄 수 약 {sents}~{sents + 3}줄. "
+            f"⚠ 가장 흔한 실패는 분량 미달이다 — 구성 5단은 '순서'일 뿐 각 단계를 여러 줄로 확장해라. "
+            f"특히 4) 미시 증거를 소구포인트별로 늘려 {lo}자 아래로 내려가지 마라.")
+
+
+def _script_chars(text: str) -> int:
+    """공백 제외 글자수(분량 판정 기준 — 웹 visChars와 동일)."""
+    return len(_re.sub(r"\s+", "", text or ""))
+
+
+EXPAND_PROMPT = """# Context (맥락)
+아래 한국 쇼핑 숏츠 대본이 목표 분량보다 짧다. 현재 {cur}자(공백 제외), 목표 {target}자.
+
+대본:
+{script}
+
+(참고) 제품 소구포인트 — 여기 있는 사실만 추가 가능:
+{points}
+
+# Objective (목표)
+의미·톤·구성은 유지하고 {target}자(±10%) 분량으로 확장해라.
+늘리는 방법: 소구포인트의 미시 증거(수치·사용감·사용 장면) 추가, 통점 장면 디테일 보강.
+같은 말 반복·군더더기 수식어로 늘리는 것 금지. 없는 효능·가격 날조 금지.
+
+{format_rules}
+
+# Response Format (출력 형식)
+- 확장된 대본만 출력(설명·머리말 금지). 한 줄 = 한 호흡.
+"""
+
+
+def _ensure_length(script: str, target_seconds: float | None, points: str, _d) -> str:
+    """사후 분량 검증 — 목표의 85% 미만이면 확장 1회, 125% 초과면 압축 1회. 실패 시 원본 유지."""
+    if not target_seconds or target_seconds < 3 or not script:
+        return script
+    target = int(round(float(target_seconds) * 5.5))
+    cur = _script_chars(script)
+    if cur < target * 0.85:
+        _d(f"분량 미달({cur}자 < 목표 {target}자 85%) → 확장 1회")
+        try:
+            out = _normalize_script(_narration_only(_call_gemini(EXPAND_PROMPT.format(
+                cur=cur, target=target, script=script, points=(points or "")[:2000],
+                format_rules=SCRIPT_FORMAT_RULES))))
+            nc = _script_chars(out)
+            if target * 0.8 <= nc <= target * 1.35:   # 확장 결과가 상식 범위일 때만 채택
+                _d(f"확장 성공: {cur} → {nc}자")
+                return out
+            _d(f"확장 결과 범위 밖({nc}자) — 원본 유지")
+        except Exception as e:
+            _d(f"확장 실패, 원본 유지: {str(e)[:80]}")
+    elif cur > target * 1.25:
+        _d(f"분량 초과({cur}자 > 목표 {target}자 125%) → 압축 1회")
+        try:
+            out = refine_script(script, direction="concise", target_sec=target_seconds)
+            if out and out != script:
+                _d(f"압축: {cur} → {_script_chars(out)}자")
+                return _normalize_script(out)
+        except Exception:
+            pass
+    return script
 
 
 # 카테고리별 소구 문법 — 소구포인트 텍스트에서 카테고리를 추정해 생성 지침에 추가.
@@ -293,7 +376,7 @@ def _pick_best(cands: list, points: str, target_seconds: float | None, _d) -> st
     """후보 여러 개 → 루브릭 LLM 채점으로 1개 선택. 판정 실패 시 첫 후보."""
     if len(cands) == 1:
         return cands[0]
-    target_note = (f"약 {int(round(target_seconds))}초(공백 제외 {int(round(target_seconds * 5.5))}자 내외)인가"
+    target_note = (f"공백 제외 약 {int(round(target_seconds * 5.5))}자인가 — ±15% 벗어나면 크게 감점, 미달이 특히 감점"
                    if target_seconds else "20~45초 분량인가")
     body = "\n\n".join(f"[후보 {i + 1}]\n{c}" for i, c in enumerate(cands))
     try:
@@ -352,6 +435,7 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
             length=_length_hint(target_seconds),
             category_rules=CATEGORY_GUIDES.get(cat, CATEGORY_GUIDES["생활"]),
             examples=_bank_examples(cat),
+            format_rules=SCRIPT_FORMAT_RULES,
         )
         if target_seconds:
             _d(f"목표 길이 {target_seconds:.1f}초 → 대본 목표 {int(target_seconds*5.5)}자 내외")
@@ -359,7 +443,7 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
         cands: list[str] = []
         for k in range(N_CANDIDATES):
             try:
-                c = _narration_only(_call_gemini_script(prompt))
+                c = _normalize_script(_narration_only(_call_gemini_script(prompt)))
                 if c and c not in cands:
                     cands.append(c)
             except Exception as e:
@@ -374,7 +458,10 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
         # 루브릭 참고자료에 역설계 결과 포함 — 타깃 정합성까지 보고 고르게.
         judge_ref = selling_points + (f"\n\n[타깃 역설계]\n{analysis}" if analysis else "")
         result = _pick_best(cands, judge_ref, target_seconds, _d)
-        _d(f"→ 결합 대본 생성 성공: {len(result)}자")
+        # 사후 분량 검증 — 목표 대비 미달이면 확장/초과면 압축(프롬프트 지시만으론 미달이 흔함)
+        result = _ensure_length(result, target_seconds, selling_points, _d)
+        _d(f"→ 결합 대본 생성 성공: {_script_chars(result)}자(공백 제외)"
+           + (f" / 목표 {int(target_seconds * 5.5)}자" if target_seconds else ""))
         return result
     except Exception as e:
         _d(f"✗ 대본 생성 실패, 영상내용 유지: {str(e)[:120]}")
@@ -481,9 +568,6 @@ def _narration_only(text: str) -> str:
         if s:
             keep.append(s)
     return "\n".join(keep)
-
-
-import re as _re
 
 
 def _nums_with_units(text: str) -> set:
