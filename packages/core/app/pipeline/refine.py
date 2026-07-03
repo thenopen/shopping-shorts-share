@@ -26,7 +26,7 @@ def _normalize_script(text: str) -> str:
     """대본 형식 정규화 — 경로(생성/가공/받아쓰기)마다 널뛰는 공백·빈 줄을 계약 형식으로 수렴."""
     lines = []
     for ln in (text or "").splitlines():
-        s = _re.sub(r"[ \t]{2,}", " ", ln).strip()
+        s = _re.sub(r"[ \t]+", " ", ln).strip()   # 연속 공백·탭 → 스페이스 1개
         if s:
             lines.append(s)
     return "\n".join(lines)
