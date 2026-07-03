@@ -111,10 +111,12 @@ _OVERLOAD = ("503", "UNAVAILABLE", "overload", "high demand", "500", "INTERNAL")
 
 def generate_fallback(contents, models=None, retries: int = 1, record: bool = True,
                       backoff: float = 1.5, wrap_error: bool = False) -> str:
-    """여러 모델을 순차 시도 — 앞 모델이 과부하(503/overload)면 다음 모델로 강등. 첫 성공 반환.
+    """여러 모델을 순차 시도 — 앞 모델이 과부하(503)거나 레이트 한도(429)면 다음 모델로 강등.
 
     각 모델은 retries회(기본 1 — 503은 같은 모델 재시도가 잘 안 먹혀 바로 다음 모델로).
-    429(레이트 한도)는 generate가 즉시 raise → 폴백도 중단(모델 바꿔도 같은 계정 한도).
+    429도 강등 대상 — 무료티어 쿼터(RPM/RPD)는 **모델별로 분리**라 flash가 막혀도
+    lite/2.0-flash는 살아있는 경우가 많다(대본 생성이 클릭당 5~6호출이 되며 RPM이
+    실병목이 됨). 전 모델 429면 그때 최종 실패.
     """
     models = models or TEXT_MODELS
     last = None
@@ -124,9 +126,10 @@ def generate_fallback(contents, models=None, retries: int = 1, record: bool = Tr
                             backoff=backoff, transient=TRANSIENT_WIDE, wrap_error=False)
         except Exception as e:
             last = e
-            overloaded = any(c in str(e) for c in _OVERLOAD)
-            if overloaded and i < len(models) - 1:
-                continue                       # 다음 모델로 강등
+            s = str(e)
+            degradable = any(c in s for c in _OVERLOAD) or "429" in s or "RESOURCE_EXHAUSTED" in s
+            if degradable and i < len(models) - 1:
+                continue                       # 다음 모델로 강등(과부하·모델별 레이트 한도)
             if wrap_error:
                 raise RuntimeError(f"Gemini 호출 실패(모델 {model}: {str(last)[:120]})") from e
             raise

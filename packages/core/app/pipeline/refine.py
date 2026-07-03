@@ -104,9 +104,12 @@ SCRIPT_MODELS = [
 ]
 
 
-def _call_gemini_script(prompt: str) -> str:
-    """최초 대본 생성용 — 상위 모델 우선 체인."""
-    return gemini.generate_fallback(prompt, models=SCRIPT_MODELS)
+def _call_gemini_script(prompt: str, rotate: int = 0) -> str:
+    """최초 대본 생성용 — 상위 모델 우선 체인.
+    rotate: 후보 인덱스만큼 체인 시작점을 회전 — 무료티어 RPM은 모델별 분리라
+    후보 3개를 서로 다른 모델에 분산하면 분당 한도(429)에 훨씬 덜 걸린다."""
+    r = rotate % len(SCRIPT_MODELS)
+    return gemini.generate_fallback(prompt, models=SCRIPT_MODELS[r:] + SCRIPT_MODELS[:r])
 
 
 def refine_script(script: str, direction: str | None = None,
@@ -447,7 +450,7 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
         cands: list[str] = []
         for k in range(N_CANDIDATES):
             try:
-                c = _normalize_script(_narration_only(_call_gemini_script(prompt)))
+                c = _normalize_script(_narration_only(_call_gemini_script(prompt, rotate=k)))
                 if c and c not in cands:
                     cands.append(c)
             except Exception as e:

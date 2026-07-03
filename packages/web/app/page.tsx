@@ -72,6 +72,8 @@ export default function Home() {
   const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
   // 목표 영상 길이(초) — duration-first UX. null = 원본 영상 길이에 맞춤(자동).
   const [targetSec, setTargetSec] = useState<number | null>(30);
+  // 원본 영상 길이(초) — preview는 '이어하기' 때 비워지므로 별도 보관('영상 길이' 목표의 근거값).
+  const [srcDur, setSrcDur] = useState<number | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
   // 자막 제거 품질 확인 — 군데군데 원본 vs 제거본 프레임
@@ -137,7 +139,7 @@ export default function Home() {
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg,
     productStage, pointsEdit, setPointsEdit,
     addImageFiles, onProductPaste, generateProductScript,
-  } = useProductScript({ script, commitScript, videoDuration: targetSec ?? preview?.duration ?? null });
+  } = useProductScript({ script, commitScript, videoDuration: targetSec ?? srcDur ?? preview?.duration ?? null });
 
   const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
@@ -165,6 +167,7 @@ export default function Home() {
         !window.confirm("새 프로젝트를 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)")) return;
     setUrl("");
     setPreview(null);
+    setSrcDur(null);
     setJob(null);
     setScript("");
     scriptDirtyRef.current = false;
@@ -242,6 +245,7 @@ export default function Home() {
     try {
       const p = await postJSON<PreviewInfo>("/preview_url", { url: target });
       setPreview(p);
+      if (p.duration) setSrcDur(p.duration);
     } catch (e) {
       setPreview({ url: target, in_library: false, reused: false, error: e instanceof Error ? e.message : "확인 실패" });
     } finally {
@@ -263,6 +267,9 @@ export default function Home() {
         if (j.script) { setScript(j.script); scriptDirtyRef.current = true; lastSavedScriptRef.current = j.script; }
       }
       const lbl: Record<string, string> = { source: "원본", nosub: "자막제거본", script: "대본" };
+      // preview는 비우지만 영상 길이는 라이브러리 항목에서 보존('영상 길이' 목표가 실값 유지)
+      const ent = libEntries.find((e) => e.url === t);
+      if (ent?.duration) setSrcDur(ent.duration);
       setPreview(null);
       setStage("script");  // 불러온 뒤 자연스러운 다음 단계로 이동
       setView("edit");     // 홈에서 이어하기 → 편집 화면 진입
@@ -528,7 +535,7 @@ export default function Home() {
 
   // 예상 발화 길이(초) + 유효 목표(명시 목표 > 원본 영상 길이) — 대본/보이스/렌더 공용
   const estSec = estimateSec(script, rate, voice);
-  const effTargetSec = targetSec ?? preview?.duration ?? null;
+  const effTargetSec = targetSec ?? srcDur ?? preview?.duration ?? null;
 
   // 홈 '편집 계속하기' 노출 조건 + 라벨(제목 > 링크 요약)
   const hasWork = !!(url.trim() || script.trim() || job);
@@ -631,7 +638,7 @@ export default function Home() {
               job={job}
               estSec={estSec} rate={rate}
               targetSec={targetSec} setTargetSec={setTargetSec}
-              videoDur={preview?.duration ?? null}
+              videoDur={srcDur ?? preview?.duration ?? null}
               onFitLength={() => refineScript("concise", effTargetSec)}
               hookCands={hookCands} hooksBusy={hooksBusy}
               onFetchHooks={fetchHooks} onApplyHook={applyHook}
