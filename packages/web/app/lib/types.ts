@@ -47,6 +47,12 @@ export type LibraryEntry = {
   has_thumb: boolean; stages: Stages;
 };
 
+// Typecast 보이스(GET /tts/voices)
+export type TypecastVoice = {
+  voice_id: string; name: string; gender: string; age: string;
+  use_cases: string[]; emotions: string[]; shorts: boolean;
+};
+
 export type TestResult = { ok: boolean; msg: string } | "loading";
 
 export type ModalAcct = { label: string; masked: string; cost: number; remaining: number; deploy: string; deploy_msg: string };

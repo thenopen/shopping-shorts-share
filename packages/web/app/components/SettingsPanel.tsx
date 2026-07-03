@@ -11,6 +11,14 @@ import { SettingsStatus, TestResult, ModalAcct } from "../lib/types";
 export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => void; onSaved: () => void; onDeploy: () => void }) {
   const [st, setSt] = useState<SettingsStatus | null>(null);
   const [geminiKey, setGeminiKey] = useState("");
+  const [typecastKey, setTypecastKey] = useState("");
+  const [tcStat, setTcStat] = useState<{ set: boolean; plan?: string; remaining?: number } | null>(null);
+  async function loadTc() {
+    try {
+      const r = await fetch(`${apiBase()}/tts/typecast/status`);
+      if (r.ok) setTcStat(await r.json());
+    } catch {}
+  }
   const [ttsJson, setTtsJson] = useState("");
   const [modalId, setModalId] = useState("");
   const [modalSecret, setModalSecret] = useState("");
@@ -43,6 +51,7 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
       } catch {}
     })();
     loadAccts();
+    loadTc();
     return () => { live = false; };
   }, []);
 
@@ -121,13 +130,15 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
         },
       };
       if (geminiKey.trim()) body.gemini_key = geminiKey.trim();
+      if (typecastKey.trim()) body.typecast_key = typecastKey.trim();
       if (ttsJson.trim()) body.tts_json = ttsJson.trim();
       if (modalId.trim()) body.modal_token_id = modalId.trim();
       if (modalSecret.trim()) body.modal_token_secret = modalSecret.trim();
       body.download_dir = dlDir.trim();
       const r = await postJSON<{ ok: boolean; errors: Record<string, string>; status: SettingsStatus }>("/settings", body);
       setSt(r.status);
-      setGeminiKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
+      setGeminiKey(""); setTypecastKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
+      if (typecastKey.trim()) loadTc();   // Typecast 상태(잔여 크레딧) 갱신
       if (!r.ok) alert("일부 저장 실패:\n" + Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
       onSaved();
     } catch (e) {
@@ -185,6 +196,24 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
             <button onClick={() => runTest("gemini")} className={tBtn}>테스트</button>
             <span className="text-slate-500">(요청 1회 소모)</span>
             <TestView svc="gemini" />
+          </div>
+        </div>
+
+        {/* Typecast(TTS 음성) 키 — BYOK */}
+        <div className="mb-4">
+          <div className="mb-1 flex items-center justify-between text-sm font-semibold text-slate-200">
+            <span>Typecast API 키 <span className="text-[11px] font-normal text-slate-500">(음성 생성)</span></span>
+            <span className="text-[11px] font-medium">
+              {tcStat == null ? "…" : tcStat.set
+                ? <span className="text-emerald-400">설정됨{tcStat.remaining != null ? ` · 잔여 ${tcStat.remaining.toLocaleString()}자` : ""}</span>
+                : <span className="text-slate-500">미설정</span>}
+            </span>
+          </div>
+          <input type="password" value={typecastKey} onChange={(e) => setTypecastKey(e.target.value)} placeholder="__plt… (새 키 입력 시에만)" className={inp} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+            <button onClick={() => runTest("typecast")} className={tBtn}>테스트</button>
+            <span className="text-slate-500">typecast.ai/developers 에서 발급 · 무료 월 3만자</span>
+            <TestView svc="typecast" />
           </div>
         </div>
 
