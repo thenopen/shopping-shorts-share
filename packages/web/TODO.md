@@ -9,7 +9,8 @@
 - [ ] `alert()`/`window.prompt` 25+개 → 인라인 토스트/모달 (productErr 패턴 재사용)
 - [ ] 전역 focus-visible는 됨. placeholder solid 토큰(≥4.5:1)은 다크에선 OK, 라이트 재확인
 - [ ] 터치타깃 44px(모바일) — CTA +/×·보이스play·Switch hit-area
-- [ ] 실버그 2개: analyze checkUrl(target), CaptionTimeline/CaptionStage stable-id(현 CaptionStage는 key={i} 유지 중)
+- [x] ~~실버그 2개~~ **완료(2026-07-03)**: analyze `checkUrl(target)` 수정 · CaptionTimeline은 미사용 죽은 파일이라 삭제 ·
+      CaptionStage의 동종 버그(줄 삭제 시 selectedCap 인덱스 시프트)는 delLine 보정으로 해결. key={i}는 유지(현 위험 낮음).
 
 ## 리팩터 잔여(동작보존)
 - [ ] CaptionStage `React.memo`(genCaptions script를 ref로)

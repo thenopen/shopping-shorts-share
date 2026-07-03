@@ -1,6 +1,6 @@
 # 쇼핑 쇼츠 메이커 (Shopping Shorts Maker)
 
-> **갱신일자:** 2026-06-17 · **갱신자:** psj066
+> **갱신일자:** 2026-07-03 · **갱신자:** psj066
 >
 > 신임 개발자는 이 문서를 **위에서 아래로 한 번** 읽으면 프로젝트 전체를 파악할 수 있습니다.
 > 더 깊은 내용은 [docs/SETUP.md](docs/SETUP.md)(환경 세팅)와 [docs/STATUS.md](docs/STATUS.md)(진행상황·이슈)로 연결됩니다.
@@ -38,8 +38,8 @@
 ### 현재 개발 단계
 | 영역 | 완성도 | 한 줄 |
 |------|:---:|------|
-| 코어 변환 엔진 (`core`) | ~75% | 메인 흐름 동작. 얼굴컷·BGM 미구현, ProPainter 불안정 |
-| 웹 UI (`web`) | ~80% | 제작·자막편집 흐름 완성. 인증/결제/큐 UI 없음 |
+| 코어 변환 엔진 (`core`) | ~85% | E2E 동작. 자막제거=클라우드(Modal) ProPainter 확정, BGM 미구현 |
+| 웹 UI (`web`) | ~90% | 홈/편집 분리·자막 스타일 엔진·목표 길이 UX까지 완성. 인증/결제 없음 |
 | 데스크톱 셸 (`desktop`) | 0% | 미착수 (Tauri) — **다음 목표** |
 | SaaS 백엔드 (`server`) | ~5% | 빈 스텁. 데스크톱 우선이라 보류 |
 
@@ -99,21 +99,33 @@ workdir/<job_id>/output.mp4  →  GET /file/{job}/{name} 로 서빙 → 브라�
    ▼ [1] 다운로드        download.py(yt-dlp) · douyin_download.py(Playwright)   ✅
    ▼ [2] 사운드 제거     audio_strip.py (ffmpeg -an)                            ✅
    ▼ [3] 자막·워터마크   subtitle_detect(OCR 위치탐지)                          ✅
-        AI 제거          → propainter_inpaint(시간축 복원) ─실패→ subtitle_inpaint(LaMa)
-   ▼ [4] 얼굴샷 컷 제거  face_cut.py                                            ⬜ 미구현
-   ▼ [5] 한국어 TTS      tts.py → google_tts(Chirp3-HD) ─없으면→ edge-tts        ✅
-   ▼ [6] 자동 자막(ASS)  caption.py (구간별 폰트/색/테두리/박스/위치)            ✅
-   ▼ [7] BGM/효과음      audio_mix.py                                           ⬜ 미구현
-   ▼ [8] CTA 멘트        compose.py (drawtext)                                  ✅
-   ▼ [9] 9:16 합성       compose.py (ffmpeg 인코딩)                             ✅
+        AI 제거          → 클라우드 Modal ProPainter(기본, 2026-06-18 확정)
+                          ─실패/off→ 로컬 LaMa 폴백 (PROPAINTER=0)
+   ▼ [4] 한국어 TTS      tts.py → google_tts(Chirp3-HD) ─없으면→ edge-tts        ✅
+        자막 싱크        타임스탬프 없으면 whisper 정렬(align.py)로 단어 타이밍 복구
+   ▼ [5] 자동 자막(ASS)  caption.py — 스타일 엔진(아래) + 대본 원문(verbatim) 보장 ✅
+   ▼ [6] BGM/효과음      audio_mix.py                                           ⬜ 미구현
+   ▼ [7] CTA 멘트        compose.py (drawtext)                                  ✅
+   ▼ [8] 9:16 합성       compose.py — 최종 길이 = TTS(내레이션) 길이             ✅
    │
    ▼ [완성 쇼츠 mp4]
 ```
 
-**부가 기능 (메인 9단계 밖):**
+> 얼굴샷 컷 제거는 **폐기**됨(2026-07-03, da08468) — 내레이션 우선 정책과 충돌. `face_cut.py`는 미사용 잔존.
+
+**자막 스타일 엔진 (`caption.py` + 웹 편집기 — 차별화 포인트):**
+- 쇼핑쇼츠 특화 **프리셋 10종** + **등장 효과**(fade/pop/rise, ASS `\fad`/`\t`/`\move`) + **워드바이워드 애니**
+- 글로우/소프트 그림자(블러 레이어)·박스·자유위치·핵심단어 강조(가격/키워드 자동 + 수동 칩) — 웹 미리보기 = 최종 렌더 동일 룩
+- 줄별 스타일 잠금, 대본 의미단위(ENTER) 기준 줄 분할, 애니 자막도 대본 원문 표기(발음 표기 노출 방지)
+
+**대본 생성 시스템 (`refine.py` — 2026-07-03 대개편):**
+- `product_scrape.py`(URL/캡처 → Gemini 비전 소구포인트) → **역설계**(타깃→통점→소구 선별) →
+  **CO-STAR 프롬프트**(쇼핑쇼츠 전환형: 훅 제품연관·미시 증거·무사고 구매 지령) → **best-of-3 + 루브릭 채점**
+- 카테고리(뷰티/식품/가전/…) 지침 분기 + 레퍼런스 뱅크(`assets/script_bank.json`) few-shot
+- 8방향 AI 가공(훅/임팩트/…·before→after 예시 내장) · **훅 3후보 택1**(`/script/hooks`)
+- **목표 길이 우선(duration-first):** 목표 초 선택 → 분량 역산 생성, 예상 길이 미터(성우별 CPS 실측 보정)
+- 근거 리서치: [docs/script-prompt-good-cases.html](docs/script-prompt-good-cases.html)
 - **중국어 음성 → 한국어 대본:** `transcribe.py`(faster-whisper STT) + `translate.py`(Google 번역)
-- **AI 대본 가공:** `refine.py` (Gemini 2.5 — 번역투 제거 / Antigravity 검수)
-- **제품 상세페이지 → 소구포인트:** `product_scrape.py` (URL/캡처 → Gemini 비전) → 영상 내용과 결합 대본
 
 > 자세한 모듈별 역할은 각 파일 상단 docstring에 한국어로 적혀 있습니다. **`server_api.py`가 실제 오케스트레이터**입니다 (`run.py`는 참고용 CLI로, 실서비스 경로가 아님).
 
@@ -150,7 +162,7 @@ workdir/<job_id>/output.mp4  →  GET /file/{job}/{name} 로 서빙 → 브라�
 | 도구 | 왜 / 언제 | 비고 |
 |------|----------|------|
 | **GitHub 저장소 접근** | 소스 클론/푸시 | repo: `ShiningShuri/shopping-shorts-maker` (Private) · **[미정 → 서면문의 #1](docs/OPEN_INQUIRIES.md)** |
-| **Node.js** | `web`(Next.js) 개발/빌드 | **프론트엔드 작업 시작할 때** 설치 (`winget install OpenJS.NodeJS`). 백엔드 개발만이면 불필요 |
+| **Node.js** | `web`(Next.js) 개발/빌드 — **현재 UI가 주 작업면이라 사실상 필수** | 설치됨(2026-06-17). `winget install OpenJS.NodeJS` · 기동은 `scripts\start-all.ps1` |
 | **Tailscale** | 로컬 앱을 폰·태블릿에서 **원격 테스트** | **개발/소규모 베타 전용** — 공개 SaaS 배포 수단 아님. 데스크톱 우선이면 현재 불필요 |
 | **ProPainter** (자막제거 고급·자동) | 자막제거 품질↑(시간축 복원). 없으면 **LaMa 자동 폴백**(엔진은 동작) | 첫 자막제거 시 **자동 clone(~303MB)+가중치(~191MB)** · `.gitignore`라 머신마다 확보 · ⚠️ **`git`이 PATH에 있어야 clone 성공** · `PROPAINTER=0`으로 off. 상세 → [SETUP §2](docs/SETUP.md) |
 
@@ -195,23 +207,25 @@ py -3.12 -m venv .venv      # (py 런처 없으면 설치된 python312\python.ex
 
 > 이 섹션은 자주 바뀌므로 **요약만** 둡니다. 상시 갱신되는 상세본은 → **[docs/STATUS.md](docs/STATUS.md)**
 
-### 지금 막 끝난 것
-- ✅ **새 PC 환경 부트스트랩 완료** (Python 3.12.10 · ffmpeg 8.1.1 · torch 2.11.0+cu128 / RTX 3070 · 전체 의존성 · chromium). 코어 서버 기동·`{"ok":true}` 응답 검증됨.
+### 지금 막 끝난 것 (2026-07-03)
+- ✅ **자막 스타일 엔진 완성** — 쇼핑쇼츠 프리셋 10종·등장 효과·워드 애니·verbatim 자막·ASS Format 헤더 버그("0,," 아티팩트) 근절
+- ✅ **홈/편집 화면 분리** — 프로젝트 목록(썸네일·이어하기) 홈 + 워크스페이스(소스→대본→보이스→자막→렌더)
+- ✅ **목표 길이 UX(duration-first)** — 목표 초 → 분량 역산, 예상 길이 미터(성우별 CPS 실측 보정), 렌더 예상/실측 표시
+- ✅ **대본 생성 대개편** — 역설계→CO-STAR→best-of-3+루브릭, 훅 3후보 택1, 카테고리 분기, 쇼핑쇼츠 전용 리서치 반영
 
 ### 다음 우선순위
-1. **1단계 E2E 검증** — 실제 링크로 다운로드→자막제거까지 완주(엔진이 GPU 라이브러리를 in-process로 쓰는지 최종 확인)
-2. **자격증명 배치** — Google TTS · Gemini 키
-3. **데스크톱(Tauri) 셸 착수** — `core`를 사이드카로, `web` UI를 WebView로
+1. **데스크톱(Tauri) 셸 착수** — `core`를 사이드카로, `web` UI를 WebView로
+2. **대본 품질 잔여** — 포맷 6종(언박싱/비포애프터/…) 분기, 훅 A/B 성과 추적, script_bank 확충
+3. **BGM/효과음** — `audio_mix.py` + 무료 음원 자산
 
 ### 알려진 주요 이슈 / 미구현
 | 항목 | 내용 |
 |------|------|
-| ⬜ 얼굴샷 컷 제거 | `face_cut.py` 미구현(NotImplementedError) |
 | ⬜ BGM/효과음 | `audio_mix.py` 미구현 + `assets/bgm`·`sfx` 폴더 없음 |
-| 🟡 자막 효과 정합 | 편집기의 글로우/그림자색/박스 둥글기가 **미리보기 전용** — 최종 영상(ASS)엔 미반영 |
-| 🟡 자막 싱크 저하 | Google TTS는 단어 타임스탬프를 안 줘서 자막이 균등분할로 폴백 |
-| 🟡 ProPainter 불안정 | RTX 3070 8GB에선 OOM 위험 → LaMa로 자동 폴백 |
+| 🟡 박스 둥글기 | libass 미지원 — 웹 미리보기 전용(영상 미반영). 나머지 효과(글로우/그림자)는 반영됨 |
+| 🟡 ProPainter 로컬 | 8GB OOM — **클라우드(Modal)가 기본**, 로컬은 LaMa 폴백 |
 | ⚠️ 작업 상태 비영속 | 서버 인메모리 `JOBS` dict — 재시작 시 소실(DB 미구현) |
+| 🟡 라이트 모드 | 일부 버튼 대비 부족 — [packages/web/TODO.md](packages/web/TODO.md) |
 
 ---
 
@@ -250,6 +264,9 @@ py -3.12 -m venv .venv      # (py 런처 없으면 설치된 python312\python.ex
 | **README.md** (이 문서) | 온보딩 메인 — 전체 그림 |
 | [docs/SETUP.md](docs/SETUP.md) | 환경 세팅 상세 (명령 단위) |
 | [docs/STATUS.md](docs/STATUS.md) | 진행상황·이슈·로드맵 (상시 갱신) |
+| [docs/script-prompt-good-cases.html](docs/script-prompt-good-cases.html) | 쇼핑쇼츠 대본 공식·훅·프롬프트 리서치 (대본 시스템의 근거) |
+| [packages/web/REFACTOR.md](packages/web/REFACTOR.md) | 웹 리팩터 진행표 |
+| [packages/web/TODO.md](packages/web/TODO.md) | 웹 미뤄둔 개선 (라이트 모드 등) |
 | [docs/references/](docs/references/) | 참고 자료 (예: 올리브영 큐레이터 수익구조) |
 
 > 구버전 문서(`ARCHITECTURE.md`, `PLAN.md`, `HANDOFF.md`, `TASK_*.md`)는 내용이 낡아 **[docs/archive/](docs/archive/)로 아카이브** 완료했습니다(삭제 아님 — 서면문의 #5 결정). 정리 내역은 [docs/STATUS.md](docs/STATUS.md) §7.
