@@ -112,6 +112,7 @@ def tts_voices():
             "use_cases": v.get("use_cases") or [],
             "emotions": list(em),
             "shorts": "TikTok/Reels/Shorts" in (v.get("use_cases") or []),
+            "korean": typecast_tts.is_korean_voice(v.get("voice_name", "")),
         })
     return {"voices": out, "default": typecast_tts.DEFAULT_VOICE_ID}
 

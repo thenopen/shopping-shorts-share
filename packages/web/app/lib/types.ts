@@ -50,7 +50,7 @@ export type LibraryEntry = {
 // Typecast 보이스(GET /tts/voices)
 export type TypecastVoice = {
   voice_id: string; name: string; gender: string; age: string;
-  use_cases: string[]; emotions: string[]; shorts: boolean;
+  use_cases: string[]; emotions: string[]; shorts: boolean; korean: boolean;
 };
 
 export type TestResult = { ok: boolean; msg: string } | "loading";

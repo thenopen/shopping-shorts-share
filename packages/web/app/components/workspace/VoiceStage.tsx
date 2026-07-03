@@ -32,12 +32,14 @@ export function VoiceStage(props: {
   const [q, setQ] = useState("");
   const [gender, setGender] = useState<"all" | "male" | "female">("all");
   const [shortsOnly, setShortsOnly] = useState(true);
+  const [koreanOnly, setKoreanOnly] = useState(true);
 
   const filtered = useMemo(() => voices.filter((v) =>
-    (gender === "all" || v.gender === gender)
+    (!koreanOnly || v.korean)
+    && (gender === "all" || v.gender === gender)
     && (!shortsOnly || v.shorts)
     && (!q.trim() || v.name.toLowerCase().includes(q.trim().toLowerCase()))
-  ), [voices, gender, shortsOnly, q]);
+  ), [voices, koreanOnly, gender, shortsOnly, q]);
 
   const selected = voices.find((v) => v.voice_id === voice) || null;
   const presets = selected?.emotions?.length ? selected.emotions : ["normal", "happy", "sad", "angry"];
@@ -92,6 +94,11 @@ export function VoiceStage(props: {
               >{lbl}</button>
             ))}
           </div>
+          <button
+            onClick={() => setKoreanOnly((s) => !s)}
+            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${koreanOnly ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)]"}`}
+            title="한국어 배우 보이스만(이름 추정). 끄면 다국어 전체"
+          >한국어</button>
           <button
             onClick={() => setShortsOnly((s) => !s)}
             className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${shortsOnly ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)]"}`}

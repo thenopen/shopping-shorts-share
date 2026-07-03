@@ -26,6 +26,43 @@ _TIMEOUT = 90
 EMOTION_PRESETS = ("normal", "happy", "sad", "angry", "whisper", "toneup", "tonedown")
 
 
+import re as _re
+
+# Typecast 보이스에 언어 필드가 없어(다국어 모델) 이름 로마자로 한국어 배우 추정.
+# 명백한 일/중 배우는 제외, 한국 성씨/한국어 특유 음절이면 한국어로 본다(정밀 우선, 놓친 건 '전체'로).
+_KO_SURNAME = {"kim", "lee", "park", "choi", "jung", "jeong", "kang", "cho", "yoon", "yun",
+    "jang", "lim", "im", "han", "oh", "seo", "shin", "kwon", "hwang", "ahn", "an", "song",
+    "ryu", "hong", "jeon", "ko", "go", "moon", "yang", "bae", "baek", "heo", "nam", "sim",
+    "ji", "noh", "no", "ha", "jin", "chae", "woo", "sohn", "son", "yu", "yoo", "koo", "joo",
+    "ju", "gil", "min"}
+_KO_SYL = _re.compile(
+    r"(hyun|hyeon|seo|seok|seong|sung|jeong|jung|kyung|gyeong|wook|woon|joon|jun|jin|hwan|"
+    r"hee|eun|young|yeong|sook|suk|byung|byeong|sang|gwang|kwang|kang|deok|geun|cheol|chul|"
+    r"hyo|gyu|kyu|hyung|hyeong|kwon|yoon|yeol|myung|myeong|jae|tae|dae|bok|chan|chun|cheon|"
+    r"hoon|hun|kyoung|yeon|ryeol|seul|hye|gyeom|wan|won|mok|sol|sun|seon|jong|sik|nam|"
+    r"ryeong|pil|eogwool|mongsil|booqoo|bboddo|okji|soye|jain|gowoon|daeun|minuk|wonwoo)",
+    _re.I)
+_JP = {"sato", "suzuki", "tanaka", "watanabe", "ito", "yamamoto", "nakamura", "kobayashi",
+    "kato", "yoshida", "yamada", "sasaki", "yamaguchi", "matsumoto", "inoue", "kimura",
+    "hayashi", "shimizu", "yamazaki", "mori", "abe", "ikeda", "hashimoto", "ishida",
+    "ishikawa", "ichikawa", "nomura", "murata", "ono", "goto", "okada", "murakami",
+    "takahashi", "tomoko", "yui", "nanami", "daichi", "miki", "rin", "mirei", "touma",
+    "miu", "daidai", "tonakai", "kaito", "souta", "yuto", "sakura", "hina", "riko", "yuki",
+    "yuna", "haru", "takuya", "ryouta"}
+_CN = {"wang", "zhang", "liu", "chen", "huang", "zhao", "zhou", "zhu", "guo", "lin", "luo",
+    "zheng", "liang", "xie", "tang", "feng", "dong", "cheng", "cao", "yuan", "deng", "shen",
+    "peng", "hao", "ran", "lili", "hua"}
+
+
+def is_korean_voice(name: str) -> bool:
+    toks = _re.sub(r"[.\-’']", " ", name or "").lower().split()
+    if any(t in _JP or t in _CN for t in toks):
+        return False
+    if any(t in _KO_SURNAME for t in toks):
+        return True
+    return bool(_KO_SYL.search("".join(toks)))
+
+
 def api_key() -> str | None:
     env = os.environ.get("TYPECAST_API_KEY")
     if env:
