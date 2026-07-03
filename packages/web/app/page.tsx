@@ -386,6 +386,52 @@ export default function Home() {
     setSelectedCap(null);   // 줄 구성이 되돌아감 → 선택 초기화
   }
 
+  // 훅(첫 문장) 대안 3개 — 택1해서 대본 첫 줄 교체.
+  const [hookCands, setHookCands] = useState<string[]>([]);
+  const [hooksBusy, setHooksBusy] = useState(false);
+  async function fetchHooks() {
+    if (!script.trim() || hooksBusy) return;
+    setHooksBusy(true);
+    try {
+      const d = await postJSON<{ hooks: string[] }>("/script/hooks", { script });
+      if (!d.hooks?.length) alert("훅 후보 생성 실패 — 잠시 후 다시 시도해 주세요.");
+      setHookCands(d.hooks || []);
+    } catch (e) {
+      alert(errMsg(e, "훅 후보 생성 실패."));
+    } finally {
+      setHooksBusy(false);
+      bumpUsage();
+    }
+  }
+  // 대본 첫 번째 비어있지 않은 줄을 선택한 훅으로 교체(undo 히스토리에 기록됨)
+  function applyHook(h: string) {
+    const lines = script.split("\n");
+    const i = lines.findIndex((l) => l.trim());
+    if (i < 0) return;
+    lines[i] = h;
+    commitScript(lines.join("\n"));
+    setHookCands([]);
+  }
+
+  // 가공 채택/되돌리기 로깅 — 어떤 방향이 자주 버려지는지(프롬프트 개선 근거). 실패 무시.
+  const lastRefineRef = useRef<{ dir: string; t: number } | null>(null);
+  function logRefine(direction: string, action: "apply" | "undo") {
+    fetch(`${apiBase()}/metrics/refine`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction, action }),
+    }).catch(() => {});
+  }
+  // 가공 직후 90초 안의 Ctrl+Z = 그 방향 실패 신호로 기록
+  function handleScriptUndo() {
+    const lr = lastRefineRef.current;
+    if (lr && Date.now() - lr.t < 90_000) {
+      logRefine(lr.dir, "undo");
+      lastRefineRef.current = null;
+    }
+    undoScript();
+  }
+
   // direction: 8방향 다이얼 키(hook/impact/…) — 없으면 기본(번역투 정리) 가공.
   // fitSec 주면 그 초수 분량에 맞추도록 제약(목표 길이 맞추기).
   async function refineScript(direction?: string, fitSec?: number | null) {
@@ -401,7 +447,11 @@ export default function Home() {
         alert("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
       } else {
         const data = await r.json();
-        if (data.script) commitScript(data.script);
+        if (data.script) {
+          commitScript(data.script);
+          lastRefineRef.current = { dir: direction ?? "base", t: Date.now() };
+          logRefine(direction ?? "base", "apply");
+        }
       }
     } catch {
       alert("AI 가공 실패.");
@@ -551,7 +601,7 @@ export default function Home() {
               onChangeScript={(v) => { scriptDirtyRef.current = true; setScript(v); }}
               onFocusScript={beginSnapshot}
               onBlurScript={commitSnapshotIfChanged}
-              canUndo={canUndo} canRedo={canRedo} onUndo={undoScript} onRedo={redoScript}
+              canUndo={canUndo} canRedo={canRedo} onUndo={handleScriptUndo} onRedo={redoScript}
               onRefine={refineScript} refineBusy={refineBusy}
               onGenFromVideo={genScript} scriptBusy={scriptBusy}
               job={job}
@@ -559,6 +609,9 @@ export default function Home() {
               targetSec={targetSec} setTargetSec={setTargetSec}
               videoDur={preview?.duration ?? null}
               onFitLength={() => refineScript("concise", effTargetSec)}
+              hookCands={hookCands} hooksBusy={hooksBusy}
+              onFetchHooks={fetchHooks} onApplyHook={applyHook}
+              onClearHooks={() => setHookCands([])}
               productUrl={productUrl} setProductUrl={setProductUrl}
               productImages={productImages} setProductImages={setProductImages}
               sellingPoints={sellingPoints} setSellingPoints={setSellingPoints}

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   Check, CircleAlert, Copy, Eye, FileText, ImagePlus, Mic, MicOff,
-  Pencil, Redo2, RefreshCw, ShoppingBag, Sparkles, Undo2, X,
+  Pencil, Redo2, RefreshCw, ShoppingBag, Sparkles, Undo2, X, Zap,
 } from "lucide-react";
 import { Spinner } from "../../ui";
 import { JobState } from "../../lib/types";
@@ -38,6 +38,9 @@ export function ScriptStage(props: {
   setTargetSec: (n: number | null) => void;
   videoDur: number | null;               // 원본 영상 길이(자동 옵션 라벨용)
   onFitLength: () => void;               // AI로 목표 초수에 맞게 줄이기/맞추기
+  // 훅(첫 문장) 후보 택1
+  hookCands: string[]; hooksBusy: boolean;
+  onFetchHooks: () => void; onApplyHook: (h: string) => void; onClearHooks: () => void;
   // 제품 소구포인트(useProductScript 반환 그대로)
   productUrl: string; setProductUrl: (v: string) => void;
   productImages: string[]; setProductImages: React.Dispatch<React.SetStateAction<string[]>>;
@@ -56,6 +59,7 @@ export function ScriptStage(props: {
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg, productStage,
     pointsEdit, setPointsEdit, addImageFiles, onProductPaste, onGenerateProduct,
     estSec, rate, targetSec, setTargetSec, videoDur, onFitLength,
+    hookCands, hooksBusy, onFetchHooks, onApplyHook, onClearHooks,
   } = props;
   // 목표 대비 예상 길이 상태: ok(±10%) / over / under — 미터 색과 '맞추기' 버튼 노출 결정
   const effTarget = targetSec ?? videoDur ?? null;
@@ -315,6 +319,15 @@ export function ScriptStage(props: {
               )}
             </div>
             <button
+              onClick={onFetchHooks}
+              disabled={!script.trim() || hooksBusy}
+              title="첫 문장(훅) 대안 3개를 만들어 골라 교체 — 훅이 조회수의 절반"
+              className="btn-ghost flex items-center gap-1 rounded-lg px-2.5 py-1.5"
+            >
+              {hooksBusy ? <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-400" /> : <Zap className="h-3.5 w-3.5 text-amber-400" />}
+              {hooksBusy ? "훅 뽑는 중…" : "훅 바꾸기"}
+            </button>
+            <button
               onClick={onUndo}
               disabled={!canUndo}
               title="되돌리기 (Ctrl+Z)"
@@ -386,6 +399,28 @@ export function ScriptStage(props: {
             </button>
           )}
         </div>
+
+        {/* 훅 후보 택1 — 클릭하면 대본 첫 문장 교체(Ctrl+Z로 복구 가능) */}
+        {hookCands.length > 0 && (
+          <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3">
+            <div className="mb-2 flex items-center justify-between text-[11px] font-semibold">
+              <span className="flex items-center gap-1 text-amber-300"><Zap className="h-3 w-3" /> 훅 후보 — 클릭하면 첫 문장 교체</span>
+              <button onClick={onClearHooks} className="text-slate-500 hover:text-slate-300">닫기</button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {hookCands.map((h, i) => (
+                <button
+                  key={i}
+                  onClick={() => onApplyHook(h)}
+                  className="rounded-lg bg-white/5 px-3 py-2 text-left text-[13px] text-slate-200 ring-1 ring-[var(--line)] transition hover:bg-amber-400/10 hover:ring-amber-400/40"
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[10px] text-slate-500">마음에 안 들면 <b>훅 바꾸기</b>를 다시 눌러 새 후보를 받아요. 교체 후 Ctrl+Z로 복구 가능.</p>
+          </div>
+        )}
 
         {job?.status === "transcribed" && job?.has_speech === false && (
           <div className="mb-2 flex items-center gap-2 rounded-lg bg-amber-400/10 px-3 py-2 text-[12px] font-medium text-amber-400">

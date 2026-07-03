@@ -193,6 +193,38 @@ def refine(req: RefineReq):
     return {"script": refine_script(req.script, direction=req.direction, target_sec=req.target_sec)}
 
 
+class RefineMetricReq(BaseModel):
+    direction: str = ""    # 가공 방향 키(base/hook/impact/…)
+    action: str = ""       # "apply"(가공 적용) | "undo"(가공 직후 되돌림 = 실패 신호)
+
+
+@app.post("/metrics/refine")
+def metrics_refine(req: RefineMetricReq):
+    """가공 방향 채택/되돌리기 로깅 — 어떤 방향이 자주 쓰이고 자주 버려지는지(프롬프트 개선 근거)."""
+    import json as _json
+    import time as _time
+    p = WORKDIR / "metrics_refine.jsonl"
+    try:
+        with p.open("a", encoding="utf-8") as f:
+            f.write(_json.dumps({"ts": int(_time.time()), "direction": (req.direction or "")[:40],
+                                 "action": (req.action or "")[:10]}, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@app.post("/script/hooks")
+def script_hooks(req: RefineReq):
+    """현재 대본의 훅(첫 문장) 대안 3개 — 유저가 택1해 교체(성과 좌우 1순위가 훅)."""
+    from app.pipeline.refine import available, hook_candidates
+
+    if not available():
+        raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
+    if not req.script.strip():
+        raise HTTPException(400, "script is empty")
+    return {"hooks": hook_candidates(req.script)}
+
+
 @app.post("/jobs/{jid}/script")
 def save_job_script(jid: str, req: RefineReq):
     """현재 대본(제품/AI가공/직접편집)을 job + 라이브러리에 저장 — 이어하기·새로고침 복구용.
