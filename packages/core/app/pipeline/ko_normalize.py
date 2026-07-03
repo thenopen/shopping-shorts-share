@@ -110,9 +110,10 @@ def normalize_ko_reading(text: str) -> str:
                lambda m: f"{_eng_digit(m.group(1))} 플러스 {_eng_digit(m.group(2))}", t)
     # 2) 퍼센트
     t = re.sub(r"(\d+(?:\.\d+)?)\s*%", lambda m: _read_number(m.group(1)) + " 퍼센트", t)
-    # 3) 단위 알파벳(숫자 뒤) → 한자어 수 + 한글 단위. 뒤에 영문/한글 이어지면 제외(오탐 방지)
+    # 3) 단위 알파벳(숫자 뒤) → 한자어 수 + 한글 단위.
+    # 뒤에 '영문자'만 오면 제외(500grams의 g 오탐 방지). 한글 조사(1.5kg인데)는 허용.
     unit_pat = "|".join(re.escape(u) for u, _ in _UNITS)
-    t = re.sub(r"(\d+(?:\.\d+)?)\s*(" + unit_pat + r")(?![A-Za-z가-힣])",
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*(" + unit_pat + r")(?![A-Za-z])",
                lambda m: _read_number(m.group(1)) + " " + _UNIT_MAP[m.group(2)], t)
     # 4) 숫자 + 고유어 분류사(1..99 고유어, 그 외 한자어).
     # 뒤에 조사(도/는/을…)는 허용하되, 복합단위 만드는 음절(개월/개국/개년/개소)만 차단.
