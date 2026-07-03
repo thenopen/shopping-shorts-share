@@ -7,6 +7,14 @@ export function apiBase() {
   return "";
 }
 
+// 대용량 업로드용 — Next dev 프록시가 수십 MB request body를 끊어서(ClientDisconnect)
+// 코어(:8000)로 직접 보낸다. 코어는 0.0.0.0 리슨 + CORS 허용이라 LAN/Tailscale서도 동작.
+export function apiDirect() {
+  if (process.env.NEXT_PUBLIC_API_BASE) return process.env.NEXT_PUBLIC_API_BASE;
+  if (typeof window === "undefined") return "http://127.0.0.1:8000";
+  return `${window.location.protocol}//${window.location.hostname}:8000`;
+}
+
 export async function postJSON<T = any>(path: string, body: unknown): Promise<T> {
   const r = await fetch(`${apiBase()}${path}`, {
     method: "POST",

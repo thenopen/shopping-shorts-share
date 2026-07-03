@@ -4,7 +4,7 @@ JOBS/워커/파이프라인과 무관한 관리용 엔드포인트만 모음(ser
 경로·동작은 기존과 100% 동일 — server_api가 include_router로 마운트한다.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -115,6 +115,25 @@ def tts_voices():
             "korean": typecast_tts.is_korean_voice(v.get("voice_name", "")),
         })
     return {"voices": out, "default": typecast_tts.DEFAULT_VOICE_ID}
+
+
+@router.post("/captions/import-mogrt")
+async def caption_import_mogrt(request: Request):
+    """Premiere .mogrt 부분 임포트(베타) — 정적 텍스트 스타일 추출.
+
+    바디 = .mogrt 파일 raw 바이너리(application/octet-stream). base64/JSON은
+    수십 MB에서 Next dev 프록시가 버퍼링에 막혀 raw 스트리밍으로 받는다.
+    """
+    from app.pipeline.mogrt_import import parse_mogrt
+    blob = await request.body()
+    if not blob:
+        raise HTTPException(400, "빈 파일")
+    if len(blob) > 300 * 1024 * 1024:
+        raise HTTPException(400, "파일이 너무 큽니다(300MB 초과)")
+    try:
+        return parse_mogrt(blob)
+    except Exception as e:
+        raise HTTPException(400, f"mogrt 파싱 실패: {str(e)[:120]}")
 
 
 @router.post("/settings/test")
