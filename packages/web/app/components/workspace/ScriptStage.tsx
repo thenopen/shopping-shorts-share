@@ -77,6 +77,37 @@ export function ScriptStage(props: {
     onRefine(key);
   };
 
+  // 목표 길이 칩 — 생성(제품 패널)과 에디터(미터 행) 두 곳에서 공용. 같은 targetSec 상태.
+  const targetChips = (
+    <>
+      {[20, 30, 45].map((s) => (
+        <button
+          key={s}
+          onClick={() => setTargetSec(targetSec === s ? null : s)}
+          title={`대본 생성·줄이기가 약 ${s}초 분량을 목표로 해요`}
+          className={`rounded-full px-2.5 py-1 transition ${
+            targetSec === s
+              ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
+              : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
+          }`}
+        >
+          {s}초
+        </button>
+      ))}
+      <button
+        onClick={() => setTargetSec(null)}
+        title="원본 영상 길이에 맞춤"
+        className={`rounded-full px-2.5 py-1 transition ${
+          targetSec == null
+            ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
+            : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
+        }`}
+      >
+        영상 길이{videoDur ? ` (${Math.round(videoDur)}초)` : ""}
+      </button>
+    </>
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       {/* 헤더 + 대본 소스 선택(제품 링크 / 영상 받아쓰기 / 직접 입력은 아래 에디터) */}
@@ -136,6 +167,13 @@ export function ScriptStage(props: {
               {productBusy && <Spinner className="h-4 w-4 border-white/40 border-t-white" />}
               {productBusy ? "분석 중…" : "소구포인트 → 대본"}
             </button>
+          </div>
+
+          {/* 대본 길이 설정 — 생성 시점에 정함(분량 역산). 에디터의 목표 길이와 같은 상태 */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+            <span className="text-slate-500">대본 길이</span>
+            {targetChips}
+            <span className="text-slate-600">— 이 분량에 맞춰 생성돼요</span>
           </div>
 
           {/* 진행 힌트 칩 — 크롤이 수십 초 걸릴 수 있어 단계 문구 순환 */}
@@ -350,31 +388,7 @@ export function ScriptStage(props: {
         {/* 목표 길이 + 예상 발화 길이 미터 — 길이는 대본 분량으로 정하고 속도는 미세조정(업계 관행) */}
         <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
           <span className="text-slate-500">목표 길이</span>
-          {[20, 30, 45].map((s) => (
-            <button
-              key={s}
-              onClick={() => setTargetSec(targetSec === s ? null : s)}
-              title={`대본 생성·줄이기가 약 ${s}초 분량을 목표로 해요`}
-              className={`rounded-full px-2.5 py-1 transition ${
-                targetSec === s
-                  ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
-                  : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
-              }`}
-            >
-              {s}초
-            </button>
-          ))}
-          <button
-            onClick={() => setTargetSec(null)}
-            title="원본 영상 길이에 맞춤"
-            className={`rounded-full px-2.5 py-1 transition ${
-              targetSec == null
-                ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
-                : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
-            }`}
-          >
-            영상 길이{videoDur ? ` (${Math.round(videoDur)}초)` : ""}
-          </button>
+          {targetChips}
           {estSec != null && (
             <span
               className={`ml-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ring-1 ${
