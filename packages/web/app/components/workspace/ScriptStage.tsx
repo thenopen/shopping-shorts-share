@@ -31,6 +31,13 @@ export function ScriptStage(props: {
   onRefine: (direction?: string) => void; refineBusy: boolean;
   onGenFromVideo: () => void; scriptBusy: boolean;   // 영상 음성→대본(transcribe)
   job: JobState | null;
+  // 목표 길이(duration-first) + 예상 발화 길이 미터
+  estSec: number | null;                 // 현재 대본 예상 길이(초, rate 반영)
+  rate: number;
+  targetSec: number | null;              // 명시 목표(초). null = 원본 영상 길이에 맞춤
+  setTargetSec: (n: number | null) => void;
+  videoDur: number | null;               // 원본 영상 길이(자동 옵션 라벨용)
+  onFitLength: () => void;               // AI로 목표 초수에 맞게 줄이기/맞추기
   // 제품 소구포인트(useProductScript 반환 그대로)
   productUrl: string; setProductUrl: (v: string) => void;
   productImages: string[]; setProductImages: React.Dispatch<React.SetStateAction<string[]>>;
@@ -48,7 +55,13 @@ export function ScriptStage(props: {
     productUrl, setProductUrl, productImages, setProductImages,
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg, productStage,
     pointsEdit, setPointsEdit, addImageFiles, onProductPaste, onGenerateProduct,
+    estSec, rate, targetSec, setTargetSec, videoDur, onFitLength,
   } = props;
+  // 목표 대비 예상 길이 상태: ok(±10%) / over / under — 미터 색과 '맞추기' 버튼 노출 결정
+  const effTarget = targetSec ?? videoDur ?? null;
+  const lenState = estSec == null || effTarget == null
+    ? "none"
+    : estSec > effTarget * 1.1 ? "over" : estSec < effTarget * 0.85 ? "under" : "ok";
   const [productOpen, setProductOpen] = useState(true);  // 소스 기본 = 제품 링크 패널 열림
   const [dialOpen, setDialOpen] = useState(false);       // AI 가공 8각 다이얼 팝오버
   const [hovered, setHovered] = useState<string | null>(null);  // 다이얼 hover 방향(힌트 표시)
@@ -321,6 +334,59 @@ export function ScriptStage(props: {
             </button>
           </div>
         </div>
+        {/* 목표 길이 + 예상 발화 길이 미터 — 길이는 대본 분량으로 정하고 속도는 미세조정(업계 관행) */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] font-medium">
+          <span className="text-slate-500">목표 길이</span>
+          {[20, 30, 45].map((s) => (
+            <button
+              key={s}
+              onClick={() => setTargetSec(targetSec === s ? null : s)}
+              title={`대본 생성·줄이기가 약 ${s}초 분량을 목표로 해요`}
+              className={`rounded-full px-2.5 py-1 transition ${
+                targetSec === s
+                  ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
+                  : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
+              }`}
+            >
+              {s}초
+            </button>
+          ))}
+          <button
+            onClick={() => setTargetSec(null)}
+            title="원본 영상 길이에 맞춤"
+            className={`rounded-full px-2.5 py-1 transition ${
+              targetSec == null
+                ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
+                : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
+            }`}
+          >
+            영상 길이{videoDur ? ` (${Math.round(videoDur)}초)` : ""}
+          </button>
+          {estSec != null && (
+            <span
+              className={`ml-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 font-semibold ring-1 ${
+                lenState === "over" ? "bg-amber-400/10 text-amber-300 ring-amber-400/30"
+                  : lenState === "ok" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/25"
+                    : "bg-white/5 text-slate-400 ring-[var(--line)]"
+              }`}
+              title="공백 제외 글자수 ÷ 성우 말속도(실측 보정) — TTS를 들어볼수록 정확해져요"
+            >
+              예상 {estSec >= 60 ? `${Math.floor(estSec / 60)}분 ${Math.round(estSec % 60)}초` : `${Math.round(estSec)}초`} @ {rate.toFixed(1)}x
+              {lenState === "over" && effTarget != null && ` · 목표보다 +${Math.round(estSec - effTarget)}초`}
+            </span>
+          )}
+          {lenState === "over" && (
+            <button
+              onClick={onFitLength}
+              disabled={refineBusy}
+              title={`AI가 핵심을 유지하며 약 ${Math.round(effTarget ?? 0)}초 분량으로 압축해요`}
+              className="rounded-full bg-amber-400/15 px-2.5 py-1 font-semibold text-amber-300 ring-1 ring-amber-400/30 transition hover:bg-amber-400/25 disabled:opacity-40"
+            >
+              {refineBusy ? "줄이는 중…" : `${Math.round(effTarget ?? 0)}초에 맞게 줄이기`}
+            </button>
+          )}
+        </div>
+
         {job?.status === "transcribed" && job?.has_speech === false && (
           <div className="mb-2 flex items-center gap-2 rounded-lg bg-amber-400/10 px-3 py-2 text-[12px] font-medium text-amber-400">
             <MicOff className="h-3.5 w-3.5 flex-none" />

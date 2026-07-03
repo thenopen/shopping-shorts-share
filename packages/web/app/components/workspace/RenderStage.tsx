@@ -9,7 +9,7 @@ export function RenderStage({
   ctaList, cta, setCta, onAddCta, onDeleteCta,
   ctaOn, setCtaOn, ctaSize, setCtaSize, ctaPos, setCtaPos,
   captionsOn,
-  onRender, busy, job, outputUrl, absUrl,
+  onRender, busy, job, outputUrl, absUrl, estSec,
 }: {
   ctaList: string[]; cta: string; setCta: (v: string) => void;
   onAddCta: () => void; onDeleteCta: (t: string) => void;
@@ -20,6 +20,7 @@ export function RenderStage({
   onRender: () => void; busy: boolean; job: JobState | null;
   outputUrl: string | null;
   absUrl: (rel: string) => string;
+  estSec: number | null;   // 예상 최종 영상 길이(= 내레이션 예상 초)
 }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -73,6 +74,11 @@ export function RenderStage({
         <ul className="mb-4 flex flex-wrap gap-1.5 text-[11px] font-medium">
           <li className={`rounded-full px-2.5 py-1 ${captionsOn ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-slate-500"}`}>자동 자막 {captionsOn ? "ON" : "OFF"}</li>
           <li className={`rounded-full px-2.5 py-1 ${ctaOn ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-slate-500"}`}>CTA {ctaOn ? "ON" : "OFF"}</li>
+          {estSec != null && (
+            <li className="rounded-full bg-blue-500/10 px-2.5 py-1 text-blue-400 ring-1 ring-blue-500/25" title="최종 영상 길이 = 내레이션(TTS) 길이 — 대본 분량·말속도 기준 추정">
+              예상 길이 ~{Math.round(estSec)}초
+            </li>
+          )}
         </ul>
         <button
           onClick={onRender}
@@ -91,6 +97,11 @@ export function RenderStage({
         <section className="panel rounded-2xl p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-semibold text-emerald-400">✅ 영상 완성 — 왼쪽 프리뷰에서 확인</div>
+            {job?.output_dur ? (
+              <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300 ring-1 ring-[var(--line)]">
+                실제 {Math.round(job.output_dur)}초
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <a

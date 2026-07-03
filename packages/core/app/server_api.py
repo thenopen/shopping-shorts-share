@@ -122,6 +122,7 @@ class TranscribeReq(BaseModel):
 class RefineReq(BaseModel):
     script: str
     direction: str | None = None   # 대본 가공 8방향(refine.SCRIPT_DIRECTIONS 키). 없으면 기본 가공
+    target_sec: float | None = None  # 목표 발화 길이(초) — 분량을 이 초수에 맞추도록 제약
 
 
 class RenderReq(BaseModel):
@@ -189,7 +190,7 @@ def refine(req: RefineReq):
 
     if not available():
         raise HTTPException(400, "Gemini key not found. Add auth/gemini_key.txt or GEMINI_API_KEY.")
-    return {"script": refine_script(req.script, direction=req.direction)}
+    return {"script": refine_script(req.script, direction=req.direction, target_sec=req.target_sec)}
 
 
 @app.post("/jobs/{jid}/script")
@@ -1015,6 +1016,7 @@ def _render_worker(jid: str, req: RenderReq):
                 print(f"  [caption burn failed, keeping no-caption output: {str(ce)[:200]}]")
 
         job["output"] = f"/file/{jid}/{out.name}"
+        job["output_dur"] = _probe_dur(out)   # 실제 최종 길이 — 웹에서 목표 대비 표시(피드백 루프)
         job.update(status="done", stage="완료", progress=100)
     except Exception as e:
         job.update(status="error", stage="렌더 오류", error=str(e)[:500])

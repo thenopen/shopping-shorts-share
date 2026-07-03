@@ -8,6 +8,7 @@ export type JobState = {
   script: string;
   preview: string | null;
   output: string | null;
+  output_dur?: number | null;            // 최종 영상 실측 길이(초) — 목표 대비 표시용
   has_speech: boolean | null;
   error: string | null;
   subtitle_engine?: string | null;       // "propainter_modal" | "lama" | "lama_fallback" | "cached" | "none"

@@ -53,12 +53,18 @@ def _call_gemini(prompt: str, retries: int = 3) -> str:
     return gemini.generate_fallback(prompt)
 
 
-def refine_script(script: str, direction: str | None = None) -> str:
-    """대본 AI 가공. direction(8방향 키) 지정 시 그 방향으로, 없으면 기본(번역투 정리)."""
+def refine_script(script: str, direction: str | None = None,
+                  target_sec: float | None = None) -> str:
+    """대본 AI 가공. direction(8방향 키) 지정 시 그 방향으로, 없으면 기본(번역투 정리).
+    target_sec 주면 발화 길이를 그 초수에 맞추도록 분량 제약 추가(≈5.5자/초)."""
     script = (script or "").strip()
     if not script:
         return ""
     instruction = SCRIPT_DIRECTIONS.get(direction or "", DEFAULT_INSTRUCTION)
+    if target_sec and target_sec > 0:
+        chars = int(round(float(target_sec) * 5.5))
+        instruction += (f"\n결과 대본은 소리 내어 읽었을 때 약 {int(round(float(target_sec)))}초"
+                        f"(공백 제외 약 {chars}자 안팎)가 되도록 분량을 맞춰라. 핵심 소구는 유지.")
     try:
         out = _call_gemini(REFINE_PROMPT.format(
             instruction=instruction, shorts_rules=SHORTS_RULES, script=script))

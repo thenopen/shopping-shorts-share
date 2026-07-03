@@ -13,11 +13,12 @@ export function VoiceStage(props: {
   onToggleVoice: (name: string) => void;
   rate: number; setRate: (n: number) => void;
   onPreviewTts: () => void; ttsBusy: boolean; hasScript: boolean;
+  estSec: number | null;   // 현재 대본 예상 발화 길이(초, rate 반영)
 }) {
   const {
     voice, setVoice, genderFilter, setGenderFilter,
     playing, loadingVoice, onToggleVoice,
-    rate, setRate, onPreviewTts, ttsBusy, hasScript,
+    rate, setRate, onPreviewTts, ttsBusy, hasScript, estSec,
   } = props;
 
   const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
@@ -92,7 +93,10 @@ export function VoiceStage(props: {
       <div className="panel-2 rounded-xl p-3">
         <div className="flex items-center justify-between text-[12px]">
           <span className="font-medium text-slate-300">말하기 속도</span>
-          <span className="font-semibold text-pink-400">{rate.toFixed(1)}x</span>
+          <span className="font-semibold text-pink-400">
+            {rate.toFixed(1)}x
+            {estSec != null && <span className="ml-2 font-medium text-slate-400">· 대본 예상 {Math.round(estSec)}초</span>}
+          </span>
         </div>
         <input
           type="range"
@@ -104,7 +108,11 @@ export function VoiceStage(props: {
           className="mt-1.5 w-full accent-pink-500"
           aria-label="말하기 속도"
         />
-        <p className="mt-1 text-[11px] text-slate-500">0.5x 느리게 ~ 2.0x 빠르게 · 최종 영상 길이와 자막 타이밍이 함께 바뀌어요</p>
+        <p className="mt-1 text-[11px] text-slate-500">
+          <b className="text-slate-400">0.8~1.3x 권장</b> — 그 밖은 부자연스러워요.
+          길이는 <b className="text-slate-400">대본 분량(대본 단계의 목표 길이)</b>으로 정하고, 속도는 템포 미세조정용.
+          {(rate < 0.8 || rate > 1.3) && <span className="ml-1 font-semibold text-amber-400">지금 권장 범위 밖!</span>}
+        </p>
       </div>
 
       {/* 대본 전체 TTS 미리듣기 — 오디오 플레이어는 좌측 프리뷰 아래에 뜸 */}

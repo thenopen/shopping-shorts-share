@@ -6,6 +6,7 @@ import { CaptionLineData } from "./caption/types";
 import { apiBase, postJSON, errMsg } from "./lib/api";
 import { JobState, PreviewInfo, LibraryEntry } from "./lib/types";
 import { normLines } from "./lib/format";
+import { estimateSec, recordCps, visChars } from "./lib/duration";
 import { CaptionStyle, DEFAULT_STYLE } from "./caption/style";
 import { StageKey } from "./lib/stage";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -54,6 +55,8 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
   const { deployN, watchDeploy } = useModalDeploy();  // Modal 배포중 계정 수 + 감시 트리거
   const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
+  // 목표 영상 길이(초) — duration-first UX. null = 원본 영상 길이에 맞춤(자동).
+  const [targetSec, setTargetSec] = useState<number | null>(30);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
   // 자막 제거 품질 확인 — 군데군데 원본 vs 제거본 프레임
@@ -100,6 +103,7 @@ export default function Home() {
         // 보이는 <audio controls autoPlay>로 재생(다시듣기·스크럽 가능). 숨은 audioRef는 보이스 미리듣기 전용.
         const el = audioRef.current;
         if (el && playing) { el.pause(); setPlaying(null); }   // 보이스 미리듣기 중이면 정지(겹침 방지)
+        if (d.duration) recordCps(voice, visChars(script), d.duration, rate);  // 실측 → 예상길이 보정
         setTtsUrl(`${apiBase()}${d.audio}?t=${renderSeq}-${voice}`);
       } else {
         console.warn("[TTS미리듣기] audio 없음", d);
@@ -118,7 +122,7 @@ export default function Home() {
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg,
     productStage, pointsEdit, setPointsEdit,
     addImageFiles, onProductPaste, generateProductScript,
-  } = useProductScript({ script, commitScript, videoDuration: preview?.duration ?? null });
+  } = useProductScript({ script, commitScript, videoDuration: targetSec ?? preview?.duration ?? null });
 
   const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
@@ -339,6 +343,9 @@ export default function Home() {
       setCaptionLines(lines);
       setCapEditPrev(null);
       setSelectedCap(null);   // 새 자막 → 선택 해제(전체 모드)
+      // 마지막 줄 끝 = 실측 TTS 길이 → 예상길이(CPS) 보정
+      const lastEnd = lines.length ? lines[lines.length - 1].end : 0;
+      if (lastEnd > 1) recordCps(voice, visChars(script), lastEnd, rate);
     } catch {
       alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
@@ -380,14 +387,15 @@ export default function Home() {
   }
 
   // direction: 8방향 다이얼 키(hook/impact/…) — 없으면 기본(번역투 정리) 가공.
-  async function refineScript(direction?: string) {
+  // fitSec 주면 그 초수 분량에 맞추도록 제약(목표 길이 맞추기).
+  async function refineScript(direction?: string, fitSec?: number | null) {
     if (!script.trim() || refineBusy) return;
     setRefineBusy(true);
     try {
       const r = await fetch(`${apiBase()}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script, direction: direction ?? null }),
+        body: JSON.stringify({ script, direction: direction ?? null, target_sec: fitSec ?? null }),
       });
       if (!r.ok) {
         alert("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
@@ -443,6 +451,10 @@ export default function Home() {
     caption: captionLines.length > 0,
     render: !!job?.output,
   };
+
+  // 예상 발화 길이(초) + 유효 목표(명시 목표 > 원본 영상 길이) — 대본/보이스/렌더 공용
+  const estSec = estimateSec(script, rate, voice);
+  const effTargetSec = targetSec ?? preview?.duration ?? null;
 
   // 홈 '편집 계속하기' 노출 조건 + 라벨(제목 > 링크 요약)
   const hasWork = !!(url.trim() || script.trim() || job);
@@ -543,6 +555,10 @@ export default function Home() {
               onRefine={refineScript} refineBusy={refineBusy}
               onGenFromVideo={genScript} scriptBusy={scriptBusy}
               job={job}
+              estSec={estSec} rate={rate}
+              targetSec={targetSec} setTargetSec={setTargetSec}
+              videoDur={preview?.duration ?? null}
+              onFitLength={() => refineScript("concise", effTargetSec)}
               productUrl={productUrl} setProductUrl={setProductUrl}
               productImages={productImages} setProductImages={setProductImages}
               sellingPoints={sellingPoints} setSellingPoints={setSellingPoints}
@@ -561,6 +577,7 @@ export default function Home() {
               onToggleVoice={toggleVoice}
               rate={rate} setRate={setRate}
               onPreviewTts={previewTts} ttsBusy={ttsBusy} hasScript={!!script.trim()}
+              estSec={estSec}
             />
           )}
           {stage === "caption" && (
@@ -593,6 +610,7 @@ export default function Home() {
               onRender={startRender} busy={busy} job={job}
               outputUrl={job?.output ? previewUrl : null}
               absUrl={absUrl}
+              estSec={estSec}
             />
           )}
         </main>
