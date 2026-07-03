@@ -75,8 +75,9 @@ def compose(
         cmd += ["-map", "0:v:0", "-map", "1:a:0"]
 
     if audio_path:
-        # 깨끗한 리샘플(48kHz) — 샘플레이트 불일치/지직 방지
-        cmd += ["-af", "aresample=async=1:first_pts=0:osr=48000"]
+        # 라우드니스 정규화(EBU R128, 모바일/숏츠 타깃 -16 LUFS) + 깨끗한 리샘플(48kHz).
+        # 성우·클립 간 볼륨 편차 제거해 '프로 광고' 마감. 그다음 샘플레이트 불일치/지직 방지.
+        cmd += ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=async=1:first_pts=0:osr=48000"]
 
     cmd += [
         "-c:v", "libx264", "-preset", "fast", "-crf", "23",

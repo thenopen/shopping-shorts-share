@@ -45,6 +45,10 @@ def synthesize_by_nickname(
     rate_override: str | None = None,
     speaking_rate: float = 1.0,
 ) -> tuple[Path, list]:
+    # 발음 정규화(숫자·금액·단위·기호 → 읽는 형태). Google/Edge 둘 다 SSML 불가라
+    # 합성 전 텍스트 치환이 유일한 발음 교정 레버. 자막 텍스트엔 적용 안 함(화면=대본 원문).
+    from app.pipeline.ko_normalize import normalize_ko_reading
+    text = normalize_ko_reading(text)
     try:
         from app.pipeline import google_tts
 
