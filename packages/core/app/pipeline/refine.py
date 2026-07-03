@@ -240,8 +240,10 @@ _CAT_KEYWORDS = {
 }
 
 
-def _detect_category(points: str) -> str:
-    t = (points or "")[:600]
+def _detect_category(points: str, extra: str = "") -> str:
+    """소구포인트(+영상 내용)에서 카테고리 추정 — 소구포인트만으론 키워드가 빠질 때가 있어
+    영상 내용도 함께 본다(실사례: 쿠션 리뷰가 '생활'로 오판)."""
+    t = ((points or "")[:600] + " " + (extra or "")[:600])
     for cat, kws in _CAT_KEYWORDS.items():
         if any(k in t for k in kws):
             return cat
@@ -330,7 +332,7 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
         return video_content
     _d(f"대본 결합(Gemini {MODEL}): 영상내용 {len(video_content)}자 + 소구포인트 {len(selling_points)}자")
     try:
-        cat = _detect_category(selling_points)
+        cat = _detect_category(selling_points, video_content)
         _d(f"카테고리 추정: {cat}")
         # 역설계 1단계 — 타깃/통점/소구 선별. 이 결과가 모든 후보의 공통 뼈대.
         analysis = target_analysis(video_content, selling_points)
