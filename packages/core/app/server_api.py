@@ -585,7 +585,8 @@ def script_product(req: ProductScriptReq):
 
         debug.append(f"입력: url={'있음' if req.product_url.strip() else '없음'}, 이미지 {len(images)}장, "
                      f"manual={'있음' if req.manual_points.strip() else '없음'}, "
-                     f"영상내용 {len(req.video_content or '')}자, combine={req.combine}")
+                     f"영상내용 {len(req.video_content or '')}자, combine={req.combine}, "
+                     f"target_seconds={req.target_seconds!r}")   # 목표 길이가 웹에서 실제 뭘로 왔나
 
         sp = extract_selling_points(
             url=req.product_url or None,

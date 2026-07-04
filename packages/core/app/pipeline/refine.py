@@ -470,8 +470,12 @@ def product_script(video_content: str, selling_points: str, debug: list | None =
             examples=_bank_examples(cat),
             format_rules=SCRIPT_FORMAT_RULES,
         )
+        # 목표 길이 진단 — None(미지정)이면 '20~45초 자유'로 짧게 나온다(원인 추적용 항상 로그).
         if target_seconds:
-            _d(f"목표 길이 {target_seconds:.1f}초 → 대본 목표 {int(target_seconds*5.5)}자 내외")
+            _d(f"목표 길이 {target_seconds:.1f}초 → 대본 목표 {int(target_seconds*5.5*1.08)}자 내외")
+        else:
+            _d("⚠ 목표 길이 미지정(target_seconds=None) → 20~45초 자유 분량. "
+               "웹에서 '영상 길이' 목표인데 영상 길이를 못 받았거나, 목표 전달이 끊긴 것.")
         # best-of-N: 상위 모델로 후보 N개 생성(기본 온도의 자연 다양성) → 루브릭 채점으로 선택.
         cands: list[str] = []
         for k in range(N_CANDIDATES):
