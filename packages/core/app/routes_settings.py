@@ -5,6 +5,7 @@ JOBS/워커/파이프라인과 무관한 관리용 엔드포인트만 모음(ser
 """
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -134,6 +135,31 @@ async def caption_import_mogrt(request: Request):
         return parse_mogrt(blob)
     except Exception as e:
         raise HTTPException(400, f"mogrt 파싱 실패: {str(e)[:120]}")
+
+
+@router.get("/overlays")
+def overlays_list():
+    """오버레이 에셋 목록(말풍선/트랜지션/리액션) + 썸네일 URL."""
+    from app import overlays
+    data = overlays.load_manifest()
+    for items in data.values():
+        for it in items or []:
+            if it.get("thumb"):
+                it["thumb_url"] = f"/overlays/asset/{it['thumb']}"
+    return data
+
+
+@router.get("/overlays/asset/{path:path}")
+def overlay_asset(path: str):
+    """오버레이 썸네일/파일 서빙(assets/overlays 하위만)."""
+    from app import overlays
+    if ".." in path:
+        raise HTTPException(403, "invalid path")
+    base = overlays.OVERLAY_DIR.resolve()
+    f = (base / path).resolve()
+    if not f.is_relative_to(base) or not f.exists():
+        raise HTTPException(404, "not found")
+    return FileResponse(str(f))
 
 
 @router.post("/settings/test")

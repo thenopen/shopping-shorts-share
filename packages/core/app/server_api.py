@@ -220,6 +220,7 @@ class RenderReq(BaseModel):
     captions: bool = True            # TTS 대본 자동자막 on/off
     caption_style: dict | None = None  # 웹 CaptionStyle (font/size/color/...) — 기본 스타일
     caption_lines: list | None = None  # 타임라인 편집기서 수정한 줄들(있으면 자동생성 대신 이걸 burn)
+    overlays: list | None = None       # 오버레이 [{id,x,y,scale,start,end,fullscreen}] — 말풍선·스티커
 
 
 class CaptionPreviewReq(BaseModel):
@@ -1180,6 +1181,31 @@ def _render_worker(jid: str, req: RenderReq):
                     out = capped
             except Exception as ce:
                 print(f"  [caption burn failed, keeping no-caption output: {str(ce)[:200]}]")
+
+        # 오버레이(말풍선·트랜지션·리액션 스티커) — 자막 굽기 후 마지막에 얹음.
+        if req.overlays:
+            try:
+                from app import overlays as _ovmod
+                from app.pipeline.compose import apply_overlays
+                specs = []
+                for o in req.overlays:
+                    fp = _ovmod.resolve_file(o.get("id", ""))
+                    if not fp:
+                        continue
+                    specs.append({
+                        "file": str(fp),
+                        "type": _ovmod.resolve_type(o.get("id", "")),
+                        "x": float(o.get("x", 0.5)), "y": float(o.get("y", 0.5)),
+                        "scale": float(o.get("scale", 0.5)),
+                        "start": float(o.get("start", 0.0)),
+                        "end": o.get("end"),
+                        "fullscreen": bool(o.get("fullscreen", False)),
+                    })
+                if specs:
+                    job.update(status="overlaying", stage="효과 얹기", progress=0)
+                    out = apply_overlays(out, job_dir / "output_ov.mp4", specs)
+            except Exception as oe:
+                print(f"  [overlay 실패, 오버레이 없이 진행: {str(oe)[:200]}]")
 
         job["output"] = f"/file/{jid}/{out.name}"
         job["output_dur"] = _probe_dur(out)   # 실제 최종 길이 — 웹에서 목표 대비 표시(피드백 루프)

@@ -53,6 +53,15 @@ export type TypecastVoice = {
   use_cases: string[]; emotions: string[]; shorts: boolean; korean: boolean;
 };
 
+// 오버레이 에셋(말풍선·트랜지션·리액션)
+export type OverlayItem = { id: string; file: string; thumb_url: string; type: "image" | "video" };
+export type OverlayLib = { bubble: OverlayItem[]; transition: OverlayItem[]; reaction: OverlayItem[] };
+export type OverlaySel = {
+  id: string; cat: "bubble" | "transition" | "reaction"; type: "image" | "video";
+  thumb_url: string; x: number; y: number; scale: number;
+  start: number; end: number | null; fullscreen: boolean;
+};
+
 export type TestResult = { ok: boolean; msg: string } | "loading";
 
 export type ModalAcct = { label: string; masked: string; cost: number; remaining: number; deploy: string; deploy_msg: string };

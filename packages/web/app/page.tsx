@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import CaptionEditor from "./CaptionEditor";
 import { CaptionLineData } from "./caption/types";
 import { apiBase, postJSON, errMsg } from "./lib/api";
-import { JobState, PreviewInfo, LibraryEntry, TypecastVoice } from "./lib/types";
+import { JobState, PreviewInfo, LibraryEntry, TypecastVoice, OverlayLib, OverlaySel } from "./lib/types";
 import { normLines } from "./lib/format";
 import { estimateSec, getCpsInfo, recordCps, visChars } from "./lib/duration";
 import { CaptionStyle, DEFAULT_STYLE } from "./caption/style";
@@ -41,6 +41,17 @@ export default function Home() {
         const j = await r.json();
         setTcVoices(j.voices || []);
         setVoice((cur) => cur || j.default || (j.voices?.[0]?.voice_id ?? ""));
+      } catch {}
+    })();
+  }, []);
+  // 오버레이 에셋 라이브러리(말풍선·트랜지션·리액션) + 선택 목록
+  const [overlayLib, setOverlayLib] = useState<OverlayLib>({ bubble: [], transition: [], reaction: [] });
+  const [overlays, setOverlays] = useState<OverlaySel[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${apiBase()}/overlays`);
+        if (r.ok) setOverlayLib(await r.json());
       } catch {}
     })();
   }, []);
@@ -517,6 +528,7 @@ export default function Home() {
         caption_style: captionStyle,
         // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
         caption_lines: captionLines.length ? captionLines : null,
+        overlays: overlays.length ? overlays.map((o) => ({ id: o.id, x: o.x, y: o.y, scale: o.scale, start: o.start, end: o.end, fullscreen: o.fullscreen })) : null,
       });
       if (!job_id) { setBusy(false); alert("렌더 작업 ID를 받지 못했습니다."); return; }
       pollJob(job_id, ["done", "error"]);
@@ -709,6 +721,7 @@ export default function Home() {
               ctaSize={ctaSize} setCtaSize={setCtaSize}
               ctaPos={ctaPos} setCtaPos={setCtaPos}
               captionsOn={captionsOn}
+              overlayLib={overlayLib} overlays={overlays} setOverlays={setOverlays}
               onRender={startRender} busy={busy} job={job}
               outputUrl={job?.output ? previewUrl : null}
               absUrl={absUrl}
