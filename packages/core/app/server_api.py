@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -31,7 +32,75 @@ app.add_middleware(
 from app.routes_settings import router as settings_router  # noqa: E402
 app.include_router(settings_router)
 
-JOBS: dict[str, dict] = {}
+
+@app.on_event("startup")
+def _restore_jobs_on_boot() -> None:
+    """서버 부팅 시 job 백업 복원 — 재시작 후에도 대본 자동저장·이어하기 유지."""
+    _load_jobs()
+
+_JOBS_DIR = WORKDIR / "jobs"           # job 상태 파일 백업(서버 재시작 후 복구)
+_TERMINAL_STATUS = {"analyzed", "transcribed", "done", "error"}
+
+
+class PersistentJob(dict):
+    """변경될 때마다 workdir/jobs/<id>.json에 원자적 저장 — 서버 재시작에도 유지.
+
+    인메모리 JOBS가 재시작 시 소실돼 대본 자동저장이 404 나던 문제 근본 해결.
+    status 변화는 즉시 저장, progress만 바뀌는 고빈도 변경은 0.5초 throttle(I/O 절감).
+    중첩 dict(meta) 변경은 __setitem__에 안 걸리지만, 워커들이 meta 수정 직후 반드시
+    job.update(status/stage)를 호출해 함께 저장된다.
+    """
+    def __init__(self, *a, _restoring: bool = False, **kw):
+        super().__init__(*a, **kw)
+        self._last_saved = 0.0
+        self._last_status = self.get("status")
+        if not _restoring:
+            self._save(force=True)
+
+    def __setitem__(self, k, v):
+        super().__setitem__(k, v)
+        self._save()
+
+    def update(self, *a, **kw):
+        super().update(*a, **kw)
+        self._save()
+
+    def _save(self, force: bool = False) -> None:
+        try:
+            now = time.time()
+            st = self.get("status")
+            if not force and st == self._last_status and now - self._last_saved < 0.5:
+                return
+            _JOBS_DIR.mkdir(parents=True, exist_ok=True)
+            p = _JOBS_DIR / f"{self.get('id')}.json"
+            tmp = p.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(dict(self), ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, p)   # 원자적 교체 — 부분 파일 방지
+            self._last_saved = now
+            self._last_status = st
+        except Exception:
+            pass   # 저장 실패가 파이프라인을 막지 않게(백업은 best-effort)
+
+
+JOBS: dict[str, PersistentJob] = {}
+
+
+def _load_jobs() -> None:
+    """부팅 시 job 파일 복원. 진행중(비종료)이던 job은 스레드가 죽었으니 '중단'으로 표시."""
+    if not _JOBS_DIR.exists():
+        return
+    for f in _JOBS_DIR.glob("*.json"):
+        try:
+            j = json.loads(f.read_text(encoding="utf-8"))
+            jid = j.get("id") or f.stem
+            if j.get("status") not in _TERMINAL_STATUS:
+                j["status"] = "error"
+                j["stage"] = "서버 재시작으로 중단됨"
+                j["error"] = j.get("error") or "서버가 재시작돼 진행 중이던 작업이 멈췄어요. '이어하기'로 다시 시작하세요."
+            JOBS[jid] = PersistentJob(j, _restoring=True)
+        except Exception:
+            pass
+
 
 # GPU 작업(자막 인페인트·whisper STT/정렬) 직렬화 — 동시 실행 시 8GB VRAM OOM 방지.
 # HTTP 응답은 워커 스레드가 즉시 반환하고, GPU 구간만 이 세마포어로 한 번에 하나씩.
@@ -77,12 +146,16 @@ def _prune_jobs() -> None:
         if (j.get("status") in ("done", "error") and age > _DONE_TTL) or age > _HARD_TTL:
             JOBS.pop(jid, None)
             shutil.rmtree(WORKDIR / jid, ignore_errors=True)
+            try:
+                (_JOBS_DIR / f"{jid}.json").unlink()   # 백업 파일도 함께 정리
+            except FileNotFoundError:
+                pass
 
 
 def _new_job() -> str:
     _prune_jobs()
     jid = uuid.uuid4().hex[:8]
-    JOBS[jid] = {
+    JOBS[jid] = PersistentJob({
         "id": jid,
         "status": "queued",
         "progress": 0,
@@ -94,14 +167,22 @@ def _new_job() -> str:
         "has_speech": None,
         "created": time.time(),
         "meta": {},
-    }
+    })
     return jid
 
 
 def _require_job(jid: str) -> dict:
-    """job 존재 확인 후 반환. 없으면 404."""
+    """job 존재 확인 후 반환. 메모리에 없으면 백업 파일에서 복원 시도, 그래도 없으면 404."""
     job = JOBS.get(jid)
     if job is None:
+        p = _JOBS_DIR / f"{jid}.json"
+        if p.exists():
+            try:
+                job = PersistentJob(json.loads(p.read_text(encoding="utf-8")), _restoring=True)
+                JOBS[jid] = job
+                return job
+            except Exception:
+                pass
         raise HTTPException(404, "job not found")
     return job
 
