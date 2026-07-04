@@ -162,6 +162,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [refineBusy, setRefineBusy] = useState(false);
+  const [scriptTone, setScriptTone] = useState("");   // 마지막 적용 대본 톤(다이얼 방향) — 프로젝트 저장
   const { pollJob, resetEngineLogs } = useJobPolling({ setJob, setBusy, setScriptBusy, setScript, scriptDirtyRef });
 
   // 다운로드 라이브러리(최근 재사용 목록) 로드
@@ -185,6 +186,7 @@ export default function Home() {
     setSrcDur(null);
     setJob(null);
     setScript("");
+    setScriptTone("");
     scriptDirtyRef.current = false;
     setCaptionLines([]);
     setSelectedCap(null);
@@ -218,6 +220,7 @@ export default function Home() {
       name: projectName || preview?.title || (srcUrl ? "새 프로젝트" : "제목 없는 프로젝트"),
       source_url: srcUrl,
       script,
+      script_tone: scriptTone,
       voice: { voice_id: voice, emotion, emotion_intensity: emotionIntensity, rate },
       captionStyle, captionLines, caption_on: captionsOn,
       cta: { on: ctaOn, text: cta, size: ctaSize, pos: ctaPos },
@@ -264,7 +267,7 @@ export default function Home() {
     const t = setTimeout(() => doSave(), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, script, captionsOn, ctaOn, cta, ctaSize, ctaPos, voice, emotion, emotionIntensity, rate, targetSec, productUrl, sellingPoints,
+  }, [projectId, script, scriptTone, captionsOn, ctaOn, cta, ctaSize, ctaPos, voice, emotion, emotionIntensity, rate, targetSec, productUrl, sellingPoints,
       JSON.stringify(captionLines), JSON.stringify(overlays), JSON.stringify(captionStyle)]);
 
   async function loadProject(id: string) {
@@ -277,6 +280,7 @@ export default function Home() {
       setProjectId(doc.id); setProjectName(doc.name || "");
       setUrl(s.source_url || "");
       setScript(s.script || ""); scriptDirtyRef.current = false;
+      setScriptTone(s.script_tone || "");
       const v = s.voice || {};
       if (v.voice_id) setVoice(v.voice_id);
       if (v.emotion) setEmotion(v.emotion);
@@ -636,6 +640,7 @@ export default function Home() {
         if (data.script) {
           commitScript(data.script);
           lastRefineRef.current = { dir: direction ?? "base", t: Date.now() };
+          setScriptTone(direction ?? "base");   // 적용 톤 기록(저장/복원 대상)
           logRefine(direction ?? "base", "apply");
         }
       }
@@ -823,6 +828,7 @@ export default function Home() {
               onBlurScript={commitSnapshotIfChanged}
               canUndo={canUndo} canRedo={canRedo} onUndo={handleScriptUndo} onRedo={redoScript}
               onRefine={(dir) => refineScript(dir, effTargetSec)} refineBusy={refineBusy}
+              activeTone={scriptTone}
               onGenFromVideo={genScript} scriptBusy={scriptBusy}
               job={job}
               estSec={estSec} rate={rate}

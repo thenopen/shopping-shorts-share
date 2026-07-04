@@ -29,6 +29,7 @@ export function ScriptStage(props: {
   onFocusScript: () => void; onBlurScript: () => void;
   canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void;
   onRefine: (direction?: string) => void; refineBusy: boolean;
+  activeTone?: string;                   // 마지막 적용 톤(다이얼 방향 강조 + 버튼 라벨)
   onGenFromVideo: () => void; scriptBusy: boolean;   // 영상 음성→대본(transcribe)
   job: JobState | null;
   // 목표 길이(duration-first) + 예상 발화 길이 미터
@@ -55,13 +56,16 @@ export function ScriptStage(props: {
   const {
     script, onChangeScript, onFocusScript, onBlurScript,
     canUndo, canRedo, onUndo, onRedo,
-    onRefine, refineBusy, onGenFromVideo, scriptBusy, job,
+    onRefine, refineBusy, activeTone, onGenFromVideo, scriptBusy, job,
     productUrl, setProductUrl, productImages, setProductImages,
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg, productStage,
     pointsEdit, setPointsEdit, addImageFiles, onProductPaste, onGenerateProduct,
     estSec, rate, cpsNote, targetSec, setTargetSec, videoDur, onFitLength,
     hookCands, hooksBusy, onFetchHooks, onApplyHook, onClearHooks,
   } = props;
+  // 현재 톤 라벨(다이얼 버튼 표시 + 노드 강조)
+  const activeToneLabel = activeTone === "base" ? "기본"
+    : (REFINE_DIRECTIONS.find((d) => d.key === activeTone)?.label || "");
   // 목표 대비 예상 길이 상태: ok(±10%) / over / under — 미터 색과 '맞추기' 버튼 노출 결정
   const effTarget = targetSec ?? videoDur ?? null;
   const lenState = estSec == null || effTarget == null
@@ -314,7 +318,7 @@ export function ScriptStage(props: {
                 className="flex items-center gap-1 rounded-lg bg-pink-500/15 px-2.5 py-1.5 text-pink-400 ring-1 ring-pink-500/30 transition hover:bg-pink-500/25 disabled:opacity-40"
               >
                 {refineBusy ? <Spinner className="h-3 w-3 border-pink-500/40 border-t-pink-400" /> : <Sparkles className="h-3.5 w-3.5" />}
-                {refineBusy ? "가공 중…" : "AI로 가공"}
+                {refineBusy ? "가공 중…" : activeToneLabel ? `AI 가공 · ${activeToneLabel}` : "AI로 가공"}
               </button>
               {dialOpen && (
                 <>
@@ -335,7 +339,11 @@ export function ScriptStage(props: {
                             onMouseEnter={() => setHovered(d.key)}
                             onMouseLeave={() => setHovered(null)}
                             title={d.hint}
-                            className="absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/5 text-[11px] font-bold text-slate-200 ring-1 ring-[var(--line)] transition hover:bg-pink-500/20 hover:text-pink-300 hover:ring-pink-500/50"
+                            className={`absolute flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full text-[11px] font-bold transition ${
+                              d.key === activeTone
+                                ? "bg-pink-500/25 text-pink-200 ring-2 ring-pink-400"
+                                : "bg-white/5 text-slate-200 ring-1 ring-[var(--line)] hover:bg-pink-500/20 hover:text-pink-300 hover:ring-pink-500/50"
+                            }`}
                             style={{ left: x, top: y }}
                           >
                             {d.label}
