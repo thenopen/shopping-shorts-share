@@ -9,6 +9,8 @@ import type { JobState } from "../../lib/types";
 import type { CaptionLineData } from "../../caption/types";
 import { CaptionStyle, styleToCssScaled, emphasizeNodes, animCss, autoEmphIndices } from "../../caption/style";
 import { breakIndex, displayLines } from "../../caption/linebreak";
+import { apiBase } from "../../lib/api";
+import type { OverlaySel } from "../../lib/types";
 
 // 실제 출력 폭 1080px → 프리뷰 폭 250px 축소 배율
 const SCALE = 250 / 1080;
@@ -119,11 +121,15 @@ export function PreviewPane(props: {
   selectedCap?: number | null;   // 선택된 자막 줄 — 정지 중 이 줄을 드래그 핸들로 표시
   ttsVoice?: string;             // TTS 미리듣기 성우명(플레이어 소제목)
   onCloseTts?: () => void;       // 미리듣기 닫기
+  overlays?: OverlaySel[];       // 오버레이(말풍선·스티커·전환) — 프리뷰에 표시 + 드래그
+  onOverlayPos?: (i: number, x: number, y: number) => void;
+  selectedOverlay?: number | null;
+  onSelectOverlay?: (i: number | null) => void;
 }) {
   const {
     videoUrl, isFinal, captionLines, captionsOn, defaultStyle,
     ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos, onCaptionPos, selectedCap,
-    ttsVoice, onCloseTts,
+    ttsVoice, onCloseTts, overlays, onOverlayPos, selectedOverlay, onSelectOverlay,
   } = props;
 
   // CTA 드래그 — 9:16 박스 기준 상대 y → ctaPos(0~1). 드래그 중엔 세이프존 가이드 표시.
@@ -145,6 +151,17 @@ export function PreviewPane(props: {
     const x = Math.min(0.95, Math.max(0.05, (clientX - r.left) / r.width));
     const y = Math.min(0.95, Math.max(0.05, (clientY - r.top) / r.height));
     onCaptionPos(x, y);
+  };
+
+  // 오버레이(스티커) 2D 드래그 — 박스 기준 상대 (x,y) 중심좌표(0~1).
+  const [ovDragIdx, setOvDragIdx] = useState<number | null>(null);
+  const dragOverlayTo = (i: number, clientX: number, clientY: number) => {
+    const box = boxRef.current;
+    if (!box || !onOverlayPos) return;
+    const r = box.getBoundingClientRect();
+    const x = Math.min(0.98, Math.max(0.02, (clientX - r.left) / r.width));
+    const y = Math.min(0.98, Math.max(0.02, (clientY - r.top) / r.height));
+    onOverlayPos(i, x, y);
   };
 
   // 오버레이 싱크용 현재 재생 시각(onTime과 동일 소스 — 자체 onTimeUpdate에서 갱신)
@@ -308,6 +325,47 @@ export function PreviewPane(props: {
             </span>
           </div>
         )}
+
+        {/* 오버레이(말풍선·스티커·전환) — 재생시각 ∈ [start,end]일 때 표시. 드래그로 위치 조정 */}
+        {!isFinal && (overlays || []).map((o, i) => {
+          const on = t >= o.start && (o.end == null || t < o.end);
+          if (!on) return null;
+          const sel = i === selectedOverlay;
+          const draggable = !!onOverlayPos && !o.fullscreen;
+          return (
+            <img
+              key={i}
+              src={`${apiBase()}${o.thumb_url}`}
+              alt=""
+              draggable={false}
+              onPointerDown={(e) => {
+                onSelectOverlay?.(i);
+                if (!draggable) return;
+                e.preventDefault();
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setOvDragIdx(i);
+                dragOverlayTo(i, e.clientX, e.clientY);
+              }}
+              onPointerMove={(e) => { if (ovDragIdx === i) dragOverlayTo(i, e.clientX, e.clientY); }}
+              onPointerUp={(e) => { e.currentTarget.releasePointerCapture(e.pointerId); setOvDragIdx(null); }}
+              onPointerCancel={() => setOvDragIdx(null)}
+              className={sel ? "ring-1 ring-pink-400" : ""}
+              style={{
+                position: "absolute",
+                left: o.fullscreen ? 0 : `${o.x * 100}%`,
+                top: o.fullscreen ? 0 : `${o.y * 100}%`,
+                width: o.fullscreen ? "100%" : `${o.scale * 100}%`,
+                height: o.fullscreen ? "100%" : undefined,
+                transform: o.fullscreen ? undefined : "translate(-50%,-50%)",
+                objectFit: o.fullscreen ? "cover" : undefined,
+                opacity: o.fullscreen ? 0.55 : 0.95,
+                pointerEvents: draggable ? "auto" : "none",
+                cursor: draggable ? (ovDragIdx === i ? "grabbing" : "grab") : undefined,
+                touchAction: "none",
+              }}
+            />
+          );
+        })}
       </div>
 
       {/* 생성 파이프라인 진행 */}

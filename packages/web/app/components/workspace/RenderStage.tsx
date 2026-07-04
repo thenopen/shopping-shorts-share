@@ -20,6 +20,7 @@ export function RenderStage({
   ctaList, cta, setCta, onAddCta, onDeleteCta,
   ctaOn, setCtaOn, ctaSize, setCtaSize, ctaPos, setCtaPos,
   captionsOn, overlayLib, overlays, setOverlays,
+  selectedOverlay, setSelectedOverlay, videoDur,
   onRender, busy, job, outputUrl, absUrl, estSec,
 }: {
   ctaList: string[]; cta: string; setCta: (v: string) => void;
@@ -29,12 +30,15 @@ export function RenderStage({
   ctaPos: number; setCtaPos: (n: number) => void;
   captionsOn: boolean;
   overlayLib: OverlayLib; overlays: OverlaySel[]; setOverlays: (f: (o: OverlaySel[]) => OverlaySel[]) => void;
+  selectedOverlay: number | null; setSelectedOverlay: (i: number | null) => void;
+  videoDur: number | null;   // 영상 길이(끝시간 기본/클램프)
   onRender: () => void; busy: boolean; job: JobState | null;
   outputUrl: string | null;
   absUrl: (rel: string) => string;
   estSec: number | null;   // 예상 최종 영상 길이(= 내레이션 예상 초)
 }) {
   const [ovCat, setOvCat] = useState<"bubble" | "transition" | "reaction">("bubble");
+  const dur = videoDur && videoDur > 0 ? videoDur : null;
   const catItems = overlayLib[ovCat] || [];
   const thumb = (u: string) => `${apiBase()}${u}`;
   const addOverlay = (it: OverlayItem) => setOverlays((o) => [...o, defaultSel(ovCat, it)]);
@@ -116,43 +120,57 @@ export function RenderStage({
               </button>
             ))}
           </div>
-          {/* 선택된 오버레이 목록 + 컨트롤 */}
-          {overlays.length > 0 && (
+          {/* 선택된 오버레이 목록 — 행 클릭=프리뷰서 강조, 위치는 왼쪽 프리뷰서 드래그 */}
+          {overlays.length > 0 ? (
             <div className="mt-3 space-y-2">
-              {overlays.map((o, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-xl bg-[var(--panel-2)] p-2 ring-1 ring-[var(--line)]">
-                  <img src={thumb(o.thumb_url)} alt="" className="h-10 w-10 flex-none rounded object-cover" />
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                      <span className="font-semibold text-slate-300">{CAT_LABEL[o.cat]}</span>
-                      {!o.fullscreen && (
-                        <>
-                          <label className="flex items-center gap-1">크기
-                            <input type="range" min={0.15} max={1} step={0.02} value={o.scale}
-                              onChange={(e) => patchOverlay(i, { scale: +e.target.value })} className="w-16 accent-pink-500" />
-                          </label>
-                          <label className="flex items-center gap-1">위치
-                            <input type="range" min={0.05} max={0.95} step={0.01} value={o.x}
-                              onChange={(e) => patchOverlay(i, { x: +e.target.value })} className="w-12 accent-pink-500" title="가로" />
-                            <input type="range" min={0.05} max={0.95} step={0.01} value={o.y}
-                              onChange={(e) => patchOverlay(i, { y: +e.target.value })} className="w-12 accent-pink-500" title="세로" />
-                          </label>
-                        </>
-                      )}
-                      <label className="flex items-center gap-1">등장
-                        <input type="number" min={0} step={0.5} value={o.start}
+              <p className="text-[11px] text-slate-500">왼쪽 프리뷰에서 <b className="text-slate-400">드래그</b>해 위치 조정 · 재생하면 등장/퇴장 확인</p>
+              {overlays.map((o, i) => {
+                const sel = i === selectedOverlay;
+                return (
+                  <div key={i}
+                    onClick={() => setSelectedOverlay(sel ? null : i)}
+                    className={`cursor-pointer rounded-xl p-2 ring-1 transition ${sel ? "bg-pink-500/10 ring-pink-500/40" : "bg-[var(--panel-2)] ring-[var(--line)] hover:bg-white/5"}`}>
+                    <div className="flex items-center gap-2">
+                      <img src={thumb(o.thumb_url)} alt="" className="h-9 w-9 flex-none rounded object-cover" />
+                      <span className="text-[12px] font-semibold text-slate-200">{CAT_LABEL[o.cat]}</span>
+                      {o.fullscreen && <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">화면 전체</span>}
+                      <span className="flex-1" />
+                      <button onClick={(e) => { e.stopPropagation(); removeOverlay(i); }} className="rounded p-1 text-slate-600 transition hover:bg-white/10 hover:text-rose-400" aria-label="제거">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {/* 타이밍(등장~퇴장) + 크기 */}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-[var(--text-mut)]" onClick={(e) => e.stopPropagation()}>
+                      <label className="flex items-center gap-1">
+                        등장 <input type="number" min={0} step={0.5} value={o.start}
                           onChange={(e) => patchOverlay(i, { start: Math.max(0, +e.target.value) })}
-                          className="field w-12 rounded px-1 py-0.5 text-[10px]" />초
+                          className="field w-14 rounded px-1.5 py-0.5 text-[11px]" />초
                       </label>
-                      {o.fullscreen && <span className="rounded bg-white/5 px-1.5 py-0.5">화면 전체</span>}
+                      <label className="flex items-center gap-1">
+                        <input type="checkbox" checked={o.end == null} className="accent-pink-500"
+                          onChange={(e) => patchOverlay(i, { end: e.target.checked ? null : Math.max(o.start + 1, Math.round((dur ?? o.start + 3))) })} />
+                        끝까지
+                      </label>
+                      {o.end != null && (
+                        <label className="flex items-center gap-1">
+                          퇴장 <input type="number" min={o.start + 0.5} step={0.5} value={o.end}
+                            onChange={(e) => patchOverlay(i, { end: Math.max(o.start + 0.5, +e.target.value) })}
+                            className="field w-14 rounded px-1.5 py-0.5 text-[11px]" />초
+                        </label>
+                      )}
+                      {!o.fullscreen && (
+                        <label className="flex items-center gap-1">크기
+                          <input type="range" min={0.15} max={1} step={0.02} value={o.scale}
+                            onChange={(e) => patchOverlay(i, { scale: +e.target.value })} className="w-20 accent-pink-500" />
+                        </label>
+                      )}
                     </div>
                   </div>
-                  <button onClick={() => removeOverlay(i)} className="rounded p-1 text-slate-600 transition hover:bg-white/10 hover:text-rose-400" aria-label="제거">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
+          ) : (
+            <p className="mt-3 text-center text-[11px] text-slate-500">위에서 골라 추가하면 왼쪽 프리뷰에 얹혀요. 드래그로 위치·재생으로 타이밍 확인.</p>
           )}
         </section>
       )}

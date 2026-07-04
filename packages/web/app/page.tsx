@@ -47,6 +47,7 @@ export default function Home() {
   // 오버레이 에셋 라이브러리(말풍선·트랜지션·리액션) + 선택 목록
   const [overlayLib, setOverlayLib] = useState<OverlayLib>({ bubble: [], transition: [], reaction: [] });
   const [overlays, setOverlays] = useState<OverlaySel[]>([]);
+  const [selectedOverlay, setSelectedOverlay] = useState<number | null>(null);
   useEffect(() => {
     (async () => {
       try {
@@ -631,6 +632,10 @@ export default function Home() {
               setCaptionStyle((s) => ({ ...s, posX: x, posY: y }));
             }
           }}
+          overlays={stage === "render" ? overlays : undefined}
+          onOverlayPos={(i, x, y) => setOverlays((o) => o.map((v, idx) => (idx === i ? { ...v, x, y } : v)))}
+          selectedOverlay={selectedOverlay}
+          onSelectOverlay={setSelectedOverlay}
         />
 
         {/* 중앙: 스테이지별 작업 패널 + 하단 이전/다음 바 */}
@@ -722,6 +727,8 @@ export default function Home() {
               ctaPos={ctaPos} setCtaPos={setCtaPos}
               captionsOn={captionsOn}
               overlayLib={overlayLib} overlays={overlays} setOverlays={setOverlays}
+              selectedOverlay={selectedOverlay} setSelectedOverlay={setSelectedOverlay}
+              videoDur={preview?.duration ?? srcDur ?? job?.output_dur ?? estSec ?? null}
               onRender={startRender} busy={busy} job={job}
               outputUrl={job?.output ? previewUrl : null}
               absUrl={absUrl}

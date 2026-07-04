@@ -1,7 +1,6 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { apiDirect } from "./lib/api";
 import { FONTS } from "./data/fonts";
 import { CaptionStyle, styleToCss, styleToCssScaled, emphasizeNodes, animCss, ANIMS, PRESET_TEMPLATES } from "./caption/style";
 import { displayLines } from "./caption/linebreak";
@@ -94,47 +93,6 @@ function CaptionEditor({
     const next = { ...templates };
     delete next[name];
     persist(next);
-  }
-
-  const [mogrtBusy, setMogrtBusy] = useState(false);
-  // Premiere .mogrt 부분 임포트(베타) — 정적 스타일(폰트/크기/색 추정)만. 애니·도형 미지원.
-  async function importMogrt(files: FileList | null) {
-    const f = files?.[0];
-    if (!f || mogrtBusy) return;
-    setMogrtBusy(true);
-    try {
-      // raw 바이너리 업로드 — base64/JSON은 수십 MB에서 dev 프록시가 막힘.
-      const resp = await fetch(`${apiDirect()}/captions/import-mogrt`, {
-        method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: f,
-      });
-      if (!resp.ok) {
-        const t = await resp.text();
-        alert(`가져오기 실패: ${t.slice(0, 160)}`);
-        return;
-      }
-      const j: { name: string; styles: Partial<CaptionStyle>[]; warnings: string[] } = await resp.json();
-      if (!j.styles?.length) { alert("이 템플릿에서 가져올 텍스트 스타일이 없어요."); return; }
-      const s0 = j.styles[0];
-      const style: CaptionStyle = {
-        ...value,
-        font: s0.font ?? value.font,
-        size: s0.size ?? value.size,
-        bold: s0.bold ?? value.bold,
-        italic: s0.italic ?? value.italic,
-        ...(s0.box ? { box: true, boxColor: s0.boxColor ?? "#000000", boxOpacity: 1, outline: false } : {}),
-        ...(s0.color ? { color: s0.color } : {}),
-      };
-      const name = (j.name || f.name.replace(/\.mogrt$/i, "")).slice(0, 40);
-      persist({ ...templates, [name]: style });
-      onChange(style);
-      alert(`'${name}' 저장·적용 완료.\n\n${(j.warnings || []).join("\n")}`);
-    } catch (e) {
-      alert(`가져오기 실패: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setMogrtBusy(false);
-    }
   }
 
   return (
@@ -360,24 +318,17 @@ function CaptionEditor({
           ))}
         </div>
 
-        {/* 내 템플릿 — 지금 만든 스타일을 이름 붙여 저장 + 프리미어 .mogrt 부분 임포트 */}
+        {/* 내 템플릿 — 지금 만든 스타일을 이름 붙여 저장 */}
         <div className="mt-4 mb-2 flex items-center justify-between">
           <div className="text-xs font-bold text-slate-400">
             내 템플릿 {Object.keys(templates).length > 0 && <span className="opacity-60">({Object.keys(templates).length})</span>}
           </div>
-          <div className="flex items-center gap-1.5">
-            <label className="btn-ghost cursor-pointer rounded-full px-3 py-1.5 text-xs font-bold transition" title="Premiere Pro .mogrt 템플릿에서 정적 스타일만 가져오기(베타)">
-              {mogrtBusy ? "가져오는 중…" : ".mogrt 가져오기"}
-              <input type="file" accept=".mogrt" className="hidden" disabled={mogrtBusy}
-                onChange={(e) => { importMogrt(e.target.files); e.target.value = ""; }} />
-            </label>
-            <button
-              onClick={() => { setTplName(""); setSaveModalOpen(true); }}
-              className="btn-ghost rounded-full px-3 py-1.5 text-xs font-bold transition"
-            >
-              + 현재 스타일 저장
-            </button>
-          </div>
+          <button
+            onClick={() => { setTplName(""); setSaveModalOpen(true); }}
+            className="btn-ghost rounded-full px-3 py-1.5 text-xs font-bold transition"
+          >
+            + 현재 스타일 저장
+          </button>
         </div>
 
         {Object.keys(templates).length === 0 ? (
