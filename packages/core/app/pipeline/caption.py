@@ -46,17 +46,23 @@ class CaptionStyle:
     box_pad: int = 6                # 박스 글자~테두리 여백 px (ASS Outline로 매핑)
     # NOTE: boxRadius(둥근 모서리)는 libass가 지원 안 해 burn-in 불가 → 웹 프리뷰 전용.
     pos_v: str = "bottom"           # 자막 세로 위치: top/middle/bottom (ASS Alignment)
+    pos_x: float | None = None      # 자유위치 가로(0~1, 중심 앵커). None=pos_v 프리셋 사용
+    pos_y: float | None = None      # 자유위치 세로(0~1, 중심 앵커). None=pos_v 프리셋 사용
     emphasis: bool = True           # 가격·혜택 등 핵심 단어 자동 강조(인라인 색/크기 팝)
     emphasis_color: str = "FFE600"  # 강조 단어 색 (hex)
+    animate: bool = False           # 워드바이워드 애니(말할 때 단어 팝 + 강조어 색). words 타임스탬프 필요
+    anim: str = "none"              # 줄 등장 효과: none/fade/pop/rise (웹 anim과 동일)
 
 
 @dataclass
 class CaptionLine:
-    """자막 한 줄 = 텍스트 + 타이밍 + 스타일."""
+    """자막 한 줄 = 텍스트 + 타이밍 + 스타일 + 수동 강조."""
     text: str
     start: float          # 초
     end: float            # 초
     style: CaptionStyle = field(default_factory=CaptionStyle)
+    emph: list | None = None   # 수동 강조 단어 인덱스. None=자동(정규식), []/[i…]=그 단어만
+    words: list | None = None  # 워드바이워드 애니용 [{text,start,end}](절대초). 없으면 애니 불가(정적)
 
 
 def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> CaptionStyle:
@@ -97,6 +103,10 @@ def style_from_dict(d: dict | None, base: CaptionStyle | None = None) -> Caption
         pos_v=str(d.get("posV", b.pos_v)),
         emphasis=bool(d.get("emphasis", b.emphasis)),
         emphasis_color=hx(d.get("emphasisColor"), b.emphasis_color),
+        animate=bool(d.get("animate", b.animate)),
+        anim=(str(d.get("anim")) if d.get("anim") in ("none", "fade", "pop", "rise") else b.anim),
+        pos_x=(float(d["posX"]) if d.get("posX") is not None else b.pos_x),
+        pos_y=(float(d["posY"]) if d.get("posY") is not None else b.pos_y),
     )
 
 
@@ -119,8 +129,12 @@ def lines_from_payload(payload: list, default_style: CaptionStyle) -> list:
         if end < start:
             end = start
         st = style_from_dict(it.get("style"), base=default_style)
+        em = it.get("emph")
+        emph = [int(x) for x in em] if isinstance(em, list) else None
+        wd = it.get("words")
+        words = wd if isinstance(wd, list) and wd else None
         out.append(CaptionLine(text=text, start=round(start, 2),
-                               end=round(end, 2), style=st))
+                               end=round(end, 2), style=st, emph=emph, words=words))
     return out
 
 
@@ -138,6 +152,8 @@ def lines_to_payload(lines: list, default_style: CaptionStyle) -> list:
             "start": round(float(ln.start), 2),
             "end": round(float(ln.end), 2),
             "style": style_dict,
+            "emph": getattr(ln, "emph", None),
+            "words": getattr(ln, "words", None),
         })
     return out
 
@@ -165,8 +181,12 @@ def _style_to_web(st: CaptionStyle) -> dict:
         "boxPadX": st.box_pad,
         "boxPadY": st.box_pad,
         "posV": st.pos_v,
+        "posX": st.pos_x,
+        "posY": st.pos_y,
         "emphasis": st.emphasis,
         "emphasisColor": "#" + st.emphasis_color,
+        "animate": st.animate,
+        "anim": getattr(st, "anim", "none"),
     }
 
 
@@ -194,6 +214,23 @@ def _vis_len(s: str) -> int:
     return len((s or "").replace(" ", ""))
 
 
+def _clean_caption_text(text: str) -> str:
+    """자막 텍스트 잡음 정리 — STT/TTS 필러·반복 문장부호 제거.
+
+    고립된 자모 1글자('ㅇ' 등)는 인식/합성 잡음이라 제거하되, 2글자 이상 런(ㅋㅋ, ㅎㅎ 등)은
+    대본의 의도적 표현이라 보존. (과거 'ㅇ,,' 증상은 ASS Format 헤더 버그의 '0,,' 오진이었음 —
+    렌더 쪽은 수정됨. 이 정리는 순수 STT 필러용으로만 유지.)
+    """
+    t = text or ""
+    # 고립 자모 1글자만 제거 — 조합형(U+1100~11FF)·호환(U+3130~318F)·반각(U+FFA0~FFDC) 블록 커버.
+    t = _re.sub(r"[ᄀ-ᇿ㄰-㆏ﾠ-ￜ]+", lambda m: m.group(0) if len(m.group(0)) >= 2 else " ", t)
+    t = _re.sub(r"[,，、]{2,}", ",", t)             # 반복 쉼표 → 하나
+    t = _re.sub(r"[.。]{3,}", "…", t)              # 마침표 3+ → …
+    t = _re.sub(r"\s+([,.。、，!?！？…])", r"\1", t)  # 부호 앞 공백 제거
+    t = _re.sub(r"\s{2,}", " ", t).strip()
+    return t.strip(" ,，、").strip()                # 양끝 고립 쉼표/공백 정리
+
+
 def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
                        min_chars: int = 6) -> list[str]:
     """한국어 텍스트를 6~10자(목표 8) 의미단위 줄로 분할.
@@ -203,7 +240,7 @@ def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
     - 문장부호(。！？.…)에서 우선 끊음(min_chars 이상이면).
     - 누적이 ideal 도달하면 어절 경계에서 끊음 → 대부분 6~10자 단일 줄.
     """
-    text = _re.sub(r"\s+", " ", (text or "").replace("\n", " ")).strip()
+    text = _clean_caption_text(_re.sub(r"\s+", " ", (text or "").replace("\n", " ")).strip())
     if not text:
         return []
     # 어절 토큰화 + 너무 긴 어절 강제 분할
@@ -241,21 +278,415 @@ def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
     return [ln.strip() for ln in lines if ln.strip()]
 
 
-def _ass_emphasis(text: str, style) -> str:
-    """라인 텍스트의 핵심 단어(가격/혜택)를 ASS 인라인 태그로 강조.
+def _ass_emphasis(text: str, style, emph: list | None = None, inline: str = "") -> str:
+    """라인 텍스트의 핵심 단어를 ASS 인라인 태그로 강조.
 
-    매칭 구간을 {\\1c색\\fscx112\\fscy112\\b1}...{\\r} 로 감싸 색팝+살짝 키움.
-    \\r은 해당 줄의 Style로 리셋. style.emphasis=False면 원문 그대로.
+    매칭 구간을 {\\1c색\\b1}...{\\r} 로 감싸 색만 강조(크기 유지 — 사용자 요청).
+    emph(단어 인덱스 list) 지정 시 그 단어만(수동), None이면 자동(가격/키워드 정규식).
+    style.emphasis=False면 원문 그대로.
+    inline: 줄 등장 효과(팝 스케일 \\t) — {\\r}가 라인 태그를 리셋하므로 \\r 뒤마다 재적용.
+    \\t 타이밍은 이벤트 시작 기준 절대값이라 재선언해도 동일 애니로 이어진다.
     """
     if not getattr(style, "emphasis", True) or not text:
         return text
     col = _ass_c(getattr(style, "emphasis_color", "FFE600"))
+    wrap = f"{{\\1c{col}\\b1}}%s{{\\r{inline}}}"
 
-    def repl(m):
-        seg = m.group(0)
-        return f"{{\\1c{col}\\fscx112\\fscy112\\b1}}{seg}{{\\r}}"
+    if emph is not None:
+        # 수동: 공백런 분할 단어(프론트 splitWords와 동일) 중 지정 인덱스만 강조.
+        sel = set(emph)
+        words = text.split()
+        return " ".join(wrap % w if i in sel else w for i, w in enumerate(words))
 
-    return _EMPH_RE.sub(repl, text)
+    return _EMPH_RE.sub(lambda m: wrap % m.group(0), text)
+
+
+def _align_words_to_text(text: str, words: list) -> list:
+    """대본 원문 어절 ↔ TTS/whisper 단어 타임스탬프 정렬 → [{text,start,end}].
+
+    화면 텍스트는 **대본 원문**(verbatim), 타이밍만 words에서 가져온다 —
+    whisper가 발음대로 받아쓴 표기('달걀'→'달개', '맞아요!'→'맞아요.')가 자막에 노출되는 것 방지.
+    어절 수 같으면 1:1 매핑, 다르면 글자수 누적 비율로 words 시간축에 보간.
+    """
+    toks = [t for t in (text or "").split() if t]
+    ws = [w for w in (words or []) if (w.get("text") or "").strip()]
+    if not toks or not ws:
+        return []
+    if len(toks) == len(ws):
+        return [{"text": t, "start": round(float(w["start"]), 2), "end": round(float(w["end"]), 2)}
+                for t, w in zip(toks, ws)]
+    # 글자수 비례 보간 — words를 글자수 가중 구간으로 보고 스크립트 누적 비율 위치의 시각을 계산.
+    wchars = [max(1, _vis_len(w.get("text") or "")) for w in ws]
+    wtot = sum(wchars)
+
+    def at(frac: float) -> float:
+        target = frac * wtot
+        acc = 0.0
+        for w, c in zip(ws, wchars):
+            if acc + c >= target - 1e-9:
+                r = min(1.0, max(0.0, (target - acc) / c))
+                return float(w["start"]) + r * (float(w["end"]) - float(w["start"]))
+            acc += c
+        return float(ws[-1]["end"])
+
+    ttot = sum(_vis_len(t) for t in toks) or 1
+    out = []
+    acc = 0
+    for t in toks:
+        f0 = acc / ttot
+        acc += _vis_len(t)
+        f1 = acc / ttot
+        out.append({"text": t, "start": round(at(f0), 2), "end": round(at(f1), 2)})
+    return out
+
+
+def _ass_animated(ln, st, intro_fad: bool = True, brk: int | None = None) -> str:
+    """워드바이워드 애니 — 말할 때 단어 팝(scale) + 강조어(가격/키워드) 색 유지.
+    \\t 오프셋은 라인 시작 기준 ms. words(단어별 절대초 타임스탬프) 필요.
+    intro_fad=False면 기본 \\fad(100,0) 생략(등장 효과 anim이 이벤트 태그로 대신 넣음).
+    화면 텍스트는 ln.text(대본 원문) 기준 — words의 발음 표기는 타이밍으로만 사용.
+    brk: 2줄 배치 분할 어절 인덱스 — 그 단어 앞을 공백 대신 \\N으로.
+    """
+    words = _align_words_to_text((ln.text or "").replace("\n", " "), getattr(ln, "words", None) or [])
+    if not words:
+        return _ass_emphasis((ln.text or "").replace("\n", "\\N"), st, getattr(ln, "emph", None))
+    line_start = float(ln.start)
+    emph = getattr(ln, "emph", None)
+    if emph is not None:
+        emph_set = set(emph)
+    else:
+        emph_set = set(i for i, w in enumerate(words) if _EMPH_RE.search((w.get("text") or "")))
+    accent = _ass_c(getattr(st, "emphasis_color", "FFE600"))
+    use_emph = bool(getattr(st, "emphasis", True))
+    parts = []
+    for i, w in enumerate(words):
+        txt = (w.get("text") or "").strip()
+        if not txt:
+            continue
+        on = max(0, int(round((float(w.get("start", line_start)) - line_start) * 1000)))
+        is_e = use_emph and (i in emph_set)
+        # 강조어도 팝 크기는 동일(118) — 강조는 색으로만(크기 안 변함, 사용자 요청).
+        pop = 118
+        anim = f"\\t({on},{on + 70},\\fscx{pop}\\fscy{pop})\\t({on + 70},{on + 170},\\fscx100\\fscy100)"
+        if is_e:
+            parts.append(f"{{\\1c{accent}\\b1{anim}}}{txt}{{\\r}}")
+        else:
+            parts.append(f"{{{anim}}}{txt}{{\\r}}")
+    # 2줄 배치: brk번째 단어 앞은 공백 대신 줄바꿈(정적 경로와 동일 분할점)
+    out = []
+    for idx, part in enumerate(parts):
+        if idx:
+            out.append("\\N" if idx == brk else " ")
+        out.append(part)
+    return ("{\\fad(100,0)}" if intro_fad else "") + "".join(out)
+
+
+_PAUSE_GAP = 0.28   # 단어 사이 침묵(초) ≥ → 발화 쉼 = 자연 구/절 경계
+# 한국어 연결어미(어절 끝) — 여기서 끊으면 절 경계라 자연스럽다.
+_CONNECT = ("니까", "는데", "지만", "어서", "아서", "여서", "라서", "도록",
+            "다가", "든지", "거나", "면서", "고", "서", "며", "면", "고요")
+
+
+def _tail_bnd(clean: str) -> str:
+    """누적 자막 끝의 경계 강도 — 문장끝(sent) / 절경계(clause) / 없음."""
+    if not clean:
+        return ""
+    if clean[-1] in _SENT_END:
+        return "sent"
+    if clean[-1] in _SOFT_END:
+        return "clause"
+    toks = clean.split()
+    if toks and any(toks[-1].endswith(c) for c in _CONNECT):
+        return "clause"
+    return ""
+
+
+def _wmeta(items: list) -> list:
+    """[{text,offset,duration}] → [{text,start,end}] 워드바이워드 애니용(공백 단어 제외)."""
+    return [{"text": g.get("text", ""),
+             "start": round(float(g.get("offset", 0.0)), 2),
+             "end": round(float(g.get("offset", 0.0)) + float(g.get("duration", 0.0)), 2)}
+            for g in items if (g.get("text") or "").strip()]
+
+
+def _group_words(items: list, style, ideal_chars: int, min_chars: int,
+                 max_chars: int, max_dur: float) -> list:
+    """TTS 단어 리스트 → CaptionLine 리스트.
+    발화 쉼(단어 간 침묵)·한국어 연결어미·문장부호·글자/시간 상한으로 분할.
+    스크립트 의미단위가 없을 때의 폴백 + 긴 세그먼트 서브분할에 공용."""
+    lines: list[CaptionLine] = []
+    cur: list = []
+    cur_start: float | None = None
+    n = len(items)
+
+    def joined():
+        return " ".join((t.get("text") or "") for t in cur).strip()
+
+    def flush():
+        nonlocal cur, cur_start
+        text = _clean_caption_text(joined())
+        if text and cur_start is not None:
+            bi = _break_index(text)   # 폭 초과면 생성 시점에 \n으로 2줄(렌더/프리뷰는 \n만 존중)
+            if bi is not None:
+                toks = text.split()
+                text = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
+            end = float(cur[-1].get("offset", 0.0)) + float(cur[-1].get("duration", 0.0))
+            # words 텍스트를 자막 텍스트 어절로 정렬 — 클리닝으로 어절 수/표기가 달라져도 일치 보장.
+            lines.append(CaptionLine(text=text, start=round(cur_start, 2), end=round(end, 2),
+                                     style=style, words=_align_words_to_text(text, _wmeta(cur)) or None))
+        cur = []
+        cur_start = None
+
+    for idx, ts in enumerate(items):
+        off = float(ts.get("offset", 0.0))
+        dur = float(ts.get("duration", 0.0))
+        if cur_start is None:
+            cur_start = off
+        cur.append(ts)
+        clean = _clean_caption_text(joined())
+        vis = _vis_len(clean)
+        if vis == 0:
+            continue
+        nxt = items[idx + 1] if idx + 1 < n else None
+        gap = (float(nxt.get("offset", off + dur)) - (off + dur)) if nxt else 1e9
+        seg_dur = (off + dur) - cur_start
+        bnd = _tail_bnd(clean)
+        # 우선순위: 상한(강제) → 문장끝 → 발화 쉼(자연) → 절경계+목표길이
+        if vis >= max_chars or seg_dur >= max_dur:
+            flush()
+        elif bnd == "sent" and vis >= min_chars:
+            flush()
+        elif gap >= _PAUSE_GAP and vis >= min_chars:
+            flush()
+        elif bnd == "clause" and vis >= ideal_chars:
+            flush()
+    flush()
+    return lines
+
+
+def _meaning_segments(text: str | None) -> list:
+    """스크립트 텍스트 → 의미단위 세그먼트. 대본 생성이 ENTER(줄바꿈)로 문장/구를 구분함."""
+    if not text:
+        return []
+    out = []
+    for raw in str(text).replace("\r", "\n").split("\n"):
+        s = _clean_caption_text(raw)
+        if s:
+            out.append(s)
+    return out
+
+
+# ── 줄배치 알고리즘 (2단계) ──────────────────────────────────────────────
+# 1단계: 세그먼트 → 자막 청크(DP 최소 raggedness). 2단계: 청크 → 1줄/2줄(\N 최적 분할점).
+# ASS는 WrapStyle:2(자동 줄바꿈 없음)라 2줄은 우리가 \N으로 명시해야 한다.
+# 웹 미리보기(caption/layout.ts)와 동일 로직·동일 상수 — 프리뷰=렌더 일치.
+
+_WRAP_CHARS = 12   # 한 줄 표시 상한(공백 제외 글자수). 넘으면 2줄 배치. layout.ts와 동일 값.
+
+
+def _gap_quality(prev_tok: str) -> float:
+    """어절 사이 분할점 품질(클수록 자연 경계) — 앞 어절 끝 기준.
+    문장끝 > 약한 부호 > 한국어 연결어미 > 일반."""
+    if prev_tok and prev_tok[-1] in _SENT_END:
+        return 3.0
+    if prev_tok and prev_tok[-1] in _SOFT_END:
+        return 2.0
+    if any(prev_tok.endswith(c) for c in _CONNECT):
+        return 1.6
+    return 1.0
+
+
+def _break_index(text: str) -> int | None:
+    """2줄 분할 어절 인덱스 k(toks[k] 앞에서 줄바꿈) — 없으면 None(1줄 유지).
+
+    비용 = 좌우 균형 잔차²/총폭 − 경계품질 보너스 + 위도우 페널티(한 줄이 1어절·4자 미만).
+    각 줄 폭은 _WRAP_CHARS+2 이내 후보 우선, 전부 넘으면(초장문) 균형만으로 선택.
+    """
+    toks = (text or "").split()
+    if len(toks) < 2:
+        return None
+    vis = [_vis_len(t) for t in toks]
+    total = sum(vis)
+    if total <= _WRAP_CHARS:
+        return None
+    cand: list = []       # (비용, k) — 폭 제약 만족 후보
+    loose: list = []      # 폭 제약 무시 후보(폴백)
+    left = 0
+    for k in range(1, len(toks)):
+        left += vis[k - 1]
+        right = total - left
+        widow = 0.0
+        if k == 1 and left < 4:
+            widow += 5.0
+        if len(toks) - k == 1 and right < 4:
+            widow += 5.0
+        cost = (left - right) ** 2 / max(1, total) - 1.2 * _gap_quality(toks[k - 1]) + widow
+        loose.append((cost, k))
+        if left <= _WRAP_CHARS + 2 and right <= _WRAP_CHARS + 2:
+            cand.append((cost, k))
+    pool = cand or loose
+    return min(pool)[1]
+
+
+def _two_lines(text: str) -> tuple:
+    """청크 텍스트 → (윗줄, 아랫줄|None, 분할 어절 인덱스|None)."""
+    k = _break_index(text)
+    if k is None:
+        return text, None, None
+    toks = text.split()
+    return " ".join(toks[:k]), " ".join(toks[k:]), k
+
+
+def _split_text_dp(text: str, max_chars: int) -> list:
+    """세그먼트(어절)를 자막 청크들로 DP 분할 — 그리디 균형분할 대체(Knuth 최소 raggedness 축소판).
+
+    자료구조: 어절 prefix sum(구간 폭 O(1)) + dp/prev 배열(경로 복원). O(n·청크폭).
+    비용 = (폭−이상폭)²/이상폭 ÷ 경계품질 — 자연 경계(문장끝·부호·연결어미)에서 끊으면 할인.
+    청크 상한 = 2줄 폭(2*max_chars). 마지막 청크는 짧아도 감점 완화(꼬리 억지 늘림 방지),
+    너무 짧은 중간 청크(min 미만)는 가산 페널티.
+    """
+    toks = (text or "").split()
+    n = len(toks)
+    if n <= 1:
+        return [text] if text else []
+    pre = [0]
+    for t in toks:
+        pre.append(pre[-1] + _vis_len(t))
+    total = pre[-1]
+    cap = 2 * max_chars
+    if total <= cap:
+        return [text]                     # 한 청크(렌더에서 1~2줄 배치)
+    ideal = max(4, int(round(max_chars * 1.5)))   # 2줄을 적극 활용하는 목표 폭
+    INF = float("inf")
+    dp = [INF] * (n + 1)
+    prev = [-1] * (n + 1)
+    dp[0] = 0.0
+    for i in range(1, n + 1):
+        for j in range(i - 1, -1, -1):
+            w = pre[i] - pre[j]
+            if w > cap and i - j > 1:     # 폭 초과(단, 초장문 단일 어절은 허용)
+                break
+            q = _gap_quality(toks[i - 1]) if i < n else 1.5   # 세그먼트 끝은 경계 취급
+            cost = (w - ideal) ** 2 / ideal / q
+            if i == n:
+                cost *= 0.35              # 마지막 청크는 짧아도 자연스러움
+            elif w < max(3, max_chars // 2):
+                cost += 8.0               # 중간의 자투리 청크 억제
+            if dp[j] + cost < dp[i]:
+                dp[i] = dp[j] + cost
+                prev[i] = j
+    out: list = []
+    i = n
+    while i > 0:
+        j = prev[i]
+        out.append(" ".join(toks[j:i]))
+        i = j
+    return list(reversed(out))
+
+
+def _emit_seg(lines: list, seg_text: str, cs: float, ce: float, wmeta: list,
+              style, max_chars: int) -> None:
+    """세그먼트 하나(스크립트 원문 seg_text)를 [cs,ce] 구간에 자막으로 방출.
+    2줄 폭 초과면 어절 균형 서브분할, 각 조각 타이밍은 글자수 비례, 애니 words는 시간 겹침."""
+    chunks = _split_text_dp(seg_text, max_chars)
+    cvis_total = sum(_vis_len(c) for c in chunks) or 1
+    span = max(0.0, ce - cs)
+    cum = 0
+    for ci, chunk in enumerate(chunks):
+        s = cs + (cum / cvis_total) * span
+        cum += _vis_len(chunk)
+        e = ce if ci == len(chunks) - 1 else cs + (cum / cvis_total) * span
+        cw = wmeta if (len(chunks) == 1 and wmeta) else [w for w in (wmeta or [])
+                                                         if s <= (w["start"] + w["end"]) / 2 < e]
+        clean = _clean_caption_text(chunk)
+        # 줄바꿈은 '텍스트의 \n'으로만 표현(렌더·프리뷰가 자동 재분할 안 함). 폭 초과 청크는
+        # 생성 시점에 최적 지점(_break_index)에서 \n을 박아 2줄로 — 편집창에 엔터로 보이고
+        # 유저가 직접 조정 가능. 자유위치 드래그 땐 자동 줄바꿈이 위치를 흔들지 않는다.
+        bi = _break_index(clean)
+        if bi is not None:
+            toks = clean.split()
+            clean = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
+        # words 텍스트를 대본 원문 어절로 정렬(타이밍만 유지) — 웹 미리보기/애니에 발음 표기 노출 방지.
+        aligned = _align_words_to_text(clean, cw)
+        lines.append(CaptionLine(text=clean, start=round(s, 2),
+                                 end=round(e, 2), style=style, words=aligned or None))
+
+
+def _lines_by_segments(segs: list, timestamps: list, style, ideal_chars: int,
+                       min_chars: int, max_chars: int, max_dur: float,
+                       total_dur: float | None = None) -> list:
+    """스크립트 의미단위(segs)를 1차 경계로, TTS 단어를 글자수 기준으로 순서대로 배정.
+    자막 텍스트는 **스크립트 원문 그대로**(verbatim), 타이밍만 TTS 단어에서.
+    단어가 대본보다 먼저 소진돼도 남은 의미단위를 남은 시간(오디오 끝/읽기속도 추정)에 비례
+    배분해 방출한다 — 자막이 대본보다 짧아지지 않도록(드롭 방지)."""
+    lens = [_vis_len(s) for s in segs]
+    W = len(timestamps)
+    lines: list[CaptionLine] = []
+    if not W:
+        return lines
+    if total_dur:
+        audio_end = float(total_dur)
+    else:
+        audio_end = float(timestamps[-1].get("offset", 0.0)) + float(timestamps[-1].get("duration", 0.0))
+    last_end = float(timestamps[0].get("offset", 0.0))
+    wi = 0
+    si = 0
+    while si < len(segs):
+        last = si == len(segs) - 1
+        grp: list = []
+        acc = 0
+        target = lens[si]
+        while wi < W:
+            t = timestamps[wi]
+            grp.append(t)
+            acc += _vis_len(t.get("text", ""))
+            wi += 1
+            if not last and acc >= target:
+                break
+        if last:                       # 마지막 세그먼트가 남은 단어 전부 흡수
+            while wi < W:
+                grp.append(timestamps[wi]); wi += 1
+        if grp:
+            t0 = float(grp[0].get("offset", 0.0))
+            t1 = float(grp[-1].get("offset", 0.0)) + float(grp[-1].get("duration", 0.0))
+            _emit_seg(lines, segs[si], t0, t1, _wmeta(grp), style, max_chars)
+            last_end = t1
+            si += 1
+        else:
+            # TTS 단어 소진 → 남은 세그먼트를 [last_end, end]에 글자수 비례 배분(드롭 방지).
+            # 오디오에 여유가 없으면(TTS가 대본 다 못 읽음) 읽기속도(≈0.15s/자)로 추정 구간 생성.
+            rem = segs[si:]
+            rem_chars = sum(_vis_len(s) for s in rem) or 1
+            end = max(audio_end, last_end + rem_chars * 0.15 + 0.5)
+            span = end - last_end
+            cum = 0
+            for rs in rem:
+                cs = last_end + (cum / rem_chars) * span
+                cum += _vis_len(rs)
+                ce = last_end + (cum / rem_chars) * span
+                _emit_seg(lines, rs, cs, ce, [], style, max_chars)
+            break
+    return lines
+
+
+def _merge_widows(lines: list, min_chars: int, max_chars: int, max_dur: float) -> list:
+    """너무 짧은 꼬리줄을 앞줄에 병합(상한 이내, 문장 안 넘을 때). 휴리스틱 경로 전용."""
+    merged: list[CaptionLine] = []
+    for ln in lines:
+        if merged:
+            prev = merged[-1]
+            too_short = _vis_len(ln.text) < min_chars or (ln.end - ln.start) < 0.7
+            fits = (_vis_len(prev.text) + _vis_len(ln.text) <= max_chars
+                    and ln.end - prev.start <= max_dur + 0.6)
+            prev_sent = bool(prev.text) and prev.text[-1] in _SENT_END
+            if too_short and fits and not prev_sent:
+                prev.text = _clean_caption_text(prev.text + " " + ln.text)
+                prev.end = ln.end
+                if prev.words or ln.words:
+                    prev.words = (prev.words or []) + (ln.words or [])
+                continue
+        merged.append(ln)
+    return merged
 
 
 def build_lines_from_tts(
@@ -268,69 +699,31 @@ def build_lines_from_tts(
     ideal_chars: int = 8,
     min_chars: int = 6,
 ) -> list:
-    """TTS 타임스탬프 → CaptionLine 리스트(타임코드 맞춤, 적당한 길이로 분할).
+    """TTS 타임스탬프 → CaptionLine 리스트.
 
-    timestamps 예: [{"text": "안녕", "offset": 0.0, "duration": 0.4}, ...]
-    단어를 묶어 한 줄(≤max_chars글자, ≤max_dur초) 단위 자막으로.
-    문장부호(. ! ? , …)에서 우선 끊음.
-
-    timestamps 없으면(google TTS 등) total_dur + full_text로 글자수 균등분할 폴백.
+    경계 우선순위:
+      1) 스크립트 의미단위 — 대본 생성이 ENTER(줄바꿈)로 문장/구를 구분한다. 이걸 1차 자막 경계로.
+         full_text에 의미단위가 2개↑면 각 세그먼트에 TTS 단어를 글자수 기준으로 배정.
+      2) 폴백(줄바꿈 정보 없음): 발화 쉼(단어 간 침묵)·연결어미·문장부호·글자/시간 상한으로 분할.
+    timestamps 없으면 total_dur+full_text로 글자수 균등분할.
     """
     if not timestamps:
         return _lines_uniform(full_text or "", total_dur or 0.0, default_style,
                               max_chars=max_chars, max_dur=max_dur)
 
-    lines: list[CaptionLine] = []
-    cur_words: list[str] = []
-    cur_start: float | None = None
-    cur_end: float = 0.0
+    segs = _meaning_segments(full_text)
+    if len(segs) >= 2:
+        lines = _lines_by_segments(segs, timestamps, default_style,
+                                   ideal_chars, min_chars, max_chars, max_dur, total_dur=total_dur)
+    else:
+        lines = _group_words(timestamps, default_style, ideal_chars, min_chars, max_chars, max_dur)
+        lines = _merge_widows(lines, min_chars, max_chars, max_dur)
 
-    def joined_text():
-        return " ".join(w for w in cur_words if w).strip()
-
-    def flush():
-        nonlocal cur_words, cur_start, cur_end
-        text = joined_text()
-        if text and cur_start is not None:
-            lines.append(CaptionLine(text=text,
-                                     start=round(cur_start, 2),
-                                     end=round(cur_end, 2), style=default_style))
-        cur_words = []
-        cur_start = None
-
-    for ts in timestamps:
-        w = ts.get("text", "")
-        off = float(ts.get("offset", 0.0))
-        dur = float(ts.get("duration", 0.0))
-        if cur_start is None:
-            cur_start = off
-        cur_words.append(w)
-        cur_end = off + dur
-        clean = joined_text().rstrip()
-        vis = _vis_len(clean)
-        hard_break = bool(clean) and clean[-1] in _SENT_END
-        dur_over = (cur_end - cur_start) >= max_dur
-        # 문장부호서 우선 끊고(최소길이 충족 시), 목표 글자수(6~10중 8) 도달/최대시간 초과 시 끊음.
-        if (hard_break and vis >= min_chars) or vis >= ideal_chars or dur_over:
-            flush()
-    flush()
     # 자막은 다음 줄 시작 전까지 보이게(틈 메움) — 끊김 방지
     for i in range(len(lines) - 1):
         if lines[i].end < lines[i + 1].start:
             lines[i].end = lines[i + 1].start
     return lines
-
-
-def _wrap(text: str, max_chars: int) -> str:
-    """한 줄이 max_chars 넘으면 \\N(ASS 개행)으로 2줄까지 분할(화면폭 잘림 방지)."""
-    text = (text or "").strip()
-    if len(text) <= max_chars:
-        return text
-    # 띄어쓰기 있으면 중앙 근처 공백서 자름, 없으면 글자수 중앙
-    mid = len(text) // 2
-    sp = text.rfind(" ", 0, max_chars + 1)
-    cut = sp if sp > max_chars // 2 else min(max_chars, mid)
-    return text[:cut].strip() + "\\N" + text[cut:].strip()
 
 
 def _lines_uniform(text: str, total: float, style: CaptionStyle,
@@ -348,6 +741,10 @@ def _lines_uniform(text: str, total: float, style: CaptionStyle,
     for c in chunks:
         share = _vis_len(c) / total_chars
         dur = min(max_dur, max(0.7, total * share))
+        bi = _break_index(c)   # 폭 초과면 \n으로 2줄(렌더/프리뷰 일관)
+        if bi is not None:
+            toks = c.split()
+            c = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
         lines.append(CaptionLine(text=c, start=round(t, 2),
                                  end=round(t + dur, 2), style=style))
         t += dur
@@ -412,8 +809,12 @@ def _style_sig(st) -> tuple:
         round(float(getattr(st, "box_opacity", 0.5)), 3),
         getattr(st, "box_pad", 6),
         getattr(st, "pos_v", "bottom"),
+        getattr(st, "pos_x", None),
+        getattr(st, "pos_y", None),
         getattr(st, "emphasis", True),
         getattr(st, "emphasis_color", "FFE600"),
+        getattr(st, "animate", False),
+        getattr(st, "anim", "none"),
     )
 
 
@@ -454,8 +855,41 @@ def _style_row(name: str, st, margin_v: int) -> str:
     )
 
 
+def _entrance_tags(st, video_w: int, video_h: int, margin_v: int) -> tuple:
+    """줄 등장 효과(anim) → (event_tag, inline_tag).
+
+    event_tag: 라인 맨 앞 1회 — \\fad/\\move는 이벤트 단위라 {\\r}에 안 지워짐.
+    inline_tag: 팝의 스케일 \\t — {\\r} 뒤마다 재적용 필요(강조 wrap이 리셋하므로).
+    rise는 \\an+\\move로 위치까지 지정 → 호출부에서 \\pos 태그 대신 사용.
+    타이밍은 웹 프리뷰 keyframes(globals.css)와 일치: fade 180ms / pop 210ms / rise 180ms.
+    """
+    anim = getattr(st, "anim", "none") or "none"
+    if anim == "fade":
+        return "\\fad(180,0)", ""
+    if anim == "pop":
+        return ("\\fad(70,0)",
+                "\\fscx70\\fscy70\\t(0,110,\\fscx107\\fscy107)\\t(110,210,\\fscx100\\fscy100)")
+    if anim == "rise":
+        px, py = getattr(st, "pos_x", None), getattr(st, "pos_y", None)
+        if px is not None and py is not None:
+            an = 5
+            x, y = int(round(float(px) * video_w)), int(round(float(py) * video_h))
+        else:
+            # _style_row의 Alignment/MarginV와 동일 앵커 좌표 재계산
+            pos_v = getattr(st, "pos_v", "bottom")
+            x = video_w // 2
+            if pos_v == "top":
+                an, y = 8, 210
+            elif pos_v == "middle":
+                an, y = 5, video_h // 2
+            else:
+                an, y = 2, video_h - margin_v
+        return f"\\an{an}\\move({x},{y + 42},{x},{y},0,180)\\fad(150,0)", ""
+    return "", ""
+
+
 def render_ass(lines: list, out_ass: Path, video_w: int, video_h: int,
-               margin_v: int = 210) -> Path:
+               margin_v: int = 346) -> Path:  # 1920 기준 18% — 쇼츠 하단 UI 위, 프리뷰 bottom-[18%]와 일치
     """CaptionLine 리스트 → .ass 자막 파일(libass burn-in용).
 
     구간(줄)별로 다른 스타일 지원 — 줄마다 ln.style 보고 ASS Style를 만들어
@@ -493,32 +927,66 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 {chr(10).join(style_rows)}
 
 [Events]
-Format: Layer, Start, End, Style, MarginL, MarginR, Effect, Text
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialog = []
     for i, ln in enumerate(lines):
         st = getattr(ln, "style", None) or CaptionStyle()
-        text = (ln.text or "").replace("\n", "\\N")
+        raw = ln.text or ""
+        # 줄바꿈은 '텍스트의 \n'만 존중(자동 폭맞춤 재분할 없음 — 생성 시점에 \n을 박아둠).
+        # WrapStyle:2라 명시한 \n(→\N)만 개행. raw_lines가 여러 줄이면 줄별로 강조 적용.
+        text = raw.replace("\n", "\\N")
+        raw_lines = raw.split("\n")
+        # 애니(워드) 경로용 \n 분할 어절 인덱스 — 윗줄 어절 수(2줄 이상이면 첫 경계만 반영).
+        nl_brk = len(raw_lines[0].split()) if len(raw_lines) > 1 else None
         sname = line_style_name[i] if i < len(line_style_name) else "S0"
         start, end = _ass_time(ln.start), _ass_time(ln.end)
+        # 자유위치(pos_x/pos_y)면 중심 앵커 절대배치 — 모든 레이어(글로우/섀도/메인)에 prepend.
+        px, py = getattr(st, "pos_x", None), getattr(st, "pos_y", None)
+        pp = f"{{\\an5\\pos({int(round(float(px)*video_w))},{int(round(float(py)*video_h))})}}" if (px is not None and py is not None) else ""
+        # 등장 효과(anim) — 이벤트 태그(fad/move) + 인라인 태그(팝 \t). 모든 레이어 동일 적용.
+        ev_tag, inline = _entrance_tags(st, video_w, video_h, margin_v)
+        word_anim = bool(getattr(st, "animate", False) and getattr(ln, "words", None))
+        if word_anim:
+            inline = ""   # 단어별 팝과 라인 팝 \t가 fscx에서 충돌 → 워드 애니 땐 fad/move만
+        if "\\move" in ev_tag:
+            pp = ""       # rise의 \an+\move가 위치 지정을 대체(자유위치 포함)
+        intro = f"{{{ev_tag}}}" if ev_tag else ""
         # 글로우/소프트섀도는 '메인 텍스트 뒤'(낮은 Layer)에 별도 블러 이벤트로 깐다.
         # → 메인 텍스트 글리프 자체는 선명 유지(웹 편집기와 동일한 룩).
         if getattr(st, "glow", False) and int(getattr(st, "glow_size", 0)) > 0:
             g = int(st.glow_size)
             # 채움 투명(\1a&HFF&) + 두꺼운 외곽선(글로우색) + 블러 → 빛번짐 후광.
             gtag = (f"{{\\1a&HFF&\\3a&H00&\\4a&HFF&\\3c{_ass_c(st.glow_color)}"
-                    f"\\bord{g}\\shad0\\blur{max(g, 2)}}}")
-            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{gtag}{text}")
+                    f"\\bord{g}\\shad0\\blur{max(g, 2)}{inline}}}")
+            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{pp}{intro}{gtag}{text}")
         if int(getattr(st, "shadow", 0)) and int(getattr(st, "shadow_blur", 0)) > 0:
             sb = int(st.shadow_blur)
             # 외곽선/그림자 끄고 채움=그림자색 + 블러 → 부드러운 색 그림자 후광(근사).
             stag = (f"{{\\bord0\\shad0\\3a&HFF&\\4a&HFF&"
-                    f"\\1c{_ass_c(st.shadow_color)}\\blur{sb}}}")
-            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{stag}{text}")
+                    f"\\1c{_ass_c(st.shadow_color)}\\blur{sb}{inline}}}")
+            dialog.append(f"Dialogue: 0,{start},{end},{sname},,0,0,0,,{pp}{intro}{stag}{text}")
         # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
-        # 핵심 단어(가격/혜택)는 인라인 태그로 색팝 강조(emphasis on일 때).
-        main_text = _ass_emphasis(text, st)
-        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{main_text}")
+        # animate=on이고 단어 타임스탬프 있으면 워드바이워드 애니, 아니면 정적 색팝 강조.
+        if word_anim:
+            main_text = _ass_animated(ln, st, intro_fad=not ev_tag, brk=nl_brk)
+        else:
+            emph = getattr(ln, "emph", None)
+            if len(raw_lines) > 1:
+                # 여러 줄(\n): 줄마다 강조 적용, 강조 인덱스는 어절 누적으로 줄별 시프트
+                parts = []
+                cum = 0
+                for rl in raw_lines:
+                    n = len(rl.split())
+                    e = [x - cum for x in emph if cum <= x < cum + n] if emph is not None else None
+                    parts.append(_ass_emphasis(rl, st, e, inline=inline))
+                    cum += n
+                main_text = "\\N".join(parts)
+            else:
+                main_text = _ass_emphasis(text, st, emph, inline=inline)
+            if inline:
+                main_text = f"{{{inline}}}" + main_text
+        dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{pp}{intro}{main_text}")
     out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
     return out_ass
 

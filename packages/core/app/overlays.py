@@ -1,0 +1,43 @@
+"""오버레이 에셋(말풍선·트랜지션·리액션) 조회 — assets/overlays/manifest.json 기반.
+
+scripts/extract_overlays.py가 ae-sources zip에서 추출·생성. id로 파일 경로 해석(렌더 워커용).
+"""
+import json
+from pathlib import Path
+
+from app.config import BACKEND_ROOT
+
+OVERLAY_DIR = BACKEND_ROOT / "assets" / "overlays"
+_MANIFEST = OVERLAY_DIR / "manifest.json"
+
+
+def load_manifest() -> dict:
+    if not _MANIFEST.exists():
+        return {"bubble": [], "transition": [], "reaction": []}
+    try:
+        return json.loads(_MANIFEST.read_text(encoding="utf-8"))
+    except Exception:
+        return {"bubble": [], "transition": [], "reaction": []}
+
+
+def _index() -> dict:
+    """id → item(dict). 카테고리 무관 조회."""
+    out = {}
+    for items in load_manifest().values():
+        for it in items or []:
+            if it.get("id"):
+                out[it["id"]] = it
+    return out
+
+
+def resolve_file(oid: str) -> Path | None:
+    """오버레이 id → 실제 에셋 절대경로(존재 시)."""
+    it = _index().get(oid)
+    if not it:
+        return None
+    f = (OVERLAY_DIR / it["file"]).resolve()
+    return f if f.exists() and f.is_relative_to(OVERLAY_DIR.resolve()) else None
+
+
+def resolve_type(oid: str) -> str:
+    return (_index().get(oid) or {}).get("type", "image")

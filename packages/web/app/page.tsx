@@ -1,136 +1,120 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import CaptionEditor, { CaptionStyle, DEFAULT_STYLE } from "./CaptionEditor";
-import CaptionTimeline, { CaptionLineData } from "./CaptionTimeline";
-
-const VOICES: { name: string; gender: "F" | "M" }[] = [
-  { name: "소담", gender: "F" },
-  { name: "서연", gender: "F" },
-  { name: "나윤", gender: "F" },
-  { name: "지우", gender: "F" },
-  { name: "수아", gender: "F" },
-  { name: "하은", gender: "F" },
-  { name: "예린", gender: "F" },
-  { name: "가은", gender: "F" },
-  { name: "리아", gender: "F" },
-  { name: "채원", gender: "F" },
-  { name: "유나", gender: "F" },
-  { name: "민서", gender: "F" },
-  { name: "태형", gender: "M" },
-  { name: "준호", gender: "M" },
-  { name: "현우", gender: "M" },
-  { name: "시우", gender: "M" },
-  { name: "도윤", gender: "M" },
-  { name: "재민", gender: "M" },
-  { name: "성호", gender: "M" },
-  { name: "건우", gender: "M" },
-  { name: "우진", gender: "M" },
-  { name: "동현", gender: "M" },
-  { name: "민준", gender: "M" },
-];
-
-// 기본 제공 CTA 문구(텍스트 자체를 값으로 사용 — 서버가 커스텀 문구도 그대로 받음)
-const DEFAULT_CTAS = [
-  "제품 정보는 고정 댓글에서 확인하세요!",
-  "구매처는 프로필 링크에 있어요.",
-  "자세한 내용은 하단 링크를 눌러주세요.",
-];
-const CTA_STORAGE_KEY = "custom_ctas";
-
-function apiBase() {
-  if (process.env.NEXT_PUBLIC_API_BASE) return process.env.NEXT_PUBLIC_API_BASE;
-  if (typeof window === "undefined") return "http://127.0.0.1:8000";
-  // 같은 출처("") → next.config rewrites가 8000으로 프록시 (터널/LAN/Tailscale 포트 하나로 통일)
-  return "";
-}
-
-async function postJSON<T = any>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`${apiBase()}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) {
-    const msg = await r.text().catch(() => "");
-    throw new Error(msg || `요청 실패 (HTTP ${r.status})`);
-  }
-  return r.json();
-}
-
-type JobState = {
-  id: string;
-  status: string;
-  progress: number;
-  stage: string;
-  script: string;
-  preview: string | null;
-  output: string | null;
-  has_speech: boolean | null;
-  error: string | null;
-  subtitle_engine?: string | null;       // "propainter" | "lama" | "lama_fallback" | "none"
-  subtitle_engine_note?: string | null;  // 폴백 사유 등
-  douyin_diag?: string[] | null;         // 도우인 다운로드 미디어 후보/트랙 진단(F12 콘솔용)
-};
+import CaptionEditor from "./CaptionEditor";
+import { CaptionLineData } from "./caption/types";
+import { apiBase, postJSON, errMsg } from "./lib/api";
+import { JobState, PreviewInfo, LibraryEntry, TypecastVoice, OverlayLib, OverlaySel } from "./lib/types";
+import { normLines } from "./lib/format";
+import { estimateSec, getCpsInfo, recordCps, visChars } from "./lib/duration";
+import { CaptionStyle, DEFAULT_STYLE } from "./caption/style";
+import { StageKey } from "./lib/stage";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { HomeView } from "./components/home/HomeView";
+import { TopBar } from "./components/workspace/TopBar";
+import { PreviewPane } from "./components/workspace/PreviewPane";
+import { SourceStage } from "./components/workspace/SourceStage";
+import { ScriptStage } from "./components/workspace/ScriptStage";
+import { VoiceStage } from "./components/workspace/VoiceStage";
+import { CaptionStage } from "./components/workspace/CaptionStage";
+import { RenderStage } from "./components/workspace/RenderStage";
+import { StageFooter } from "./components/workspace/StageFooter";
+import { useCtas } from "./hooks/useCtas";
+import { useScriptHistory } from "./hooks/useScriptHistory";
+import { useModalDeploy } from "./hooks/useModalDeploy";
+import { useJobPolling } from "./hooks/useJobPolling";
+import { useProductScript } from "./hooks/useProductScript";
+import { useVoicePreview } from "./hooks/useVoicePreview";
 
 export default function Home() {
   const [url, setUrl] = useState("");
-  const [voice, setVoice] = useState("소담");
+  const [voice, setVoice] = useState("");            // Typecast voice_id(빈값=기본)
+  const [emotion, setEmotion] = useState("smart");   // smart | happy/sad/angry/whisper/toneup/tonedown
+  const [emotionIntensity, setEmotionIntensity] = useState(1.3);
+  // Typecast 보이스 목록(설정 키 있을 때) — 처음 로드 시 기본 voice_id 선택.
+  const [tcVoices, setTcVoices] = useState<TypecastVoice[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${apiBase()}/tts/voices`);
+        if (!r.ok) return;
+        const j = await r.json();
+        setTcVoices(j.voices || []);
+        setVoice((cur) => cur || j.default || (j.voices?.[0]?.voice_id ?? ""));
+      } catch {}
+    })();
+  }, []);
+  // 오버레이 에셋 라이브러리(말풍선·트랜지션·리액션) + 선택 목록
+  const [overlayLib, setOverlayLib] = useState<OverlayLib>({ bubble: [], transition: [], reaction: [] });
+  const [overlays, setOverlays] = useState<OverlaySel[]>([]);
+  const [selectedOverlay, setSelectedOverlay] = useState<number | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${apiBase()}/overlays`);
+        if (r.ok) setOverlayLib(await r.json());
+      } catch {}
+    })();
+  }, []);
   const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(DEFAULT_STYLE);
   const [captionsOn, setCaptionsOn] = useState(true);
-  const [faceCutOn, setFaceCutOn] = useState(false);  // 얼굴 전체샷 컷 제거(opt-in)
-  const [subtitleBackend, setSubtitleBackend] = useState<"local" | "modal">("local"); // 자막제거 GPU 위치(개발 토글, 기본 로컬)
+  // 자막제거는 클라우드(Modal)만 사용 — 로컬 GPU 옵션은 제품에서 제외.
+  // 디버깅 때만 값 복원 + 백엔드 env ALLOW_LOCAL_GPU=1. 값은 항상 "modal".
+  const subtitleBackend: "local" | "modal" = "modal";
   // 타임라인 편집기서 만든/수정한 자막 줄들. 비어있으면 render때 서버가 자동생성.
   const [captionLines, setCaptionLines] = useState<CaptionLineData[]>([]);
   const [capBusy, setCapBusy] = useState(false);
   const [capEditBusy, setCapEditBusy] = useState(false);            // AI 자막 다듬기 진행중
   const [capEditPrev, setCapEditPrev] = useState<CaptionLineData[] | null>(null); // 다듬기 직전(되돌리기용)
-  // CTA 문구 목록(기본3 + 사용자 추가 통합. 기본도 삭제 가능). localStorage 저장.
-  const [ctaList, setCtaList] = useState<string[]>(DEFAULT_CTAS);
-  const [cta, setCta] = useState(DEFAULT_CTAS[1]); // 선택된 CTA 문구(텍스트)
+  // 선택 자막 — null이면 '전체 자막'(기본 스타일), 값이면 그 줄만 편집/드래그.
+  const [selectedCap, setSelectedCap] = useState<number | null>(null);
+  const capSel = selectedCap != null && selectedCap < captionLines.length ? selectedCap : null;
+  const updateLineStyle = (i: number, style: CaptionStyle | null) =>
+    setCaptionLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, style } : l)));
+  const { ctaList, cta, setCta, addCustomCta, deleteCta } = useCtas();
   const [ctaOn, setCtaOn] = useState(true);        // CTA 넣기/빼기
   const [ctaSize, setCtaSize] = useState(56);      // CTA 글자 크기(px)
-  const [ctaPos, setCtaPos] = useState(0.88);      // CTA 세로 위치(0~1)
+  // CTA 세로 위치(0~1). 하단은 자막(posV=bottom, ~76-89%) + 플랫폼 UI(85%~)가 점유 →
+  // 기본 0.72 = 자막 바로 위 안내띠(대사·세이프존과 안 겹침). 프리뷰에서 드래그로 조정.
+  const [ctaPos, setCtaPos] = useState(0.72);
+  const [usageRefresh, setUsageRefresh] = useState(0);  // API 사용량 배지 즉시 새로고침 트리거
+  const bumpUsage = () => setUsageRefresh((n) => n + 1);
+  const [settingsOpen, setSettingsOpen] = useState(false);  // 설정 패널(키/한도) 열림
+  const { deployN, watchDeploy } = useModalDeploy();  // Modal 배포중 계정 수 + 감시 트리거
+  const [preview, setPreview] = useState<PreviewInfo | null>(null);  // '확인' 미리보기(제목·썸네일)
+  // 목표 영상 길이(초) — duration-first UX. null = 원본 영상 길이에 맞춤(자동).
+  const [targetSec, setTargetSec] = useState<number | null>(30);
+  // 원본 영상 길이(초) — preview는 '이어하기' 때 비워지므로 별도 보관('영상 길이' 목표의 근거값).
+  const [srcDur, setSrcDur] = useState<number | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [libEntries, setLibEntries] = useState<LibraryEntry[]>([]);  // 최근 다운로드(재사용)
+  // 자막 제거 품질 확인 — 군데군데 원본 vs 제거본 프레임
+  const [qFrames, setQFrames] = useState<{ t: number; source: string | null; nosub: string | null }[]>([]);
+  const [qBusy, setQBusy] = useState(false);
+  const [qEngine, setQEngine] = useState<string | null>(null);
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(CTA_STORAGE_KEY);
-      if (saved) {
-        const arr = JSON.parse(saved);
-        if (Array.isArray(arr)) {
-          const list = arr.filter((s) => typeof s === "string");
-          setCtaList(list);
-          setCta(list[0] ?? "");
-        }
-      }
-    } catch {}
-  }, []);
-  // 언마운트 시 폴링 인터벌 정리(메모리 누수/유령 폴링 방지).
-  useEffect(() => stopPoll, []);
-  function persistCtas(list: string[]) {
-    setCtaList(list);
-    try { localStorage.setItem(CTA_STORAGE_KEY, JSON.stringify(list)); } catch {}
-  }
-  function addCustomCta() {
-    const v = window.prompt("추가할 CTA 문구를 입력하세요");
-    const t = (v || "").trim();
-    if (!t) return;
-    if (!ctaList.includes(t)) persistCtas([...ctaList, t]);
-    setCta(t);
-  }
-  function deleteCta(text: string) {
-    const next = ctaList.filter((c) => c !== text);
-    persistCtas(next);
-    if (cta === text) setCta(next[0] ?? "");
-  }
-  const [script, setScript] = useState("");
-  // 대본 버전기록(되돌리기/다시실행). past=이전버전들, future=redo스택.
-  const [scriptPast, setScriptPast] = useState<string[]>([]);
-  const [scriptFuture, setScriptFuture] = useState<string[]>([]);
-  // 사용자가 대본을 건드렸으면(타이핑/AI수정) 폴링이 서버값으로 덮어쓰지 않음.
-  const scriptDirtyRef = useRef(false);
-  // textarea focus 시점 대본(blur 때 비교해 변경됐으면 1버전으로 기록).
-  const lastSnapshotRef = useRef("");
+  // 화면 분리 — home(메인/프로젝트 목록) vs edit(워크스페이스). 홈 전환해도 편집 상태는 유지.
+  const [view, setView] = useState<"home" | "edit">("home");
+  // 워크스페이스 — 현재 스테이지 + 프리뷰 영상 재생 위치(자막 타임라인 싱크)
+  const [stage, setStage] = useState<StageKey>("source");
+  const [currentTime, setCurrentTime] = useState(0);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const seekTo = (t: number) => {
+    const v = videoRef.current;
+    if (v) v.currentTime = t;
+    setCurrentTime(t);
+  };
+  // 자막 스테이지 진입 시 대본으로 자막 1회 자동생성했는지 서명((job,script)). TTS 낭비 방지.
+  const autoCapRef = useRef("");
+  // 대본 스테이지 이탈 시 자동저장용 — 마지막 저장 대본 + 직전 스테이지.
+  const lastSavedScriptRef = useRef("");
+  const prevStageRef = useRef<StageKey>("source");
+
+  const {
+    script, setScript, scriptDirtyRef,
+    commitScript, undoScript, redoScript, canUndo, canRedo,
+    beginSnapshot, commitSnapshotIfChanged,
+  } = useScriptHistory();
   const [rate, setRate] = useState(1.0);
   const [renderSeq, setRenderSeq] = useState(0); // 재렌더 시 결과영상 캐시버스터 카운터
   const [ttsBusy, setTtsBusy] = useState(false);
@@ -141,13 +125,17 @@ export default function Home() {
     if (!script.trim() || ttsBusy) return;  // 분석 전이어도 대본만 있으면 들어보기 가능
     setTtsBusy(true);
     try {
-      const d = await postJSON<{ audio?: string }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate });
+      const d = await postJSON<{ audio?: string; duration?: number; debug?: string[] }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate, emotion, emotion_intensity: emotionIntensity });
+      if (d.debug?.length) console.log("[TTS미리듣기 DEBUG] 서버 ↓\n" + d.debug.join("\n"));
+      console.log(`[TTS미리듣기] script ${script.length}자, 서버 duration=${d.duration}s, url=${d.audio}`);
       if (d.audio) {
-        const u = `${apiBase()}${d.audio}?t=${renderSeq}-${voice}`;
-        setTtsUrl(u);
+        // 보이는 <audio controls autoPlay>로 재생(다시듣기·스크럽 가능). 숨은 audioRef는 보이스 미리듣기 전용.
         const el = audioRef.current;
-        if (el) { el.pause(); el.src = u; el.currentTime = 0; el.play().catch(() => {}); }
+        if (el && playing) { el.pause(); setPlaying(null); }   // 보이스 미리듣기 중이면 정지(겹침 방지)
+        if (d.duration) recordCps(voice, visChars(script), d.duration, rate);  // 실측 → 예상길이 보정
+        setTtsUrl(`${apiBase()}${d.audio}?t=${renderSeq}-${voice}`);
       } else {
+        console.warn("[TTS미리듣기] audio 없음", d);
         alert("음성 생성 실패.");
       }
     } catch {
@@ -157,194 +145,338 @@ export default function Home() {
     }
   }
 
-  // 제품 소구포인트: 상세페이지 URL / 캡처이미지 여러 장(파일·Ctrl+V) → 대본 결합
-  const [productUrl, setProductUrl] = useState("");
-  const [productImages, setProductImages] = useState<string[]>([]); // dataURL[]
-  const [sellingPoints, setSellingPoints] = useState("");
-  const [productBusy, setProductBusy] = useState(false);
-  const [productErr, setProductErr] = useState("");
+  // 목표 길이(초): 명시 칩 > 원본 영상 길이 > 미리보기 길이. 전부 없으면 30 폴백
+  // ('영상 길이' 모드인데 영상 길이 미상이면 null 전달돼 목표가 통째로 무시되던 문제 방지).
+  const scriptTargetSec = targetSec ?? srcDur ?? preview?.duration ?? 30;
+  // 제품 소구포인트: 상세페이지 URL / 캡처이미지 → 대본 결합 (video_content=script, commitScript로 반영)
+  const {
+    productUrl, setProductUrl, productImages, setProductImages,
+    sellingPoints, setSellingPoints, productBusy, productErr, productMsg,
+    productStage, pointsEdit, setPointsEdit,
+    addImageFiles, onProductPaste, generateProductScript,
+  } = useProductScript({ script, commitScript, videoDuration: scriptTargetSec });
 
-  function addImageFiles(files: FileList | File[] | null) {
-    const list = Array.from(files || []).filter((f) => f.type.startsWith("image/"));
-    list.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => setProductImages((prev) => [...prev, String(reader.result || "")]);
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // 클립보드 캡처 Ctrl+V 붙여넣기(여러 장 누적)
-  function onProductPaste(e: React.ClipboardEvent) {
-    const imgs = Array.from(e.clipboardData.items)
-      .filter((it) => it.type.startsWith("image/"))
-      .map((it) => it.getAsFile())
-      .filter((f): f is File => !!f);
-    if (imgs.length) {
-      e.preventDefault();
-      addImageFiles(imgs);
-    }
-  }
-
-  async function generateProductScript() {
-    if (productBusy) return;
-    if (!productUrl.trim() && productImages.length === 0) {
-      setProductErr("제품 링크 또는 캡처 이미지를 올려주세요.");
-      return;
-    }
-    setProductBusy(true);
-    setProductErr("");
-    try {
-      const d = await postJSON<any>("/script/product", {
-        product_url: productUrl.trim(),
-        product_images: productImages,
-        video_content: script, // 현재 대본/영상내용과 결합
-        combine: true,
-      });
-      if (d.error) {
-        setProductErr(d.error);
-        if (d.selling_points) setSellingPoints(d.selling_points);
-      } else {
-        setSellingPoints(d.selling_points || "");
-        if (d.script) commitScript(d.script);
-      }
-    } catch (e) {
-      setProductErr(e instanceof Error && e.message ? e.message : "대본 생성 실패. 서버 상태를 확인하세요.");
-    } finally {
-      setProductBusy(false);
-    }
-  }
-
-  // 현재 대본을 기록에 push하고 새 값으로 교체(되돌리기 가능). future는 초기화.
-  function commitScript(next: string) {
-    setScriptPast((p) => (script === next ? p : [...p, script].slice(-50)));
-    if (script !== next) setScriptFuture([]);
-    scriptDirtyRef.current = true;
-    setScript(next);
-  }
-
-  function undoScript() {
-    setScriptPast((p) => {
-      if (!p.length) return p;
-      const prev = p[p.length - 1];
-      setScriptFuture((f) => [script, ...f].slice(0, 50));
-      setScript(prev);
-      scriptDirtyRef.current = true;
-      return p.slice(0, -1);
-    });
-  }
-
-  function redoScript() {
-    setScriptFuture((f) => {
-      if (!f.length) return f;
-      const nextVal = f[0];
-      setScriptPast((p) => [...p, script].slice(-50));
-      setScript(nextVal);
-      scriptDirtyRef.current = true;
-      return f.slice(1);
-    });
-  }
-  const [playing, setPlaying] = useState<string | null>(null);
-  const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
+  const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
   const [job, setJob] = useState<JobState | null>(null);
   const [busy, setBusy] = useState(false);
   const [scriptBusy, setScriptBusy] = useState(false);
   const [refineBusy, setRefineBusy] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const loggedEngineRef = useRef<string | null>(null);  // 자막제거 엔진 콘솔 1회 기록용
-  const loggedDouyinRef = useRef(false);                // 도우인 다운로드 진단 콘솔 1회 기록용
+  const [scriptTone, setScriptTone] = useState("");   // 마지막 적용 대본 톤(다이얼 방향) — 프로젝트 저장
+  const { pollJob, resetEngineLogs } = useJobPolling({ setJob, setBusy, setScriptBusy, setScript, scriptDirtyRef });
 
-  function stopPoll() {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = null;
+  // 다운로드 라이브러리(최근 재사용 목록) 로드
+  async function loadLibrary() {
+    try {
+      const r = await fetch(`${apiBase()}/library`);
+      if (!r.ok) return;
+      const j = await r.json();
+      setLibEntries(j.entries || []);
+    } catch {}
+  }
+  useEffect(() => { loadLibrary(); }, []);
+
+  // 새 프로젝트 — 현재 작업(링크·대본·자막·job)을 접고 소스부터 새로 시작 + 편집 화면 진입.
+  // 스타일/보이스/CTA 등 환경설정은 유지(반복 작업 편의). 다운로드/대본은 '이어하기'로 복구 가능.
+  function newProject() {
+    if ((url.trim() || script.trim() || job) &&
+        !window.confirm("새 프로젝트를 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)")) return;
+    setUrl("");
+    setPreview(null);
+    setSrcDur(null);
+    setJob(null);
+    setScript("");
+    setScriptTone("");
+    scriptDirtyRef.current = false;
+    setCaptionLines([]);
+    setSelectedCap(null);
+    setTtsUrl("");
+    setProductUrl("");
+    setProductImages([]);
+    setSellingPoints("");
+    setPointsEdit(false);
+    setQFrames([]);
+    setCurrentTime(0);
+    setOverlays([]);
+    setProjectId(null);
+    setProjectName("");
+    setSaveState("idle");
+    skipAutosaveRef.current = true;
+    autoCapRef.current = "";
+    resetEngineLogs();
+    setStage("source");
+    setView("edit");
+    loadLibrary();  // 방금 작업물이 라이브러리에 반영됐을 수 있으니 갱신
   }
 
-  function pollJob(id: string, stopStatuses: string[], done?: (j: JobState) => void) {
-    if (!id) {
-      stopPoll();
-      setBusy(false); setScriptBusy(false);
-      alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요.");
-      return;
+  // ── 프로젝트 저장/불러오기 — 편집 전체(대본·보이스·자막·CTA·오버레이)를 통째로 영속화 ──
+  const [projectId, setProjectId] = useState<string | null>(null);   // 불러온/저장한 프로젝트 id
+  const [projectName, setProjectName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function gatherState() {
+    const srcUrl = (url || job?.meta?.url || "").trim();   // url 비면 job 메타서 폴백
+    return {
+      name: projectName || preview?.title || (srcUrl ? "새 프로젝트" : "제목 없는 프로젝트"),
+      source_url: srcUrl,
+      script,
+      script_tone: scriptTone,
+      voice: { voice_id: voice, emotion, emotion_intensity: emotionIntensity, rate },
+      captionStyle, captionLines, caption_on: captionsOn,
+      cta: { on: ctaOn, text: cta, size: ctaSize, pos: ctaPos },
+      overlays,
+      target_sec: targetSec,
+      // 소구포인트(제품 상세 링크·캡처 이미지·소구점) — 대본 결합 재현용
+      product: { url: productUrl, images: productImages, points: sellingPoints },
+    };
+  }
+
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
+  // 실제 저장(POST). 같은 projectId면 덮어씀(중복 방지). name 주면 그 이름으로.
+  async function doSave(name?: string) {
+    if (saving) return;
+    setSaving(true); setSaveState("saving");
+    try {
+      const st = gatherState();
+      if (name) st.name = name;
+      const r = await postJSON<{ id: string; name: string }>("/projects", { id: projectId, state: st });
+      setProjectId(r.id); setProjectName(r.name); setSaveState("saved");
+      loadProjects();
+    } catch (e) {
+      alert(errMsg(e, "저장 실패")); setSaveState("idle");
+    } finally {
+      setSaving(false);
     }
-    stopPoll();
-    let fails = 0;
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${apiBase()}/jobs/${id}`);
-        if (!r.ok) {
-          if (r.status === 404) {
-            stopPoll();
-            setBusy(false); setScriptBusy(false);
-            alert("작업을 찾을 수 없습니다. 서버가 재시작되었을 수 있습니다.");
-            return;
-          }
-          throw new Error(`HTTP ${r.status}`);
-        }
-        fails = 0;
-        const j: JobState = await r.json();
-        setJob(j);
-        // 자막제거에 실제로 쓰인 엔진을 브라우저 콘솔에 1회 기록.
-        if (j.subtitle_engine && loggedEngineRef.current !== j.subtitle_engine) {
-          loggedEngineRef.current = j.subtitle_engine;
-          const label: Record<string, string> = {
-            propainter: "ProPainter (시간축 복원)",
-            lama: "LaMa (프레임 인페인팅)",
-            lama_fallback: "LaMa (ProPainter 실패 → 폴백)",
-            none: "고정박스 제거 (자막 미감지)",
-          };
-          console.log(
-            `[자막제거 엔진] ${label[j.subtitle_engine] ?? j.subtitle_engine}` +
-              (j.subtitle_engine_note ? ` | 사유: ${j.subtitle_engine_note}` : "")
-          );
-        }
-        // 도우인 다운로드 미디어 후보/트랙 진단을 브라우저 콘솔에 1회 기록.
-        // diag는 다운로드 중 점진적으로 쌓이므로(요약 → 후보별 ffprobe 결과 순),
-        // 다운로드 단계가 끝난 뒤(status가 downloading/queued를 벗어남) 찍어야 전체가 나옴.
-        if (
-          j.douyin_diag && j.douyin_diag.length &&
-          j.status !== "queued" && j.status !== "downloading" &&
-          !loggedDouyinRef.current
-        ) {
-          loggedDouyinRef.current = true;
-          console.log(
-            "[Douyin 다운로드 진단] 캡처된 미디어 후보 ↓\n" + j.douyin_diag.join("\n")
-          );
-        }
-        // 서버 대본은 사용자가 아직 안 건드렸을 때만 채움(타이핑 덮어쓰기 방지).
-        if (j.script && !scriptDirtyRef.current) {
-          setScript(j.script);
-          scriptDirtyRef.current = true;
-        }
-        if (stopStatuses.includes(j.status)) {
-          stopPoll();
-          setBusy(false);
-          setScriptBusy(false);
-          done?.(j);
-        }
-      } catch {
-        // 일시적 네트워크 오류는 관용 — 연속 실패가 누적되면 폴링 중단.
-        fails += 1;
-        if (fails >= 5) {
-          stopPoll();
-          setBusy(false);
-          setScriptBusy(false);
-          alert("서버 연결이 끊겼습니다.");
-        }
-      }
-    }, 1200);
   }
 
-  async function analyze() {
-    if (!url.trim() || busy) return;
+  // 저장 버튼: 첫 저장은 이름 입력 모달, 이후는 같은 프로젝트 덮어쓰기.
+  function saveProject() {
+    if (projectId) { doSave(); return; }
+    setNameInput(projectName || preview?.title || (url ? "새 프로젝트" : ""));
+    setNameModalOpen(true);
+  }
+
+  // 자동 저장 — 프로젝트가 한 번 저장된 뒤엔 편집 변경 시 1.5초 디바운스로 자동 반영(같은 id 덮어씀).
+  const skipAutosaveRef = useRef(true);
+  useEffect(() => {
+    if (!projectId) return;
+    if (skipAutosaveRef.current) { skipAutosaveRef.current = false; return; }  // 불러오기 직후 1회 스킵
+    const t = setTimeout(() => doSave(), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, script, scriptTone, captionsOn, ctaOn, cta, ctaSize, ctaPos, voice, emotion, emotionIntensity, rate, targetSec, productUrl, sellingPoints,
+      JSON.stringify(captionLines), JSON.stringify(overlays), JSON.stringify(captionStyle)]);
+
+  async function loadProject(id: string) {
+    skipAutosaveRef.current = true;   // 불러오기 직후 자동저장 1회 스킵(로드=변경 아님)
+    try {
+      const r = await fetch(`${apiBase()}/projects/${id}`);
+      if (!r.ok) { alert("프로젝트를 불러오지 못했어요."); return; }
+      const doc = await r.json();
+      const s = doc.state || {};
+      setProjectId(doc.id); setProjectName(doc.name || "");
+      setUrl(s.source_url || "");
+      setScript(s.script || ""); scriptDirtyRef.current = false;
+      setScriptTone(s.script_tone || "");
+      const v = s.voice || {};
+      if (v.voice_id) setVoice(v.voice_id);
+      if (v.emotion) setEmotion(v.emotion);
+      if (typeof v.emotion_intensity === "number") setEmotionIntensity(v.emotion_intensity);
+      if (typeof v.rate === "number") setRate(v.rate);
+      if (s.captionStyle) setCaptionStyle(s.captionStyle);
+      setCaptionLines(s.captionLines || []);
+      setCaptionsOn(s.caption_on !== false);
+      const c = s.cta || {};
+      setCtaOn(c.on !== false); if (c.text) setCta(c.text);
+      if (typeof c.size === "number") setCtaSize(c.size);
+      if (typeof c.pos === "number") setCtaPos(c.pos);
+      setOverlays(s.overlays || []);
+      if (s.target_sec !== undefined) setTargetSec(s.target_sec);
+      // 소구포인트 복원(제품 링크·이미지·소구점)
+      const pr = s.product || {};
+      setProductUrl(pr.url || "");
+      setProductImages(pr.images || []);
+      setSellingPoints(pr.points || "");
+      setPreview(null); setJob(null);
+      // 소스 영상 복원 — 라이브러리 캐시에 있으면 즉시 렌더 가능하게 job 로드.
+      // 프로젝트의 대본/자막은 유지(라이브러리 script로 덮어쓰지 않음). 없으면 url만(사용자가 분석).
+      console.debug("[프로젝트 불러오기] source_url =", s.source_url || "(없음)");
+      if (s.source_url) {
+        try {
+          const lr = await postJSON<{ job_id: string }>("/library/load", { url: s.source_url });
+          const jr = await fetch(`${apiBase()}/jobs/${lr.job_id}`);
+          if (jr.ok) { const j = await jr.json(); setJob(j); console.debug("[프로젝트 불러오기] 소스 복원 OK", j.preview); }
+          const ent = libEntries.find((e) => e.url === s.source_url);
+          if (ent?.duration) setSrcDur(ent.duration);
+        } catch (e) { console.warn("[프로젝트 불러오기] 소스 복원 실패(캐시 없음 → 소스 단계서 분석):", e); }
+      }
+      setStage("source"); setView("edit");
+    } catch { alert("불러오기 실패"); }
+  }
+
+  const [projectsList, setProjectsList] = useState<{ id: string; name: string; updated: number; source_url: string; n_captions: number; n_overlays: number }[]>([]);
+  async function loadProjects() {
+    try {
+      const r = await fetch(`${apiBase()}/projects`);
+      if (r.ok) setProjectsList((await r.json()).projects || []);
+    } catch {}
+  }
+  useEffect(() => { loadProjects(); }, []);
+  async function deleteProject(id: string) {
+    if (!window.confirm("이 프로젝트를 삭제할까요?")) return;
+    try { await fetch(`${apiBase()}/projects/${id}`, { method: "DELETE" }); } catch {}
+    if (projectId === id) { setProjectId(null); setProjectName(""); }
+    loadProjects();
+  }
+
+  // 다운로드 기록 항목 삭제(항목별). 확인 후 DELETE → 목록 새로고침.
+  async function deleteLibraryEntry(key: string) {
+    if (!window.confirm("이 다운로드 기록을 삭제할까요? (원본·자막제거본 캐시가 지워져요)")) return;
+    try {
+      await fetch(`${apiBase()}/library/${key}`, { method: "DELETE" });
+    } catch {}
+    loadLibrary();
+  }
+
+  // 현재 대본(제품/AI가공/직접편집)을 job+라이브러리에 저장 — STT만 저장하던 구멍 보완.
+  // 이어하기/새로고침에서 최신 대본 복구. job 없으면(영상 없이 제품만) 서버 저장 대상 없음.
+  // 서버 재시작으로 job이 소실되면(인메모리 JOBS) 404 — 그 job으론 저장 중지(반복 404 노이즈 방지).
+  const goneJobRef = useRef<string | null>(null);
+  async function saveScriptToLibrary() {
+    if (!job?.id || goneJobRef.current === job.id) return;
+    const s = script.trim();
+    if (!s || s === lastSavedScriptRef.current) return;   // 변경 없으면 skip
+    lastSavedScriptRef.current = s;
+    try {
+      const r = await fetch(`${apiBase()}/jobs/${job.id}/script`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: s }),
+      });
+      if (r.status === 404) {
+        goneJobRef.current = job.id;
+        console.warn("[대본 자동저장] 작업 세션이 서버에 없어요(서버 재시작으로 소실). "
+          + "화면 편집은 그대로 유지되고, 소스 단계에서 '이어하기'로 다시 불러오면 저장이 재개돼요.");
+      }
+    } catch {}
+  }
+
+  // 대본 스테이지를 떠날 때(상단 보이스 클릭 / 다음 바 / 렌더 등) 대본 자동저장.
+  useEffect(() => {
+    if (prevStageRef.current === "script" && stage !== "script") saveScriptToLibrary();
+    prevStageRef.current = stage;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
+  // 대본을 고치면 1.2초 유휴 뒤 자동저장(디바운스) — 스테이지 안 옮겨도, 새로고침 전에도 반영.
+  // 불러오기 직후엔 lastSavedScriptRef=로드값이라 skip(불필요 저장 안 함).
+  useEffect(() => {
+    if (!job?.id) return;
+    const s = script.trim();
+    if (!s || s === lastSavedScriptRef.current) return;
+    const id = setTimeout(() => { saveScriptToLibrary(); }, 1200);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [script, job?.id]);
+
+  // 대본 생성하면 자막 생성 — 자막 스테이지 처음 들어갈 때(대본·job 있고 자막 아직 없음) 1회 자동생성.
+  // 소스에서 '이어하기'로 대본까지 불러온 경우도 여기로 이어짐. 자막이 이미 있으면 건드리지 않음.
+  useEffect(() => {
+    if (stage !== "caption" || !captionsOn) return;
+    if (!job?.id || !script.trim() || capBusy || captionLines.length > 0) return;
+    const sig = `${job.id}:${script}`;
+    if (autoCapRef.current === sig) return;   // 이 (job,대본)으론 이미 시도(빈 결과여도 재시도 안 함)
+    autoCapRef.current = sig;
+    genCaptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, captionsOn, job?.id, script, capBusy, captionLines.length]);
+
+  // '확인' — 다운로드 없이 제목/썸네일 미리보기. 이미 받은 영상이면 재사용·단계 표시.
+  async function checkUrl(u?: string) {
+    const target = (u ?? url).trim();
+    if (!target || previewBusy) return;
+    setPreviewBusy(true);
+    setPreview(null);
+    try {
+      const p = await postJSON<PreviewInfo>("/preview_url", { url: target });
+      setPreview(p);
+      if (p.duration) setSrcDur(p.duration);
+    } catch (e) {
+      setPreview({ url: target, in_library: false, reused: false, error: e instanceof Error ? e.message : "확인 실패" });
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  // '이어하기' — 라이브러리 보관본을 새 job으로 즉시 불러와 그 단계부터 이어서 진행.
+  async function resumeFromLibrary(target: string) {
+    const t = (target || "").trim();
+    if (!t) return;
+    setUrl(t);   // url 상태 채움 — 저장 시 source_url 비지 않게(불러오기 소스 복원 근거)
+    try {
+      const r = await postJSON<{ job_id: string; loaded: string; script: string }>(
+        "/library/load", { url: t });
+      const jr = await fetch(`${apiBase()}/jobs/${r.job_id}`);
+      if (jr.ok) {
+        const j: JobState = await jr.json();
+        setJob(j);
+        if (j.script) { setScript(j.script); scriptDirtyRef.current = true; lastSavedScriptRef.current = j.script; }
+      }
+      const lbl: Record<string, string> = { source: "원본", nosub: "자막제거본", script: "대본" };
+      // preview는 비우지만 영상 길이는 라이브러리 항목에서 보존('영상 길이' 목표가 실값 유지)
+      const ent = libEntries.find((e) => e.url === t);
+      if (ent?.duration) setSrcDur(ent.duration);
+      setPreview(null);
+      setStage("script");  // 불러온 뒤 자연스러운 다음 단계로 이동
+      setView("edit");     // 홈에서 이어하기 → 편집 화면 진입
+      alert(`이어하기 완료 · ${lbl[r.loaded] || r.loaded}까지 불러왔어요. 이어서 진행하세요.`);
+    } catch (e) {
+      alert(errMsg(e, "이어하기 실패"));
+    }
+  }
+
+  // 자막 제거 품질 확인 — 여러 지점에서 원본/제거본 프레임 추출해 비교
+  async function checkQuality() {
+    if (!job?.id || qBusy) return;
+    setQBusy(true);
+    try {
+      const r = await postJSON<{ frames: typeof qFrames; engine: string | null }>(
+        "/quality/frames", { job_id: job.id, count: 8 });
+      setQFrames(r.frames || []);
+      setQEngine(r.engine ?? null);
+    } catch (e) {
+      alert(errMsg(e, "품질 확인 실패"));
+    } finally {
+      setQBusy(false);
+    }
+  }
+
+  // opts.reuseNosub=false → 다운로드는 재사용하되 자막제거만 다시 실행(캐시 무시).
+  // opts.url → 그 URL로 분석(재실행이 미리보기 URL을 정확히 쓰게).
+  async function analyze(opts?: { reuseNosub?: boolean; url?: string }) {
+    const target = (opts?.url ?? url).trim();
+    if (!target || busy) return;
+    if (opts?.url) setUrl(opts.url);
     setBusy(true);
     setJob(null);
-    loggedEngineRef.current = null;   // 새 분석 → 엔진 로그 다시 찍히게
-    loggedDouyinRef.current = false;  // 새 분석 → 도우인 진단 다시 찍히게
+    setQFrames([]);                   // 새 분석 → 이전 품질 프레임 비움
+    resetEngineLogs();                // 새 분석 → 엔진/도우인/DEBUG 로그 다시 찍히게
     try {
-      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", { url: url.trim(), subtitle_backend: subtitleBackend });
+      const { job_id } = await postJSON<{ job_id?: string }>("/analyze", {
+        url: target, subtitle_backend: subtitleBackend,
+        reuse_nosub: opts?.reuseNosub ?? true,
+      });
       if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
-      pollJob(job_id, ["analyzed", "error"]);
+      // 분석 끝나면 라이브러리 갱신 + 미리보기 갱신 + 다음 단계(대본)로 이동
+      // target 고정 — 입력창(url)은 stale일 수 있어(opts.url 분석 시) 엉뚱한 미리보기 갱신 방지
+      pollJob(job_id, ["analyzed", "error"], (j) => {
+        loadLibrary();
+        checkUrl(target);
+        if (j.status === "analyzed") setStage("script");
+      });
     } catch {
       setBusy(false);
       alert("서버 연결 실패. 8000 포트 백엔드를 확인하세요.");
@@ -356,7 +488,14 @@ export default function Home() {
     setScriptBusy(true);
     try {
       await postJSON("/transcribe", { job_id: job.id });
-      pollJob(job.id, ["transcribed", "error"]);
+      // 받아쓰기는 '명시 요청' — 폴링의 dirty 게이트(타이핑 보호)에 막히지 않게
+      // 완료 시점에 commitScript로 반영(기존 대본은 Ctrl+Z 복구 가능).
+      pollJob(job.id, ["transcribed", "error"], (j) => {
+        if (j.status === "transcribed" && j.script) {
+          commitScript(j.script);
+          lastSavedScriptRef.current = j.script;
+        }
+      });
     } catch {
       setScriptBusy(false);
       alert("자동 대본 생성 실패.");
@@ -366,6 +505,9 @@ export default function Home() {
   // 대본 → 서버서 TTS 돌려 자동자막 줄(타임코드) 받아 타임라인 편집기에 채움.
   async function genCaptions() {
     if (!job?.id || !script.trim() || capBusy) return;
+    // 재생성은 서버가 새 줄을 만들어 줄별 스타일(잠금)·수동 강조가 전부 초기화됨 — 편집분 있으면 확인.
+    if (captionLines.some((l) => l.style || l.emph) &&
+        !window.confirm("자막을 다시 생성하면 줄별 스타일(잠금)·단어 강조 편집이 초기화돼요. 계속할까요?")) return;
     setCapBusy(true);
     try {
       const r = await fetch(`${apiBase()}/captions/preview`, {
@@ -376,6 +518,8 @@ export default function Home() {
           script,
           voice,
           speaking_rate: rate,
+          emotion,
+          emotion_intensity: emotionIntensity,
           caption_style: captionStyle,
         }),
       });
@@ -385,18 +529,18 @@ export default function Home() {
         return;
       }
       const data = await r.json();
-      const lines: CaptionLineData[] = (data.lines || []).map((l: CaptionLineData) => ({
-        text: l.text,
-        start: l.start,
-        end: l.end,
-        style: l.style ?? null,
-      }));
+      const lines: CaptionLineData[] = normLines(data.lines);
       setCaptionLines(lines);
       setCapEditPrev(null);
+      setSelectedCap(null);   // 새 자막 → 선택 해제(전체 모드)
+      // 마지막 줄 끝 = 실측 TTS 길이 → 예상길이(CPS) 보정
+      const lastEnd = lines.length ? lines[lines.length - 1].end : 0;
+      if (lastEnd > 1) recordCps(voice, visChars(script), lastEnd, rate);
     } catch {
       alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
       setCapBusy(false);
+      bumpUsage();
     }
   }
 
@@ -412,19 +556,16 @@ export default function Home() {
         direction,
         caption_style: captionStyle,
       });
-      const next: CaptionLineData[] = (d.lines || []).map((l: CaptionLineData) => ({
-        text: l.text,
-        start: l.start,
-        end: l.end,
-        style: l.style ?? null,
-      }));
+      const next: CaptionLineData[] = normLines(d.lines);
       if (!next.length) { alert("다듬기 결과가 비었습니다."); return; }
       setCapEditPrev(prev);
       setCaptionLines(next);
+      setSelectedCap(null);   // 재분할로 줄 수/경계 변경 → 위치 기반 선택 무효
     } catch (e) {
-      alert(e instanceof Error && e.message ? e.message : "자막 다듬기 실패.");
+      alert(errMsg(e, "자막 다듬기 실패."));
     } finally {
       setCapEditBusy(false);
+      bumpUsage();
     }
   }
 
@@ -432,30 +573,84 @@ export default function Home() {
     if (!capEditPrev) return;
     setCaptionLines(capEditPrev);
     setCapEditPrev(null);
+    setSelectedCap(null);   // 줄 구성이 되돌아감 → 선택 초기화
   }
 
-  async function refineScript() {
+  // 훅(첫 문장) 대안 3개 — 택1해서 대본 첫 줄 교체.
+  const [hookCands, setHookCands] = useState<string[]>([]);
+  const [hooksBusy, setHooksBusy] = useState(false);
+  async function fetchHooks() {
+    if (!script.trim() || hooksBusy) return;
+    setHooksBusy(true);
+    try {
+      const d = await postJSON<{ hooks: string[] }>("/script/hooks", { script });
+      if (!d.hooks?.length) alert("훅 후보 생성 실패 — 잠시 후 다시 시도해 주세요.");
+      setHookCands(d.hooks || []);
+    } catch (e) {
+      alert(errMsg(e, "훅 후보 생성 실패."));
+    } finally {
+      setHooksBusy(false);
+      bumpUsage();
+    }
+  }
+  // 대본 첫 번째 비어있지 않은 줄을 선택한 훅으로 교체(undo 히스토리에 기록됨)
+  function applyHook(h: string) {
+    const lines = script.split("\n");
+    const i = lines.findIndex((l) => l.trim());
+    if (i < 0) return;
+    lines[i] = h;
+    commitScript(lines.join("\n"));
+    setHookCands([]);
+  }
+
+  // 가공 채택/되돌리기 로깅 — 어떤 방향이 자주 버려지는지(프롬프트 개선 근거). 실패 무시.
+  const lastRefineRef = useRef<{ dir: string; t: number } | null>(null);
+  function logRefine(direction: string, action: "apply" | "undo") {
+    fetch(`${apiBase()}/metrics/refine`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction, action }),
+    }).catch(() => {});
+  }
+  // 가공 직후 90초 안의 Ctrl+Z = 그 방향 실패 신호로 기록
+  function handleScriptUndo() {
+    const lr = lastRefineRef.current;
+    if (lr && Date.now() - lr.t < 90_000) {
+      logRefine(lr.dir, "undo");
+      lastRefineRef.current = null;
+    }
+    undoScript();
+  }
+
+  // direction: 8방향 다이얼 키(hook/impact/…) — 없으면 기본(번역투 정리) 가공.
+  // fitSec 주면 그 초수 분량에 맞추도록 제약(목표 길이 맞추기).
+  async function refineScript(direction?: string, fitSec?: number | null) {
     if (!script.trim() || refineBusy) return;
     setRefineBusy(true);
     try {
       const r = await fetch(`${apiBase()}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script }),
+        body: JSON.stringify({ script, direction: direction ?? null, target_sec: fitSec ?? null }),
       });
       if (!r.ok) {
         alert("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
       } else {
         const data = await r.json();
-        if (data.script) commitScript(data.script);
+        if (data.script) {
+          commitScript(data.script);
+          lastRefineRef.current = { dir: direction ?? "base", t: Date.now() };
+          setScriptTone(direction ?? "base");   // 적용 톤 기록(저장/복원 대상)
+          logRefine(direction ?? "base", "apply");
+        }
       }
     } catch {
       alert("AI 가공 실패.");
     } finally {
       setRefineBusy(false);
+      bumpUsage();
     }
   }
-
 
   async function startRender() {
     if (!job?.id || busy) return;
@@ -463,13 +658,13 @@ export default function Home() {
     setBusy(true);
     try {
       const { job_id } = await postJSON<{ job_id?: string }>("/render", {
-        job_id: job.id, script, voice, speaking_rate: rate, cta,
+        job_id: job.id, script, voice, speaking_rate: rate, emotion, emotion_intensity: emotionIntensity, cta,
         cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
         captions: captionsOn,
         caption_style: captionStyle,
         // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
         caption_lines: captionLines.length ? captionLines : null,
-        face_cut: faceCutOn,
+        overlays: overlays.length ? overlays.map((o) => ({ id: o.id, x: o.x, y: o.y, scale: o.scale, start: o.start, end: o.end, fullscreen: o.fullscreen })) : null,
       });
       if (!job_id) { setBusy(false); alert("렌더 작업 ID를 받지 못했습니다."); return; }
       pollJob(job_id, ["done", "error"]);
@@ -479,32 +674,6 @@ export default function Home() {
     }
   }
 
-  function toggleVoice(nick: string) {
-    const el = audioRef.current;
-    if (!el) return;
-    if (playing === nick) {       // 같은 보이스 다시 누르면 정지
-      el.pause();
-      setPlaying(null);
-      return;
-    }
-    // iOS/인앱브라우저: play()는 사용자 제스처 안에서 동기 호출돼야 한다.
-    // load() 호출하면 진행중 play()가 AbortError로 취소됨 → src만 바꾸고 play().
-    const src = `${window.location.origin}/voices/${encodeURIComponent(nick)}.mp3`;
-    if (!el.src.endsWith(encodeURIComponent(nick) + ".mp3")) el.src = src;
-    el.currentTime = 0;
-    setLoadingVoice(nick);       // 클릭 즉시 로딩 표시
-    setPlaying(nick);
-    el.play()
-      .then(() => setLoadingVoice(null))
-      .catch((err: unknown) => {
-        const name = err instanceof Error ? err.name : "";
-        if (name === "AbortError") return; // 다른 보이스로 빠르게 전환 시 정상 — 무시
-        setLoadingVoice(null);
-        setPlaying(null);
-        alert(`미리듣기 재생 실패: ${err instanceof Error ? err.message : String(err)}`);
-      });
-  }
-
   async function pasteFromClipboard() {
     try {
       setUrl(await navigator.clipboard.readText());
@@ -512,390 +681,258 @@ export default function Home() {
   }
 
   const previewUrl = job?.output ? `${apiBase()}${job.output}?v=${renderSeq}` : job?.preview ? `${apiBase()}${job.preview}` : null;
+  const isFinal = !!job?.output;
   // 상대경로 → 절대경로(외부 기기/공유시 동작). 다운로드·공유 링크에만 적용.
   const absUrl = (rel: string) => (typeof window !== "undefined" ? new URL(rel, window.location.origin).href : rel);
-  const visibleVoices = VOICES.filter((v) => genderFilter === "all" || v.gender === genderFilter);
+
+  // 스테이지 완료 표시(상단 칩 체크)
+  const done: Record<StageKey, boolean> = {
+    source: !!job?.id,
+    script: !!script.trim(),
+    voice: !!script.trim(),
+    caption: captionLines.length > 0,
+    render: !!job?.output,
+  };
+
+  // 예상 발화 길이(초) + 유효 목표(명시 목표 > 원본 영상 길이 > 30 폴백) — 대본/보이스/렌더 공용
+  const estSec = estimateSec(script, rate, voice);
+  const effTargetSec = scriptTargetSec;
+
+  // 홈 '편집 계속하기' 노출 조건 + 라벨(제목 > 링크 요약)
+  const hasWork = !!(url.trim() || script.trim() || job);
+  const workLabel = preview?.title || (url.trim() ? url.trim() : undefined);
 
   return (
-    <div className="min-h-screen text-[var(--ink)]">
+    <div className="flex h-screen flex-col overflow-hidden text-[var(--text)]">
       {/* 보이스 미리듣기용 단일 오디오 엘리먼트(iOS 인앱브라우저 호환) */}
-      <audio ref={audioRef} onEnded={() => setPlaying(null)} preload="auto" className="hidden" />
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-4 pt-7 pb-2 sm:px-6">
-        <div className="flex items-center gap-4">
-          {/* S 박스: 제목+설명 2줄 높이에 맞춘 정사각형(고정). 커진 만큼 옆 텍스트는 gap으로 우측에 */}
-          <div className="flex h-14 w-14 flex-none items-center justify-center rounded-2xl grad-anim text-2xl font-black">S</div>
-          <div className="flex min-w-0 flex-col justify-center leading-tight">
-            <div className="flex w-full items-center justify-between gap-2 rounded-xl grad-box px-3 py-1">
-              <h1 className="whitespace-nowrap text-lg font-extrabold tracking-tight text-[var(--ink)]">쇼핑 쇼츠 메이커</h1>
-              <span className="shrink-0 rounded-full bg-white/60 px-2 py-0.5 text-[11px] font-bold text-[var(--accent-deep)]">BETA</span>
+      <audio ref={audioRef} onEnded={onAudioEnded} preload="auto" className="hidden" />
+
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={watchDeploy} />}
+
+      {/* 첫 저장 — 프로젝트 이름 정하기(중복 방지: 이후엔 같은 프로젝트 자동저장) */}
+      {nameModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" onClick={() => setNameModalOpen(false)}>
+          <div className="panel w-full max-w-sm rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-sm font-bold text-slate-100">프로젝트 이름</div>
+            <p className="mb-3 text-[11px] text-slate-500">저장할 프로젝트 이름을 정하세요. 이후 편집은 자동 저장돼요.</p>
+            <input
+              autoFocus value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && nameInput.trim()) { setNameModalOpen(false); doSave(nameInput.trim()); } }}
+              placeholder="예: 겔랑 세럼 리뷰"
+              className="field mb-4 w-full rounded-xl px-4 py-2.5 text-sm outline-none"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setNameModalOpen(false)} className="btn-ghost rounded-lg px-4 py-2 text-sm font-medium">취소</button>
+              <button
+                onClick={() => { if (nameInput.trim()) { setNameModalOpen(false); doSave(nameInput.trim()); } }}
+                disabled={!nameInput.trim()}
+                className="btn-primary rounded-lg px-4 py-2 text-sm font-bold disabled:opacity-50"
+              >저장</button>
             </div>
-            <p className="mt-1 whitespace-nowrap text-xs text-[var(--ink-soft)]">유튜브·인스타·틱톡·도우인 링크를 한국어 쇼츠로</p>
           </div>
         </div>
-      </header>
+      )}
 
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-4 sm:px-6">
-        <section className="glass rounded-[28px] p-5 sm:p-8">
-          <label className="mb-3 block text-sm font-bold text-[var(--ink)]">영상 링크</label>
-          <div className="flex flex-col gap-2.5 md:flex-row">
-            <div className="grad-ring min-w-0 flex-1">
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && analyze()}
-                placeholder="공유 텍스트 또는 링크를 붙여넣으세요"
-                className="h-full w-full rounded-full bg-white/85 px-5 py-3 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]/60"
-              />
-            </div>
-            <button onClick={pasteFromClipboard} className="rounded-full bg-white/70 px-5 py-3 text-sm font-semibold text-[var(--ink)] backdrop-blur transition hover:bg-white/90">
-              붙여넣기
-            </button>
-            <button
-              onClick={analyze}
-              disabled={busy || !url.trim()}
-              className="btn-grad rounded-full px-7 py-3 text-sm font-bold transition"
-            >
-              {busy && job?.status !== "done" ? "분석 중..." : "분석"}
-            </button>
-          </div>
+      {view === "home" && (
+        <HomeView
+          entries={libEntries}
+          projects={projectsList}
+          onLoadProject={loadProject}
+          onDeleteProject={deleteProject}
+          hasWork={hasWork}
+          workLabel={workLabel}
+          onNew={newProject}
+          onContinue={() => setView("edit")}
+          onResume={resumeFromLibrary}
+          onDelete={deleteLibraryEntry}
+          onOpenSettings={() => setSettingsOpen(true)}
+          usageRefresh={usageRefresh}
+          usageActive={busy || scriptBusy}
+          deployN={deployN}
+        />
+      )}
 
-          {/* 자막 제거 모델 선택 (개발용 토글) — 기본 로컬 GPU, 클라우드는 Modal 오프로드 */}
-          <div className="mt-3 flex items-center gap-2.5 text-[13px]">
-            <span className="font-semibold text-[var(--ink-soft)]">자막 제거 모델</span>
-            <div className="inline-flex rounded-full bg-white/55 p-1 backdrop-blur">
-              <button
-                onClick={() => setSubtitleBackend("local")}
-                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "local" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
-              >
-                로컬 GPU <span className="font-normal opacity-70">(개발)</span>
-              </button>
-              <button
-                onClick={() => setSubtitleBackend("modal")}
-                className={`rounded-full px-4 py-1.5 font-semibold transition ${subtitleBackend === "modal" ? "bg-white text-[var(--ink)] shadow" : "text-[var(--ink-soft)] hover:text-[var(--ink)]"}`}
-              >
-                클라우드 <span className="font-normal opacity-70">(Modal)</span>
-              </button>
-            </div>
-          </div>
+      {view === "edit" && (
+      <>
+      <TopBar
+        stage={stage}
+        onStage={setStage}
+        done={done}
+        onOpenSettings={() => setSettingsOpen(true)}
+        usageRefresh={usageRefresh}
+        usageActive={busy || scriptBusy}
+        deployN={deployN}
+        onHome={() => { setView("home"); loadLibrary(); loadProjects(); }}
+        onSave={saveProject} saving={saving} projectName={projectName} saveState={saveState}
+      />
 
-          {/* 제품 소구포인트 — 상세페이지 링크/캡처/수동 → 대본 결합 */}
-          <div className="mt-6 rounded-2xl glass-soft p-5" onPaste={onProductPaste}>
-            <label className="mb-1 block text-sm font-bold text-[var(--ink)]">제품 링크 <span className="font-medium text-[var(--ink-soft)]">(선택 · 영상에 맞는 상품 상세페이지)</span></label>
-            <p className="mb-3 text-[13px] text-[var(--ink-soft)]">상세페이지를 읽고 소구포인트를 뽑아 영상 내용에 맞는 대본을 만들어요. 제품명은 직접 말하지 않아요.</p>
-            <div className="flex flex-col gap-2.5 md:flex-row">
-              <div className="grad-ring min-w-0 flex-1">
-                <input
-                  value={productUrl}
-                  onChange={(e) => setProductUrl(e.target.value)}
-                  placeholder="스마트스토어 / 올리브영 / 쿠팡 상품 링크"
-                  className="h-full w-full rounded-full bg-white/85 px-5 py-3 text-sm text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]/60"
-                />
-              </div>
-              <button
-                onClick={generateProductScript}
-                disabled={productBusy}
-                className="btn-grad rounded-full px-7 py-3 text-sm font-bold transition disabled:opacity-50"
-              >
-                {productBusy ? "분석 중..." : "소구포인트 → 대본"}
-              </button>
-            </div>
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* 좌: 항상 보이는 9:16 프리뷰 + 진행/오류/TTS */}
+        <PreviewPane
+          videoUrl={previewUrl}
+          isFinal={isFinal}
+          onDuration={(d) => setSrcDur(d)}
+          captionLines={captionLines}
+          captionsOn={captionsOn}
+          defaultStyle={captionStyle}
+          ctaOn={ctaOn}
+          cta={cta}
+          ctaSize={ctaSize}
+          ctaPos={ctaPos}
+          ttsUrl={ttsUrl}
+          ttsVoice={voice}
+          onCloseTts={() => setTtsUrl("")}
+          busy={busy || scriptBusy}
+          job={job}
+          videoRef={videoRef}
+          onTime={setCurrentTime}
+          onCtaPos={setCtaPos}
+          selectedCap={capSel}
+          onCaptionPos={(x, y) => {
+            if (capSel != null) {
+              const eff = captionLines[capSel].style ?? captionStyle;
+              updateLineStyle(capSel, { ...eff, posX: x, posY: y });
+            } else {
+              setCaptionStyle((s) => ({ ...s, posX: x, posY: y }));
+            }
+          }}
+          overlays={stage === "render" ? overlays : undefined}
+          onOverlayPos={(i, x, y) => setOverlays((o) => o.map((v, idx) => (idx === i ? { ...v, x, y } : v)))}
+          selectedOverlay={selectedOverlay}
+          onSelectOverlay={setSelectedOverlay}
+        />
 
-            {/* 캡처 업로드(여러 장) — 파일 선택 또는 Ctrl+V 붙여넣기. 쿠팡 등 차단 사이트 폴백 */}
-            <div className="mt-2.5">
-              {/* 캡쳐 버튼: 모바일선 위 '소구포인트→대본' 버튼과 같은 full-width */}
-              <label className="flex w-full cursor-pointer items-center justify-center whitespace-nowrap rounded-full bg-white/70 px-7 py-3 text-sm font-bold text-[var(--ink)] backdrop-blur transition hover:bg-white/90 md:w-auto md:justify-start md:py-2 md:text-[13px] md:font-semibold">
-                📷 캡쳐 이미지 올리기
-                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImageFiles(e.target.files); e.target.value = ""; }} />
-              </label>
-              <div className="mt-2 flex flex-wrap items-center gap-2.5">
-                <span className="text-[13px] text-[var(--ink-soft)]">또는 캡쳐 후 이 영역에서 <kbd className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px]">Ctrl+V</kbd> 붙여넣기</span>
-                {productImages.length > 0 && (
-                  <button onClick={() => setProductImages([])} className="text-xs font-semibold text-rose-500 hover:underline">전체 제거</button>
-                )}
-              </div>
-              {productImages.length > 0 && (
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {productImages.map((src, i) => (
-                    <span key={i} className="group relative">
-                      <img src={src} alt={`제품 캡처 ${i + 1}`} className="h-16 w-16 rounded-lg border border-white/60 object-cover" />
-                      <button
-                        onClick={() => setProductImages((prev) => prev.filter((_, j) => j !== i))}
-                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[11px] font-bold text-white shadow"
-                        title="제거"
-                      >×</button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {productErr && <p className="mt-3 rounded-xl bg-rose-100/70 px-4 py-2.5 text-xs font-medium text-rose-600">⚠ {productErr}</p>}
-            {sellingPoints && (
-              <div className="mt-3 rounded-xl bg-emerald-50/70 px-4 py-3 text-xs text-emerald-900">
-                <div className="mb-1 font-bold">추출된 소구포인트</div>
-                <pre className="whitespace-pre-wrap font-sans">{sellingPoints}</pre>
-              </div>
-            )}
-
-            {/* 음성 생성 전 대본 확인 및 수정 */}
-            <details className="mt-3" open={!!script}>
-              <summary className="cursor-pointer text-xs font-semibold text-[var(--ink-soft)]">음성 생성 전 대본 확인 및 수정 ▾</summary>
-              <textarea
-                value={script}
-                onChange={(e) => commitScript(e.target.value)}
-                placeholder="여기서 대본을 확인하고 음성 생성 전에 자유롭게 수정하세요."
-                rows={5}
-                className="mt-2 w-full rounded-xl bg-white/85 px-4 py-2.5 text-sm leading-relaxed text-[var(--ink)] outline-none placeholder:text-[var(--ink-soft)]/60"
-              />
-            </details>
-          </div>
-
-          {(busy || scriptBusy) && job?.status !== "done" && (
-            <div className="mt-5 overflow-hidden rounded-2xl glass-soft">
-              <div className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium text-[var(--ink)]">
-                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
-                {job?.stage || "준비 중"} · {job?.progress ?? 0}%
-              </div>
-              <div className="h-1.5 w-full bg-white/40">
-                <div className="h-full btn-grad transition-all duration-500" style={{ width: `${job?.progress ?? 0}%` }} />
-              </div>
-            </div>
-          )}
-
-          {job?.error && <p className="mt-3 rounded-2xl bg-rose-100/70 px-4 py-3 text-xs font-medium text-rose-600 backdrop-blur">오류: {job.error}</p>}
-
-          {previewUrl && (
-            <div className="mt-6 flex flex-col items-center gap-2.5 rounded-3xl glass-soft p-5">
-              <div className="flex w-full items-center justify-between text-xs font-semibold text-[var(--ink-soft)]">
-                <span>{job?.output ? "✨ 완성 영상" : "자막 제거 미리보기"}</span>
-                {busy && <span>{job?.stage} · {job?.progress}%</span>}
-              </div>
-              <video key={previewUrl} src={previewUrl} controls className="max-h-[440px] rounded-2xl bg-black/80 shadow-lg" style={{ aspectRatio: "9/16" }} />
-            </div>
-          )}
-
-          <div className="mt-7">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-bold text-[var(--ink)]">보이스</div>
-              <div className="flex gap-1.5">
-                {([
-                  ["all", "전체"],
-                  ["F", "여성"],
-                  ["M", "남성"],
-                ] as const).map(([g, lbl]) => (
-                  <button key={g} onClick={() => setGenderFilter(g)} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${genderFilter === g ? "btn-grad" : "bg-white/60 text-[var(--ink-soft)] hover:bg-white/80"}`}>
-                    {lbl}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="thin-scroll grid max-h-56 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-4">
-              {visibleVoices.map((v) => (
-                <div
-                  key={v.name}
-                  onClick={() => setVoice(v.name)}
-                  className={`flex cursor-pointer items-center justify-between rounded-2xl border px-3 py-2.5 text-sm transition ${voice === v.name ? "border-transparent bg-white/90 font-bold text-[var(--accent-deep)] shadow-[0_8px_20px_-10px_rgba(106,92,255,0.5)]" : "border-white/50 bg-white/40 hover:bg-white/70"}`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    {v.name}
-                    <span className={`text-[10px] font-bold ${v.gender === "F" ? "text-pink-400" : "text-sky-400"}`}>{v.gender === "F" ? "여" : "남"}</span>
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleVoice(v.name);
-                    }}
-                    className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-xs text-[var(--accent-deep)] shadow transition hover:bg-[var(--c-lilac)]"
-                    aria-label={`${v.name} 미리듣기`}
-                  >
-                    {loadingVoice === v.name ? (
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--accent)]/40 border-t-[var(--accent-deep)]" />
-                    ) : playing === v.name ? "■" : "▶"}
-                  </button>
-                </div>
-              ))}
-            </div>
-            {/* 선택한 보이스 + 현재 대본으로 전체 음성 미리듣기 — 맘에 안 들면 보이스 바꿔 다시 */}
-            <button
-              onClick={previewTts}
-              disabled={!script.trim() || ttsBusy}
-              className="mt-3 w-full rounded-full bg-white/70 px-5 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40"
-            >
-              {ttsBusy ? "음성 생성 중..." : `🔊 '${voice}' 목소리로 대본 들어보기`}
-            </button>
-            {ttsUrl && <p className="mt-1.5 text-center text-[11px] text-[var(--ink-soft)]">보이스를 바꾼 뒤 다시 누르면 새 음성으로 들려줘요.</p>}
-          </div>
-
-          <div className="mt-7">
-            <div className="rounded-2xl border border-white/50 bg-white/40 p-3.5 backdrop-blur">
-              {/* CTA 넣기/빼기 체크박스 */}
-              <label className="mb-2 flex cursor-pointer items-center gap-2 px-1 text-xs font-bold text-[var(--ink-soft)]">
-                <input type="checkbox" checked={ctaOn} onChange={(e) => setCtaOn(e.target.checked)} className="h-4 w-4 accent-[var(--accent-deep)]" />
-                CTA 자막 넣기
-              </label>
-              <div className="flex items-center gap-1.5">
-                <select value={cta} onChange={(e) => setCta(e.target.value)} disabled={!ctaOn} className="h-12 min-w-0 flex-1 truncate rounded-xl border border-white/50 bg-white/70 px-3 text-[13px] text-[var(--ink)] outline-none disabled:opacity-40" style={{ fontFamily: "ChosunGu, system-ui, sans-serif", lineHeight: "normal" }}>
-                  {ctaList.length === 0 && <option value="">(CTA 없음)</option>}
-                  {ctaList.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-                <button onClick={addCustomCta} disabled={!ctaOn} title="CTA 문구 추가" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/70 text-lg font-bold text-[var(--accent-deep)] transition hover:bg-white/90 disabled:opacity-40">+</button>
-                {cta && ctaList.includes(cta) && (
-                  <button onClick={() => deleteCta(cta)} disabled={!ctaOn} title="선택한 문구 삭제" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100/70 text-sm font-bold text-rose-600 transition hover:bg-rose-200/70 disabled:opacity-40">×</button>
-                )}
-              </div>
-              {ctaOn && (
-                <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  <label className="px-1 text-xs font-bold text-[var(--ink-soft)]">
-                    글자 크기 {ctaSize}px
-                    <input type="range" min={24} max={120} value={ctaSize} onChange={(e) => setCtaSize(+e.target.value)} className="mt-1 w-full accent-[var(--accent-deep)]" />
-                  </label>
-                  <label className="px-1 text-xs font-bold text-[var(--ink-soft)]">
-                    세로 위치 {Math.round(ctaPos * 100)}%
-                    <input type="range" min={0} max={100} value={Math.round(ctaPos * 100)} onChange={(e) => setCtaPos(+e.target.value / 100)} className="mt-1 w-full accent-[var(--accent-deep)]" />
-                  </label>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Field label={`배속 ${rate.toFixed(1)}x`}>
-              <input type="range" min={0.5} max={2} step={0.1} value={rate} onChange={(e) => setRate(parseFloat(e.target.value))} className="mt-1.5 w-full accent-[var(--accent-deep)]" />
-            </Field>
-            <Field label="중국어 자막 제거">
-              <div className="rounded-xl bg-emerald-100/60 px-3 py-2 text-xs font-semibold text-emerald-700">분석 단계에서 자동 처리</div>
-            </Field>
-          </div>
-
-          <div className="mt-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <label className="text-sm font-bold text-[var(--ink)]">한국어 대본</label>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={genScript} disabled={!job?.id || scriptBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {scriptBusy ? "생성 중..." : "자동 대본 생성"}
-                </button>
-                <button onClick={refineScript} disabled={!script.trim() || refineBusy} className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-fuchsia-600 backdrop-blur transition hover:bg-white/90 disabled:opacity-40">
-                  {refineBusy ? "가공 중..." : "AI로 가공"}
-                </button>
-                <button onClick={undoScript} disabled={!scriptPast.length} title="되돌리기 (Ctrl+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
-                  ↶ 되돌리기
-                </button>
-                <button onClick={redoScript} disabled={!scriptFuture.length} title="다시실행 (Ctrl+Shift+Z)" className="rounded-full bg-white/50 px-3 py-1.5 text-xs font-bold text-[var(--ink-soft)] backdrop-blur transition hover:bg-white/80 disabled:opacity-30">
-                  ↷ 다시실행
-                </button>
-              </div>
-            </div>
-            <textarea
-              value={script}
-              onChange={(e) => { scriptDirtyRef.current = true; setScript(e.target.value); }}
-              onFocus={() => { lastSnapshotRef.current = script; }}
-              onBlur={() => { if (lastSnapshotRef.current !== script) { setScriptPast((p) => [...p, lastSnapshotRef.current].slice(-50)); setScriptFuture([]); } }}
-              onKeyDown={(e) => {
-                const mod = e.ctrlKey || e.metaKey;
-                if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undoScript(); }
-                else if (mod && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redoScript(); }
-              }}
-              rows={5}
-              placeholder="자동 대본 생성 버튼을 누르거나 직접 입력하세요."
-              className="w-full rounded-2xl border border-white/50 bg-white/75 px-4 py-3 text-sm leading-relaxed text-[var(--ink)] outline-none transition placeholder:text-[var(--ink-soft)]/60 focus:bg-white/90 focus:ring-2 focus:ring-[var(--accent)]/30"
+        {/* 중앙: 스테이지별 작업 패널 + 하단 이전/다음 바 */}
+        <div className="flex min-w-0 flex-1 flex-col">
+        <main className="thin-scroll min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          {stage === "source" && (
+            <SourceStage
+              url={url} setUrl={setUrl}
+              onPasteClipboard={pasteFromClipboard}
+              onCheck={() => checkUrl()} previewBusy={previewBusy}
+              onAnalyze={() => analyze()} busy={busy}
+              preview={preview}
+              libEntries={libEntries}
+              onPickLibrary={(u) => { setUrl(u); checkUrl(u); }}
+              onResume={resumeFromLibrary}
+              onDeleteLibrary={deleteLibraryEntry}
+              job={job}
+              qFrames={qFrames} qBusy={qBusy} qEngine={qEngine} onCheckQuality={checkQuality}
             />
-          </div>
-
-          <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs font-medium text-[var(--ink-soft)]">{job?.id ? "분석 완료 후 대본을 확인하고 작업을 시작하세요." : "먼저 링크를 분석하세요."}</p>
-            <button onClick={startRender} disabled={!job?.id || busy} className="btn-grad rounded-full px-9 py-3 text-sm font-bold transition">
-              {busy && job?.status !== "analyzed" ? `${job?.stage || "처리 중"}...` : "작업 시작 ✨"}
-            </button>
-          </div>
-        </section>
-
-        <div className="mt-8">
-          <div className="mb-4 flex items-center justify-between rounded-3xl glass px-6 py-4">
-            <div>
-              <div className="text-sm font-bold text-[var(--ink)]">얼굴샷 컷 제거</div>
-              <div className="text-xs text-[var(--ink-soft)]">인물 얼굴이 크게 잡힌 구간을 자동으로 잘라내고 제품샷 위주로 이어붙입니다. (남길 분량이 너무 짧으면 자동으로 컷을 생략합니다.)</div>
-            </div>
-            <button
-              onClick={() => setFaceCutOn((v) => !v)}
-              className={`relative h-7 w-12 flex-none rounded-full transition-colors ${faceCutOn ? "btn-grad" : "bg-white/60"}`}
-              aria-label="얼굴샷 컷 제거 토글"
-            >
-              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${faceCutOn ? "left-[22px]" : "left-0.5"}`} />
-            </button>
-          </div>
-          <div className="mb-8 flex items-center justify-between rounded-3xl glass px-6 py-4">
-            <div>
-              <div className="text-sm font-bold text-[var(--ink)]">자동 자막</div>
-              <div className="text-xs text-[var(--ink-soft)]">TTS 대본을 타임코드에 맞춰 자막으로 입힙니다. 아래는 기본 스타일이며, 타임라인에서 줄별로 바꿀 수 있습니다.</div>
-            </div>
-            <button
-              onClick={() => setCaptionsOn((v) => !v)}
-              className={`relative h-7 w-12 flex-none rounded-full transition-colors ${captionsOn ? "btn-grad" : "bg-white/60"}`}
-              aria-label="자동 자막 토글"
-            >
-              <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${captionsOn ? "left-[22px]" : "left-0.5"}`} />
-            </button>
-          </div>
-          <CaptionEditor value={captionStyle} onChange={setCaptionStyle} />
-          <div className="mt-4">
-            <CaptionTimeline
+          )}
+          {stage === "script" && (
+            <ScriptStage
+              script={script}
+              onChangeScript={(v) => { scriptDirtyRef.current = true; setScript(v); }}
+              onFocusScript={beginSnapshot}
+              onBlurScript={commitSnapshotIfChanged}
+              canUndo={canUndo} canRedo={canRedo} onUndo={handleScriptUndo} onRedo={redoScript}
+              onRefine={(dir) => refineScript(dir, effTargetSec)} refineBusy={refineBusy}
+              activeTone={scriptTone}
+              onGenFromVideo={genScript} scriptBusy={scriptBusy}
+              job={job}
+              estSec={estSec} rate={rate}
+              cpsNote={(() => { const i = getCpsInfo(voice); return i.n
+                ? `이 성우 실측 보정 ${i.n}회 (실효 ${i.cps}자/초 — 쉼·발음 포함)`
+                : "보정 전(기본 5.5자/초) — TTS 미리듣기 한 번이면 이 성우 속도로 보정돼요"; })()}
+              targetSec={targetSec} setTargetSec={setTargetSec}
+              videoDur={srcDur ?? preview?.duration ?? null}
+              onFitLength={() => refineScript("concise", effTargetSec)}
+              hookCands={hookCands} hooksBusy={hooksBusy}
+              onFetchHooks={fetchHooks} onApplyHook={applyHook}
+              onClearHooks={() => setHookCands([])}
+              productUrl={productUrl} setProductUrl={setProductUrl}
+              productImages={productImages} setProductImages={setProductImages}
+              sellingPoints={sellingPoints} setSellingPoints={setSellingPoints}
+              productBusy={productBusy} productErr={productErr} productMsg={productMsg} productStage={productStage}
+              pointsEdit={pointsEdit} setPointsEdit={setPointsEdit}
+              addImageFiles={addImageFiles}
+              onProductPaste={onProductPaste}
+              onGenerateProduct={generateProductScript}
+            />
+          )}
+          {stage === "voice" && (
+            <VoiceStage
+              voices={tcVoices}
+              voice={voice} setVoice={setVoice}
+              emotion={emotion} setEmotion={setEmotion}
+              emotionIntensity={emotionIntensity} setEmotionIntensity={setEmotionIntensity}
+              rate={rate} setRate={setRate}
+              onPreviewTts={previewTts} ttsBusy={ttsBusy} hasScript={!!script.trim()}
+              onOpenSettings={() => setSettingsOpen(true)}
+              estSec={estSec}
+              playing={playing} loadingVoice={loadingVoice} onToggleVoice={toggleVoice}
+            />
+          )}
+          {stage === "caption" && (
+            <CaptionStage
               lines={captionLines}
               onChange={setCaptionLines}
               defaultStyle={captionStyle}
-              onGenerate={genCaptions}
-              generating={capBusy}
-              hasScript={!!job?.id && !!script.trim()}
-              onAiEdit={editCaptions}
-              aiEditBusy={capEditBusy}
-              onUndoEdit={undoCaptionEdit}
-              canUndoEdit={!!capEditPrev}
+              captionsOn={captionsOn} setCaptionsOn={setCaptionsOn}
+              onGenerate={genCaptions} generating={capBusy} hasScript={!!job?.id && !!script.trim()}
+              onAiEdit={editCaptions} aiEditBusy={capEditBusy}
+              onUndoEdit={undoCaptionEdit} canUndoEdit={!!capEditPrev}
+              currentTime={currentTime}
+              onSeek={seekTo}
+              selected={capSel}
+              onSelect={(i) => setSelectedCap(i)}
+              onToggleLock={(i) => {
+                const ln = captionLines[i];
+                updateLineStyle(i, ln.style ? null : { ...(ln.style ?? captionStyle) });
+              }}
             />
-          </div>
+          )}
+          {stage === "render" && (
+            <RenderStage
+              ctaList={ctaList} cta={cta} setCta={setCta}
+              onAddCta={addCustomCta} onDeleteCta={deleteCta}
+              ctaOn={ctaOn} setCtaOn={setCtaOn}
+              ctaSize={ctaSize} setCtaSize={setCtaSize}
+              ctaPos={ctaPos} setCtaPos={setCtaPos}
+              captionsOn={captionsOn}
+              overlayLib={overlayLib} overlays={overlays} setOverlays={setOverlays}
+              selectedOverlay={selectedOverlay} setSelectedOverlay={setSelectedOverlay}
+              videoDur={preview?.duration ?? srcDur ?? job?.output_dur ?? estSec ?? null}
+              onRender={startRender} busy={busy} job={job}
+              outputUrl={job?.output ? previewUrl : null}
+              absUrl={absUrl}
+              estSec={estSec}
+            />
+          )}
+        </main>
+        <StageFooter stage={stage} onStage={setStage} />
         </div>
 
-        {job?.output && (
-          <section className="mt-7 flex flex-col gap-3 rounded-3xl glass px-5 py-5 sm:px-7">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-bold text-emerald-600">✅ 영상 완성</div>
-              <div className="flex flex-wrap gap-2">
-                <a href={absUrl(previewUrl ?? `${apiBase()}${job.output}`)} download target="_blank" rel="noopener" className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-bold text-white shadow-[0_12px_24px_-10px_rgba(16,185,129,0.6)] transition hover:bg-emerald-600">
-                  다운로드
-                </a>
-                <button
-                  onClick={async () => {
-                    const link = absUrl(previewUrl ?? `${apiBase()}${job!.output}`);
-                    // 모바일 공유시트(가능하면) — 아니면 클립보드 복사
-                    const navAny = navigator as Navigator & { share?: (d: { title?: string; url?: string }) => Promise<void> };
-                    try {
-                      if (navAny.share) { await navAny.share({ title: "쇼핑 쇼츠", url: link }); return; }
-                      await navigator.clipboard.writeText(link);
-                      alert("영상 링크를 복사했어요. 폰 브라우저에 붙여넣어 저장하세요.");
-                    } catch {}
-                  }}
-                  className="rounded-full bg-white/70 px-6 py-2.5 text-sm font-bold text-[var(--accent-deep)] backdrop-blur transition hover:bg-white/90"
-                >
-                  공유 / 링크
-                </button>
-              </div>
+        {/* 우: 자막 스타일 — 전체/선택 대상 토글 + 스타일 인스펙터 */}
+        {stage === "caption" && (
+          <aside className="thin-scroll w-full flex-none overflow-y-auto border-t border-[var(--line)] px-4 py-4 lg:w-[440px] lg:border-l lg:border-t-0 xl:w-[480px]">
+            {/* 적용 대상: 전체 자막 vs 선택 자막(목록에서 줄 클릭) */}
+            <div className="mb-3 flex items-center gap-1 rounded-xl border border-[var(--line)] bg-[var(--panel-2)] p-1 text-[12px] font-medium">
+              <button
+                onClick={() => setSelectedCap(null)}
+                className={`flex-1 rounded-lg px-3 py-1.5 transition ${capSel == null ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "text-slate-400 hover:bg-white/5"}`}
+              >
+                전체 자막
+              </button>
+              <button
+                disabled={capSel == null}
+                className={`flex-1 rounded-lg px-3 py-1.5 transition ${capSel != null ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30" : "text-slate-600"}`}
+              >
+                {capSel != null ? `선택 자막 · ${capSel + 1}번` : "선택 자막 (줄 클릭)"}
+              </button>
             </div>
-            {/* iOS는 download가 무시됨 — 아래 영상 길게 눌러 "비디오 저장"으로도 받을 수 있음 */}
-            <video src={previewUrl ?? `${apiBase()}${job.output}`} controls playsInline className="mx-auto max-h-[460px] rounded-2xl bg-black/80" style={{ aspectRatio: "9/16" }} />
-            <p className="text-center text-[11px] text-[var(--ink-soft)]">아이폰은 위 영상을 길게 눌러 &quot;비디오 저장&quot;으로도 받을 수 있어요.</p>
-          </section>
+            <CaptionEditor
+              value={capSel != null ? (captionLines[capSel].style ?? captionStyle) : captionStyle}
+              onChange={capSel != null ? (s) => updateLineStyle(capSel, s) : setCaptionStyle}
+              scope={capSel != null ? "selected" : "all"}
+              scopeLabel={capSel != null ? `${capSel + 1}번 줄` : undefined}
+            />
+          </aside>
         )}
-      </main>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-white/50 bg-white/40 p-3.5 backdrop-blur">
-      {/* 라벨 좌측 들여쓰기 — 아래 내용 박스(px-3)와 시작점 맞춤 */}
-      <div className="mb-2 px-1 text-xs font-bold text-[var(--ink-soft)]">{label}</div>
-      {children}
+      </div>
+      </>
+      )}
     </div>
   );
 }

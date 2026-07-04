@@ -41,21 +41,26 @@ def synthesize(
 def synthesize_by_nickname(
     text: str,
     out_path: Path,
-    nickname: str = "소담",
+    nickname: str = "",
     rate_override: str | None = None,
     speaking_rate: float = 1.0,
+    emotion: str = "smart",
+    emotion_intensity: float = 1.3,
 ) -> tuple[Path, list]:
-    try:
-        from app.pipeline import google_tts
+    """대본 → Typecast TTS(감정 + 네이티브 단어 타임스탬프). 반환 (Path, stamps).
 
-        if google_tts.available():
-            out = google_tts.synthesize(text, out_path, nickname=nickname, speaking_rate=speaking_rate)
-            return out, []
-    except Exception as e:
-        print(f"  [Google TTS failed, falling back to edge-tts: {str(e)[:80]}]")
-
-    v = get_voice(nickname)
-    return synthesize(text, out_path, voice=v.edge_id, rate=rate_override or v.rate, pitch=v.pitch)
+    nickname = Typecast voice_id(tc_/uc_). 발음 정규화는 오디오 입력에만(자막은 대본 원문).
+    Typecast 전용 — 키 없으면 명확히 에러(폴백 없음, 사용자 결정).
+    """
+    from app.pipeline.ko_normalize import normalize_ko_reading
+    text = normalize_ko_reading(text)
+    from app.pipeline import typecast_tts
+    if not typecast_tts.available():
+        raise RuntimeError("Typecast API 키가 필요합니다. 설정에서 키를 입력하세요.")
+    return typecast_tts.synthesize(
+        text, out_path, voice_id=(nickname or None),
+        emotion=emotion, intensity=emotion_intensity, tempo=speaking_rate,
+    )
 
 
 async def list_korean_voices():

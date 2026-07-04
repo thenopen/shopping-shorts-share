@@ -1,0 +1,6 @@
+comp=DREAM애플 감성 템플릿 세트 06
+set text on 아이메시지 초록색 말풍선!
+templates=AIFF 48kHz,H.264 - 렌더링 일치 설정 - 15Mbps,H.264 - 렌더링 일치 설정 - 40Mbps,H.264 - 렌더링 일치 설정 - 5Mbps,알파가 포함된 TIFF 시퀀스,알파 전용,알파 포함 무손실,Photoshop,고품질,고품질(알파 포함),다중 시스템 시퀀스,손실 없음,_HIDDEN X-Factor 16,_HIDDEN X-Factor 16 Premul,_HIDDEN X-Factor 32,_HIDDEN X-Factor 32 Premul,_HIDDEN X-Factor 8,_HIDDEN X-Factor 8 Pr
+applied=알파 포함 무손실
+rendering...
+DONE rc

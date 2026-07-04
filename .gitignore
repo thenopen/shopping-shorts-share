@@ -14,6 +14,8 @@ dist/
 # Work files
 packages/core/workdir/*
 !packages/core/workdir/.gitkeep
+# 다운로드 영상 라이브러리(원본·썸네일·메타 — 런타임 산출물)
+packages/core/downloads/
 *.mp4
 *.mp3
 *.wav
@@ -71,3 +73,13 @@ _*_shot.png
 chrome-devtools-mcp/
 # ProPainter vendored repo(303MB, 가중치 191MB) — clone+자동패치로 재현(propainter_inpaint.ensure_propainter)
 packages/core/app/pipeline/ProPainter/
+
+# 서버 debug 로그(로컬 진단용)
+packages/core/_server.log
+packages/core/_server.err.log
+
+# 추출된 오버레이 에셋(ae-sources/*.zip에서 scripts/extract_overlays.py로 생성) — LFS zip이 원본
+packages/core/assets/overlays/
+
+# 저장된 편집 프로젝트(로컬)
+packages/core/projects/

@@ -3,12 +3,18 @@ import type { NextConfig } from "next";
 const API = "http://127.0.0.1:8000";
 const API_PREFIXES = [
   "tts", "script", "jobs", "analyze", "transcribe",
-  "captions", "refine", "agent", "render", "file",
+  "captions", "refine", "agent", "render", "file", "usage", "settings",
+  "preview_url", "library", "modal", "quality", "overlays", "projects",
 ];
 
 const nextConfig: NextConfig = {
+  // rewrites 프록시 타임아웃 30초(기본) → 5분.
+  // /script/product(크롤+비전 수십초~)가 30초 넘으면 코어는 성공하는데 브라우저만 500 받던 원인.
+  experimental: { proxyTimeout: 300_000 },
   // 원격접속(터널/LAN/Tailscale) 시 dev 리소스(/_next) cross-origin 허용
   allowedDevOrigins: [
+    "127.0.0.1",
+    "localhost",
     "desktop-fu19gql.tailbf2d8f.ts.net",
     "100.87.145.86",
     "192.168.0.204",

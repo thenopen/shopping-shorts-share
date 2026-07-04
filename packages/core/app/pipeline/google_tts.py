@@ -37,5 +37,10 @@ def synthesize(text: str, out_path: Path, nickname: str = "소담", speaking_rat
         speaking_rate=speaking_rate,
     )
     resp = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+    try:
+        from app import usage
+        usage.record_tts(len(text or ""))
+    except Exception:
+        pass
     out_path.write_bytes(resp.audio_content)
     return out_path

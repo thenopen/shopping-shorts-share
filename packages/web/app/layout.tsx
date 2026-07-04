@@ -1,14 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// UI 라틴 = Inter, 한글 = Pretendard(CDN) 폴백. 자막 폰트는 fonts.generated.css(로컬 539종).
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
@@ -26,9 +22,15 @@ export default function RootLayout({
     <html
       lang="ko"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} h-full antialiased`}
     >
       <head>
+        {/* 테마 초기화 — 첫 페인트 전에 localStorage 반영(라이트 선택 시 다크 플래시 방지) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("theme")==="light")document.documentElement.dataset.theme="light"}catch(e){}`,
+          }}
+        />
         <link
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"

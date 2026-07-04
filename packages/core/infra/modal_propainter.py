@@ -126,12 +126,19 @@ def _union_bbox(masks_dir, W, H, pad=24):
 @app.function(gpu=PP_GPU, timeout=3600)
 def run_propainter(frames_tar: bytes, masks_tar: bytes,
                    resize_ratio: float = 1.0, subvideo_length: int = 80,
-                   neighbor_length: int = 10, mask_dilation: int = 4) -> dict:
-    """프레임+마스크 tar → ProPainter 복원 프레임 tar. peak VRAM/처리시간 함께 반환."""
+                   neighbor_length: int = 10, mask_dilation: int = 4,
+                   chunk: int = 200, overlap: int = 12) -> dict:
+    """프레임+마스크 tar → ProPainter 복원 프레임 tar. peak VRAM/처리시간 함께 반환.
+
+    RAFT 광학흐름 메모리가 클립 길이에 비례 → 긴 영상은 GPU OOM. 프레임을 chunk개씩
+    나눠 각각 별 subprocess로 실행(청크마다 GPU 메모리 해제)해 길이 무관하게 처리한다.
+    경계 이질감 완화용으로 overlap 프레임을 두고 이웃 청크와 절반씩 나눠 채택.
+    """
     import subprocess
     import sys
     import threading
     import glob
+    import shutil
 
     work = "/tmp/pp_work"
     frames_dir, masks_dir, out_dir = f"{work}/frames", f"{work}/masks", f"{work}/out"
@@ -167,6 +174,140 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes,
     th = threading.Thread(target=_sampler, daemon=True)
     th.start()
 
+    env = dict(os.environ)
+    # 메모리 단편화 완화(공식 권장).
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    def _run_one(fdir, mdir, odir):
+        cmd = [
+            sys.executable, "inference_propainter.py",
+            "-i", fdir, "-m", mdir, "-o", odir,
+            "--fp16",
+            "--resize_ratio", str(resize_ratio),
+            "--subvideo_length", str(subvideo_length),
+            "--neighbor_length", str(neighbor_length),
+            "--mask_dilation", str(mask_dilation),
+            "--save_frames",
+        ]
+        r = subprocess.run(cmd, cwd=_PP_DIR, capture_output=True, text=True,
+                           errors="replace", env=env)
+        if r.returncode != 0:
+            raise RuntimeError(f"ProPainter 실패(code {r.returncode}): {(r.stderr or '')[-1500:]}")
+        pngs = glob.glob(f"{odir}/**/*.png", recursive=True)
+        if not pngs:
+            raise RuntimeError("ProPainter 출력 프레임 없음")
+        bydir: dict = {}
+        for p in pngs:
+            bydir.setdefault(os.path.dirname(p), []).append(p)
+        return sorted(max(bydir.values(), key=len))
+
+    frame_files = sorted(glob.glob(f"{frames_dir}/*.png"))
+    mask_files = sorted(glob.glob(f"{masks_dir}/*.png"))
+    n = len(frame_files)
+    result_dir = f"{work}/result"
+    os.makedirs(result_dir, exist_ok=True)
+
+    t0 = time.monotonic()
+    n_chunks = 1
+    if n <= chunk:
+        outs = _run_one(frames_dir, masks_dir, out_dir)
+        for i in range(min(n, len(outs))):
+            shutil.copy(outs[i], f"{result_dir}/{i:05d}.png")
+    else:
+        # 청크(오버랩) — 각 청크를 별 subprocess로 실행 → 청크마다 GPU 해제(OOM 회피).
+        step = max(1, chunk - overlap)
+        starts = list(range(0, n, step))
+        n_chunks = len(starts)
+        for ci, s in enumerate(starts):
+            e = min(s + chunk, n)
+            cf, cm, co = f"{work}/cf", f"{work}/cm", f"{work}/co"
+            for d in (cf, cm, co):
+                subprocess.run(["rm", "-rf", d], check=False)
+            os.makedirs(cf, exist_ok=True)
+            os.makedirs(cm, exist_ok=True)
+            for j in range(s, e):
+                shutil.copy(frame_files[j], f"{cf}/{j:05d}.png")
+                shutil.copy(mask_files[j], f"{cm}/{j:05d}.png")
+            outs = _run_one(cf, cm, co)              # 정렬됨, 길이 e-s
+            # 오버랩 경계는 이웃과 절반씩 나눠 채택(첫/끝 청크는 끝까지).
+            keep_s = s if ci == 0 else s + overlap // 2
+            keep_e = e if e >= n else e - (overlap - overlap // 2)
+            for j in range(keep_s, keep_e):
+                oi = j - s
+                if 0 <= oi < len(outs):
+                    shutil.copy(outs[oi], f"{result_dir}/{j:05d}.png")
+            if e >= n:
+                break
+    secs = time.monotonic() - t0
+    stop.set()
+    th.join(timeout=2)
+
+    res_png = sorted(glob.glob(f"{result_dir}/*.png"))
+    if not res_png:
+        raise RuntimeError("ProPainter 출력 프레임 없음")
+
+    return {
+        "result_tar": _tar_dir(result_dir),
+        "seconds": round(secs, 2),
+        "gpu": gpu_name,
+        "peak_vram_mb": round(peak["mb"], 1),
+        "n_frames": nf,
+        "chunks": n_chunks,
+    }
+
+
+@app.function(gpu=PP_GPU, timeout=3600)
+def run_chunk(payload: dict) -> dict:
+    """청크 1개(프레임+마스크 tar) → ProPainter 복원 tar. 병렬 fan-out(run_chunk.map)용.
+
+    청크당 별 컨테이너/GPU라 여러 청크가 동시에 돈다(계정 동시성 한도까지). 각 청크는
+    짧아(≤chunk 프레임) OOM 없이 맞는다.
+    """
+    import subprocess
+    import sys
+    import glob
+    import threading
+
+    frames_tar = payload["frames"]
+    masks_tar = payload["masks"]
+    resize_ratio = payload.get("resize_ratio", 1.0)
+    subvideo_length = payload.get("subvideo_length", 80)
+    neighbor_length = payload.get("neighbor_length", 10)
+    mask_dilation = payload.get("mask_dilation", 4)
+
+    work = "/tmp/pp_chunk"
+    frames_dir, masks_dir, out_dir = f"{work}/frames", f"{work}/masks", f"{work}/out"
+    subprocess.run(["rm", "-rf", work], check=False)
+    nf = _untar_to(frames_tar, frames_dir)
+    _untar_to(masks_tar, masks_dir)
+
+    gpu_name = ""
+    try:
+        gpu_name = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True).stdout.strip().splitlines()[0]
+    except Exception:
+        pass
+
+    peak = {"mb": 0.0}
+    stop = threading.Event()
+
+    def _sampler():
+        while not stop.is_set():
+            try:
+                r = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True)
+                peak["mb"] = max(peak["mb"], float(r.stdout.strip().splitlines()[0]))
+            except Exception:
+                pass
+            stop.wait(0.4)
+
+    th = threading.Thread(target=_sampler, daemon=True)
+    th.start()
+
+    env = dict(os.environ)
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     cmd = [
         sys.executable, "inference_propainter.py",
         "-i", frames_dir, "-m", masks_dir, "-o", out_dir,
@@ -177,9 +318,6 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes,
         "--mask_dilation", str(mask_dilation),
         "--save_frames",
     ]
-    env = dict(os.environ)
-    # 메모리 단편화 완화(공식 권장). 근본적 OOM은 못 막지만 약간의 헤드룸.
-    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     t0 = time.monotonic()
     r = subprocess.run(cmd, cwd=_PP_DIR, capture_output=True, text=True,
                        errors="replace", env=env)
@@ -189,18 +327,15 @@ def run_propainter(frames_tar: bytes, masks_tar: bytes,
 
     if r.returncode != 0:
         raise RuntimeError(f"ProPainter 실패(code {r.returncode}): {(r.stderr or '')[-1500:]}")
-
-    # 결과 PNG가 가장 많은 폴더 선택
     all_png = glob.glob(f"{out_dir}/**/*.png", recursive=True)
     if not all_png:
         raise RuntimeError("ProPainter 출력 프레임 없음")
-    by_dir: dict[str, list[str]] = {}
+    by_dir: dict = {}
     for p in all_png:
         by_dir.setdefault(os.path.dirname(p), []).append(p)
-    best_dir = max(by_dir, key=lambda d: len(by_dir[d]))
-
+    best = max(by_dir, key=lambda d: len(by_dir[d]))
     return {
-        "result_tar": _tar_dir(best_dir),
+        "result_tar": _tar_dir(best),
         "seconds": round(secs, 2),
         "gpu": gpu_name,
         "peak_vram_mb": round(peak["mb"], 1),
