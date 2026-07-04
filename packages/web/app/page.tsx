@@ -211,9 +211,10 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
 
   function gatherState() {
+    const srcUrl = (url || job?.meta?.url || "").trim();   // url 비면 job 메타서 폴백
     return {
-      name: projectName || preview?.title || (url ? "새 프로젝트" : "제목 없는 프로젝트"),
-      source_url: url,
+      name: projectName || preview?.title || (srcUrl ? "새 프로젝트" : "제목 없는 프로젝트"),
+      source_url: srcUrl,
       script,
       voice: { voice_id: voice, emotion, emotion_intensity: emotionIntensity, rate },
       captionStyle, captionLines, caption_on: captionsOn,
@@ -264,14 +265,15 @@ export default function Home() {
       setPreview(null); setJob(null);
       // 소스 영상 복원 — 라이브러리 캐시에 있으면 즉시 렌더 가능하게 job 로드.
       // 프로젝트의 대본/자막은 유지(라이브러리 script로 덮어쓰지 않음). 없으면 url만(사용자가 분석).
+      console.debug("[프로젝트 불러오기] source_url =", s.source_url || "(없음)");
       if (s.source_url) {
         try {
           const lr = await postJSON<{ job_id: string }>("/library/load", { url: s.source_url });
           const jr = await fetch(`${apiBase()}/jobs/${lr.job_id}`);
-          if (jr.ok) setJob(await jr.json());
+          if (jr.ok) { const j = await jr.json(); setJob(j); console.debug("[프로젝트 불러오기] 소스 복원 OK", j.preview); }
           const ent = libEntries.find((e) => e.url === s.source_url);
           if (ent?.duration) setSrcDur(ent.duration);
-        } catch { /* 캐시에 없음 → url만 복원, 사용자가 소스 단계서 분석 */ }
+        } catch (e) { console.warn("[프로젝트 불러오기] 소스 복원 실패(캐시 없음 → 소스 단계서 분석):", e); }
       }
       setStage("source"); setView("edit");
     } catch { alert("불러오기 실패"); }
@@ -375,6 +377,7 @@ export default function Home() {
   async function resumeFromLibrary(target: string) {
     const t = (target || "").trim();
     if (!t) return;
+    setUrl(t);   // url 상태 채움 — 저장 시 source_url 비지 않게(불러오기 소스 복원 근거)
     try {
       const r = await postJSON<{ job_id: string; loaded: string; script: string }>(
         "/library/load", { url: t });

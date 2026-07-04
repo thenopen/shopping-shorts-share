@@ -15,6 +15,7 @@ export type JobState = {
   subtitle_engine_note?: string | null;  // 폴백 사유 등
   subtitle_debug?: string[] | null;      // 자막제거 판단/폴백 과정(F12 콘솔용)
   douyin_diag?: string[] | null;         // 도우인 다운로드 미디어 후보/트랙 진단(F12 콘솔용)
+  meta?: { url?: string; [k: string]: unknown } | null;  // 소스 url 등(프로젝트 저장 시 폴백)
 };
 
 export type Usage = {
