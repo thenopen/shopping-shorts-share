@@ -97,11 +97,13 @@ export function HomeView(props: {
             </div>
           </section>
 
-          {/* 저장한 프로젝트 — 편집 전체(자막·CTA·스티커)를 통째로 불러오기 */}
-          {projects.length > 0 && (
-            <section className="mt-10">
-              <h2 className="mb-3 text-sm font-bold text-slate-200">저장한 프로젝트 <span className="font-medium text-slate-500">({projects.length})</span></h2>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {/* 프로젝트 — 저장한 편집 프로젝트(불러오기) + 받아둔 영상(이어하기) 통합 */}
+          <section className="mt-10">
+            <h2 className="mb-3 text-sm font-bold text-slate-200">
+              프로젝트 {(projects.length + sorted.length) > 0 && <span className="font-medium text-slate-500">({projects.length + sorted.length})</span>}
+            </h2>
+            {projects.length > 0 && (
+              <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {projects.map((p) => (
                   <div key={p.id} className="group panel flex items-center gap-3 rounded-2xl p-3 transition hover:ring-1 hover:ring-pink-500/40">
                     <button onClick={() => onLoadProject(p.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left" title="불러오기">
@@ -120,24 +122,15 @@ export function HomeView(props: {
                   </div>
                 ))}
               </div>
-            </section>
-          )}
+            )}
 
-          {/* 받아둔 영상 — 다운로드 라이브러리(이어하기) */}
-          <section className="mt-10">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-200">
-                받아둔 영상 {sorted.length > 0 && <span className="font-medium text-slate-500">({sorted.length})</span>}
-              </h2>
-            </div>
-
-            {sorted.length === 0 ? (
+            {projects.length === 0 && sorted.length === 0 ? (
               <div className="panel-2 flex flex-col items-center gap-2.5 rounded-2xl px-6 py-12 text-center">
                 <Film className="h-8 w-8 text-slate-600" />
                 <p className="text-[13px] font-medium text-slate-400">아직 프로젝트가 없어요</p>
-                <p className="text-[11px] text-slate-500">새 쇼츠를 만들면 받아둔 영상·대본이 여기에 쌓여요.</p>
+                <p className="text-[11px] text-slate-500">새 쇼츠를 만들면 여기에 쌓여요.</p>
               </div>
-            ) : (
+            ) : sorted.length > 0 ? (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {sorted.map((e) => (
                   <div key={e.key} className="group panel flex flex-col overflow-hidden rounded-2xl transition hover:ring-1 hover:ring-pink-500/40">
@@ -192,7 +185,7 @@ export function HomeView(props: {
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
           </section>
         </div>
       </main>

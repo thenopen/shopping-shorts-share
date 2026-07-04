@@ -17,6 +17,7 @@ export function TopBar(props: {
   deployN: number;
   onHome: () => void;   // 홈(프로젝트 목록)으로 — 편집 상태는 유지된 채 view만 전환
   onSave: () => void; saving: boolean; projectName: string;   // 프로젝트 저장
+  saveState: "idle" | "saving" | "saved";
 }) {
   // 스테이지 칩 1개 (데스크톱 중앙/모바일 하단 행 공용)
   const chip = (s: { key: StageKey; label: string }) => {
@@ -49,10 +50,22 @@ export function TopBar(props: {
         >
           S
         </button>
-        <span className="hidden font-semibold text-slate-100 sm:inline">쇼핑 쇼츠 메이커</span>
-        <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-pink-400 ring-1 ring-pink-500/30">
-          편집
-        </span>
+        {/* 프로젝트명(있으면) — 저장되면 상단에 표시. 클릭=이름 변경(저장 모달) */}
+        {props.projectName ? (
+          <button onClick={props.onSave} title="이름 변경 / 저장" className="flex min-w-0 items-center gap-2">
+            <span className="max-w-[40vw] truncate font-semibold text-slate-100 sm:max-w-xs">{props.projectName}</span>
+            {props.saveState === "saving" ? (
+              <span className="whitespace-nowrap text-[10px] text-slate-500">저장 중…</span>
+            ) : props.saveState === "saved" ? (
+              <span className="whitespace-nowrap text-[10px] text-emerald-400">저장됨</span>
+            ) : null}
+          </button>
+        ) : (
+          <>
+            <span className="hidden font-semibold text-slate-100 sm:inline">쇼핑 쇼츠 메이커</span>
+            <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-pink-400 ring-1 ring-pink-500/30">편집</span>
+          </>
+        )}
         <button
           onClick={props.onHome}
           className="btn-ghost flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-medium"

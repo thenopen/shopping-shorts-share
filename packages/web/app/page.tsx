@@ -198,6 +198,8 @@ export default function Home() {
     setOverlays([]);
     setProjectId(null);
     setProjectName("");
+    setSaveState("idle");
+    skipAutosaveRef.current = true;
     autoCapRef.current = "";
     resetEngineLogs();
     setStage("source");
@@ -221,25 +223,52 @@ export default function Home() {
       cta: { on: ctaOn, text: cta, size: ctaSize, pos: ctaPos },
       overlays,
       target_sec: targetSec,
+      // 소구포인트(제품 상세 링크·캡처 이미지·소구점) — 대본 결합 재현용
+      product: { url: productUrl, images: productImages, points: sellingPoints },
     };
   }
 
-  async function saveProject() {
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+
+  // 실제 저장(POST). 같은 projectId면 덮어씀(중복 방지). name 주면 그 이름으로.
+  async function doSave(name?: string) {
     if (saving) return;
-    setSaving(true);
+    setSaving(true); setSaveState("saving");
     try {
-      const r = await postJSON<{ id: string; name: string }>("/projects", { id: projectId, state: gatherState() });
-      setProjectId(r.id);
-      setProjectName(r.name);
+      const st = gatherState();
+      if (name) st.name = name;
+      const r = await postJSON<{ id: string; name: string }>("/projects", { id: projectId, state: st });
+      setProjectId(r.id); setProjectName(r.name); setSaveState("saved");
       loadProjects();
     } catch (e) {
-      alert(errMsg(e, "저장 실패"));
+      alert(errMsg(e, "저장 실패")); setSaveState("idle");
     } finally {
       setSaving(false);
     }
   }
 
+  // 저장 버튼: 첫 저장은 이름 입력 모달, 이후는 같은 프로젝트 덮어쓰기.
+  function saveProject() {
+    if (projectId) { doSave(); return; }
+    setNameInput(projectName || preview?.title || (url ? "새 프로젝트" : ""));
+    setNameModalOpen(true);
+  }
+
+  // 자동 저장 — 프로젝트가 한 번 저장된 뒤엔 편집 변경 시 1.5초 디바운스로 자동 반영(같은 id 덮어씀).
+  const skipAutosaveRef = useRef(true);
+  useEffect(() => {
+    if (!projectId) return;
+    if (skipAutosaveRef.current) { skipAutosaveRef.current = false; return; }  // 불러오기 직후 1회 스킵
+    const t = setTimeout(() => doSave(), 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, script, captionsOn, ctaOn, cta, ctaSize, ctaPos, voice, emotion, emotionIntensity, rate, targetSec, productUrl, sellingPoints,
+      JSON.stringify(captionLines), JSON.stringify(overlays), JSON.stringify(captionStyle)]);
+
   async function loadProject(id: string) {
+    skipAutosaveRef.current = true;   // 불러오기 직후 자동저장 1회 스킵(로드=변경 아님)
     try {
       const r = await fetch(`${apiBase()}/projects/${id}`);
       if (!r.ok) { alert("프로젝트를 불러오지 못했어요."); return; }
@@ -262,6 +291,11 @@ export default function Home() {
       if (typeof c.pos === "number") setCtaPos(c.pos);
       setOverlays(s.overlays || []);
       if (s.target_sec !== undefined) setTargetSec(s.target_sec);
+      // 소구포인트 복원(제품 링크·이미지·소구점)
+      const pr = s.product || {};
+      setProductUrl(pr.url || "");
+      setProductImages(pr.images || []);
+      setSellingPoints(pr.points || "");
       setPreview(null); setJob(null);
       // 소스 영상 복원 — 라이브러리 캐시에 있으면 즉시 렌더 가능하게 job 로드.
       // 프로젝트의 대본/자막은 유지(라이브러리 script로 덮어쓰지 않음). 없으면 url만(사용자가 분석).
@@ -670,6 +704,30 @@ export default function Home() {
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} onSaved={bumpUsage} onDeploy={watchDeploy} />}
 
+      {/* 첫 저장 — 프로젝트 이름 정하기(중복 방지: 이후엔 같은 프로젝트 자동저장) */}
+      {nameModalOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" onClick={() => setNameModalOpen(false)}>
+          <div className="panel w-full max-w-sm rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 text-sm font-bold text-slate-100">프로젝트 이름</div>
+            <p className="mb-3 text-[11px] text-slate-500">저장할 프로젝트 이름을 정하세요. 이후 편집은 자동 저장돼요.</p>
+            <input
+              autoFocus value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && nameInput.trim()) { setNameModalOpen(false); doSave(nameInput.trim()); } }}
+              placeholder="예: 겔랑 세럼 리뷰"
+              className="field mb-4 w-full rounded-xl px-4 py-2.5 text-sm outline-none"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setNameModalOpen(false)} className="btn-ghost rounded-lg px-4 py-2 text-sm font-medium">취소</button>
+              <button
+                onClick={() => { if (nameInput.trim()) { setNameModalOpen(false); doSave(nameInput.trim()); } }}
+                disabled={!nameInput.trim()}
+                className="btn-primary rounded-lg px-4 py-2 text-sm font-bold disabled:opacity-50"
+              >저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {view === "home" && (
         <HomeView
           entries={libEntries}
@@ -700,7 +758,7 @@ export default function Home() {
         usageActive={busy || scriptBusy}
         deployN={deployN}
         onHome={() => { setView("home"); loadLibrary(); loadProjects(); }}
-        onSave={saveProject} saving={saving} projectName={projectName}
+        onSave={saveProject} saving={saving} projectName={projectName} saveState={saveState}
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
