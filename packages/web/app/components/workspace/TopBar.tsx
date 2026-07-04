@@ -1,12 +1,12 @@
 "use client";
 
-import { Check, House, Settings } from "lucide-react";
+import { Check, House, Settings, Save } from "lucide-react";
 import { StageKey, STAGES } from "../../lib/stage";
 import { QuotaBadge } from "../QuotaBadge";
 import { ThemeToggle } from "../ThemeToggle";
+import { Spinner } from "../../ui";
 
-// 편집(워크스페이스) 상단바 — 좌: 홈 복귀/타이틀, 중앙: 스테이지 칩 내비(lg+), 우: 사용량·설정.
-// '영상 생성'은 렌더 스테이지 안에만 둔다(단계 무관 CTA는 오작동/혼란 유발이라 제거).
+// 편집(워크스페이스) 상단바 — 좌: 홈 복귀/타이틀, 중앙: 스테이지 칩 내비(lg+), 우: 저장·사용량·설정.
 export function TopBar(props: {
   stage: StageKey;
   onStage: (s: StageKey) => void;
@@ -16,6 +16,7 @@ export function TopBar(props: {
   usageActive: boolean;
   deployN: number;
   onHome: () => void;   // 홈(프로젝트 목록)으로 — 편집 상태는 유지된 채 view만 전환
+  onSave: () => void; saving: boolean; projectName: string;   // 프로젝트 저장
 }) {
   // 스테이지 칩 1개 (데스크톱 중앙/모바일 하단 행 공용)
   const chip = (s: { key: StageKey; label: string }) => {
@@ -78,6 +79,15 @@ export function TopBar(props: {
         )}
         <QuotaBadge refreshKey={props.usageRefresh} active={props.usageActive} />
         <ThemeToggle />
+        <button
+          onClick={props.onSave}
+          disabled={props.saving}
+          title={props.projectName ? `'${props.projectName}' 저장` : "프로젝트 저장"}
+          className="btn-ghost flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50"
+        >
+          {props.saving ? <Spinner className="h-3.5 w-3.5 border-slate-400/40 border-t-slate-300" /> : <Save className="h-4 w-4 text-slate-300" />}
+          저장
+        </button>
         <button
           onClick={props.onOpenSettings}
           aria-label="설정"

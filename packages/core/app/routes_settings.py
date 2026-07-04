@@ -119,6 +119,39 @@ def tts_voices():
 
 
 
+class ProjectSaveReq(BaseModel):
+    id: str | None = None
+    state: dict = {}
+
+
+@router.post("/projects")
+def project_save(req: ProjectSaveReq):
+    """프로젝트(편집 전체) 저장 — 신규/덮어씀. state.name 없으면 기본명."""
+    from app import projects
+    return projects.save(req.state or {}, pid=req.id)
+
+
+@router.get("/projects")
+def projects_list():
+    from app import projects
+    return {"projects": projects.list_all()}
+
+
+@router.get("/projects/{pid}")
+def project_get(pid: str):
+    from app import projects
+    d = projects.get(pid)
+    if not d:
+        raise HTTPException(404, "project not found")
+    return d
+
+
+@router.delete("/projects/{pid}")
+def project_delete(pid: str):
+    from app import projects
+    return {"ok": projects.delete(pid)}
+
+
 @router.get("/overlays")
 def overlays_list():
     """오버레이 에셋 목록(말풍선/트랜지션/리액션) + 썸네일 URL."""

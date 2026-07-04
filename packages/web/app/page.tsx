@@ -195,11 +195,89 @@ export default function Home() {
     setPointsEdit(false);
     setQFrames([]);
     setCurrentTime(0);
+    setOverlays([]);
+    setProjectId(null);
+    setProjectName("");
     autoCapRef.current = "";
     resetEngineLogs();
     setStage("source");
     setView("edit");
     loadLibrary();  // 방금 작업물이 라이브러리에 반영됐을 수 있으니 갱신
+  }
+
+  // ── 프로젝트 저장/불러오기 — 편집 전체(대본·보이스·자막·CTA·오버레이)를 통째로 영속화 ──
+  const [projectId, setProjectId] = useState<string | null>(null);   // 불러온/저장한 프로젝트 id
+  const [projectName, setProjectName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  function gatherState() {
+    return {
+      name: projectName || preview?.title || (url ? "새 프로젝트" : "제목 없는 프로젝트"),
+      source_url: url,
+      script,
+      voice: { voice_id: voice, emotion, emotion_intensity: emotionIntensity, rate },
+      captionStyle, captionLines, caption_on: captionsOn,
+      cta: { on: ctaOn, text: cta, size: ctaSize, pos: ctaPos },
+      overlays,
+      target_sec: targetSec,
+    };
+  }
+
+  async function saveProject() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const r = await postJSON<{ id: string; name: string }>("/projects", { id: projectId, state: gatherState() });
+      setProjectId(r.id);
+      setProjectName(r.name);
+      loadProjects();
+    } catch (e) {
+      alert(errMsg(e, "저장 실패"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadProject(id: string) {
+    try {
+      const r = await fetch(`${apiBase()}/projects/${id}`);
+      if (!r.ok) { alert("프로젝트를 불러오지 못했어요."); return; }
+      const doc = await r.json();
+      const s = doc.state || {};
+      setProjectId(doc.id); setProjectName(doc.name || "");
+      setUrl(s.source_url || "");
+      setScript(s.script || ""); scriptDirtyRef.current = false;
+      const v = s.voice || {};
+      if (v.voice_id) setVoice(v.voice_id);
+      if (v.emotion) setEmotion(v.emotion);
+      if (typeof v.emotion_intensity === "number") setEmotionIntensity(v.emotion_intensity);
+      if (typeof v.rate === "number") setRate(v.rate);
+      if (s.captionStyle) setCaptionStyle(s.captionStyle);
+      setCaptionLines(s.captionLines || []);
+      setCaptionsOn(s.caption_on !== false);
+      const c = s.cta || {};
+      setCtaOn(c.on !== false); if (c.text) setCta(c.text);
+      if (typeof c.size === "number") setCtaSize(c.size);
+      if (typeof c.pos === "number") setCtaPos(c.pos);
+      setOverlays(s.overlays || []);
+      if (s.target_sec !== undefined) setTargetSec(s.target_sec);
+      setJob(null); setPreview(null); setStage("source"); setView("edit");
+    } catch { alert("불러오기 실패"); }
+  }
+
+  const [projectsList, setProjectsList] = useState<{ id: string; name: string; updated: number; source_url: string; n_captions: number; n_overlays: number }[]>([]);
+  async function loadProjects() {
+    try {
+      const r = await fetch(`${apiBase()}/projects`);
+      if (r.ok) setProjectsList((await r.json()).projects || []);
+    } catch {}
+  }
+  useEffect(() => { loadProjects(); }, []);
+  async function deleteProject(id: string) {
+    if (!window.confirm("이 프로젝트를 삭제할까요?")) return;
+    try { await fetch(`${apiBase()}/projects/${id}`, { method: "DELETE" }); } catch {}
+    if (projectId === id) { setProjectId(null); setProjectName(""); }
+    loadProjects();
   }
 
   // 다운로드 기록 항목 삭제(항목별). 확인 후 DELETE → 목록 새로고침.
@@ -580,6 +658,9 @@ export default function Home() {
       {view === "home" && (
         <HomeView
           entries={libEntries}
+          projects={projectsList}
+          onLoadProject={loadProject}
+          onDeleteProject={deleteProject}
           hasWork={hasWork}
           workLabel={workLabel}
           onNew={newProject}
@@ -603,7 +684,8 @@ export default function Home() {
         usageRefresh={usageRefresh}
         usageActive={busy || scriptBusy}
         deployN={deployN}
-        onHome={() => { setView("home"); loadLibrary(); }}
+        onHome={() => { setView("home"); loadLibrary(); loadProjects(); }}
+        onSave={saveProject} saving={saving} projectName={projectName}
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
