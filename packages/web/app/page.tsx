@@ -145,13 +145,16 @@ export default function Home() {
     }
   }
 
+  // 목표 길이(초): 명시 칩 > 원본 영상 길이 > 미리보기 길이. 전부 없으면 30 폴백
+  // ('영상 길이' 모드인데 영상 길이 미상이면 null 전달돼 목표가 통째로 무시되던 문제 방지).
+  const scriptTargetSec = targetSec ?? srcDur ?? preview?.duration ?? 30;
   // 제품 소구포인트: 상세페이지 URL / 캡처이미지 → 대본 결합 (video_content=script, commitScript로 반영)
   const {
     productUrl, setProductUrl, productImages, setProductImages,
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg,
     productStage, pointsEdit, setPointsEdit,
     addImageFiles, onProductPaste, generateProductScript,
-  } = useProductScript({ script, commitScript, videoDuration: targetSec ?? srcDur ?? preview?.duration ?? null });
+  } = useProductScript({ script, commitScript, videoDuration: scriptTargetSec });
 
   const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
   const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
@@ -559,9 +562,9 @@ export default function Home() {
     render: !!job?.output,
   };
 
-  // 예상 발화 길이(초) + 유효 목표(명시 목표 > 원본 영상 길이) — 대본/보이스/렌더 공용
+  // 예상 발화 길이(초) + 유효 목표(명시 목표 > 원본 영상 길이 > 30 폴백) — 대본/보이스/렌더 공용
   const estSec = estimateSec(script, rate, voice);
-  const effTargetSec = targetSec ?? srcDur ?? preview?.duration ?? null;
+  const effTargetSec = scriptTargetSec;
 
   // 홈 '편집 계속하기' 노출 조건 + 라벨(제목 > 링크 요약)
   const hasWork = !!(url.trim() || script.trim() || job);

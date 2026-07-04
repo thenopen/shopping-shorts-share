@@ -95,16 +95,21 @@ export function ScriptStage(props: {
           {s}초
         </button>
       ))}
+      {/* '영상 길이' 목표는 실제 영상 길이(videoDur)를 알 때만 — 없으면 null 전달돼 목표가
+          무시되고 20~45초로 짧게 나온다(버그였음). 미상이면 비활성 + 안내. */}
       <button
-        onClick={() => setTargetSec(null)}
-        title="원본 영상 길이에 맞춤"
+        onClick={() => videoDur && setTargetSec(null)}
+        disabled={!videoDur}
+        title={videoDur ? "원본 영상 길이에 맞춤" : "영상을 먼저 분석(소스 단계)하면 길이에 맞출 수 있어요. 지금은 20/30/45초 중 선택."}
         className={`rounded-full px-2.5 py-1 transition ${
-          targetSec == null
+          targetSec == null && videoDur
             ? "bg-pink-500/15 text-pink-400 ring-1 ring-pink-500/30"
-            : "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
+            : videoDur
+              ? "bg-white/5 text-slate-400 ring-1 ring-[var(--line)] hover:bg-white/10"
+              : "cursor-not-allowed bg-white/5 text-slate-600 ring-1 ring-[var(--line)] opacity-50"
         }`}
       >
-        영상 길이{videoDur ? ` (${Math.round(videoDur)}초)` : ""}
+        영상 길이{videoDur ? ` (${Math.round(videoDur)}초)` : " (분석 필요)"}
       </button>
     </>
   );
