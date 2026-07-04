@@ -125,11 +125,12 @@ export function PreviewPane(props: {
   onOverlayPos?: (i: number, x: number, y: number) => void;
   selectedOverlay?: number | null;
   onSelectOverlay?: (i: number | null) => void;
+  onDuration?: (sec: number) => void;   // 재생 영상의 실제 길이(원본 길이) — 목표 길이 근거
 }) {
   const {
     videoUrl, isFinal, captionLines, captionsOn, defaultStyle,
     ctaOn, cta, ctaSize, ctaPos, ttsUrl, busy, job, videoRef, onTime, onCtaPos, onCaptionPos, selectedCap,
-    ttsVoice, onCloseTts, overlays, onOverlayPos, selectedOverlay, onSelectOverlay,
+    ttsVoice, onCloseTts, overlays, onOverlayPos, selectedOverlay, onSelectOverlay, onDuration,
   } = props;
 
   // CTA 드래그 — 9:16 박스 기준 상대 y → ctaPos(0~1). 드래그 중엔 세이프존 가이드 표시.
@@ -259,6 +260,11 @@ export function PreviewPane(props: {
             disablePictureInPicture
             playsInline
             className="h-full w-full object-contain"
+            onLoadedMetadata={(e) => {
+              // 재생 영상의 실제 길이 → 목표 길이 근거(원본 길이). 완성본(output)은 TTS 길이라 제외.
+              const d = e.currentTarget.duration;
+              if (!isFinal && d && isFinite(d) && d > 0) onDuration?.(d);
+            }}
             onTimeUpdate={(e) => {
               const now = e.currentTarget.currentTime;
               setT(now);

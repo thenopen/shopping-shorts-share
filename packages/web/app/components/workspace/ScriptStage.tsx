@@ -81,7 +81,7 @@ export function ScriptStage(props: {
   // 목표 길이 칩 — 생성(제품 패널)과 에디터(미터 행) 두 곳에서 공용. 같은 targetSec 상태.
   const targetChips = (
     <>
-      {[20, 30, 45].map((s) => (
+      {[20, 30, 45, 60].map((s) => (
         <button
           key={s}
           onClick={() => setTargetSec(targetSec === s ? null : s)}

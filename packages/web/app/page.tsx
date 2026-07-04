@@ -611,6 +611,7 @@ export default function Home() {
         <PreviewPane
           videoUrl={previewUrl}
           isFinal={isFinal}
+          onDuration={(d) => setSrcDur(d)}
           captionLines={captionLines}
           captionsOn={captionsOn}
           defaultStyle={captionStyle}
