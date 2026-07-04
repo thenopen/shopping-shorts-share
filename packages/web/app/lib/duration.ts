@@ -27,8 +27,16 @@ export function getCps(voice: string): number {
   return m?.cps || BASE_CPS;
 }
 
-// 실측 기록 — durSec는 rate 적용된 실제 음성 길이. 1.0x 환산 CPS로 저장.
-// EMA(직전 60% + 신규 40%)로 흔들림 완화, 3~9 클램프(측정 오염 방어).
+// 보정 상태(툴팁 표시용) — 측정 없으면 n=0(기본값 사용 중).
+export function getCpsInfo(voice: string): { cps: number; n: number } {
+  const m = loadMap()[voice];
+  return m ? { cps: m.cps, n: m.n } : { cps: BASE_CPS, n: 0 };
+}
+
+// 실측 기록 — durSec는 rate 적용된 실제 음성 길이. 1.0x 환산 '실효 CPS'로 저장.
+// 실효 CPS에는 성우 말속도 + 문장 사이 포즈 + 발음 정규화 팽창이 전부 흡수된다
+// (실측 31초 vs 추정 41초 불일치의 3대 원인 — Typecast는 줄마다 쉼이 있어 기본 5.5보다 느림).
+// EMA 신규 가중 0.5 — 빠른 수렴(측정 2~3회면 성우 기준 안착), 3~9 클램프(오염 방어).
 export function recordCps(voice: string, chars: number, durSec: number, rate: number) {
   if (typeof window === "undefined") return;
   if (!voice || chars < 20 || !durSec || durSec <= 1 || !rate) return;
@@ -37,7 +45,7 @@ export function recordCps(voice: string, chars: number, durSec: number, rate: nu
     const map = loadMap();
     const prev = map[voice];
     map[voice] = prev
-      ? { cps: +(prev.cps * 0.6 + cps1x * 0.4).toFixed(3), n: prev.n + 1 }
+      ? { cps: +(prev.cps * 0.5 + cps1x * 0.5).toFixed(3), n: prev.n + 1 }
       : { cps: +cps1x.toFixed(3), n: 1 };
     localStorage.setItem(CPS_KEY, JSON.stringify(map));
   } catch {}

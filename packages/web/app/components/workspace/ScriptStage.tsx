@@ -34,6 +34,7 @@ export function ScriptStage(props: {
   // 목표 길이(duration-first) + 예상 발화 길이 미터
   estSec: number | null;                 // 현재 대본 예상 길이(초, rate 반영)
   rate: number;
+  cpsNote: string;                       // CPS 보정 상태(툴팁) — 추정vs실측 불일치 이유 안내
   targetSec: number | null;              // 명시 목표(초). null = 원본 영상 길이에 맞춤
   setTargetSec: (n: number | null) => void;
   videoDur: number | null;               // 원본 영상 길이(자동 옵션 라벨용)
@@ -58,7 +59,7 @@ export function ScriptStage(props: {
     productUrl, setProductUrl, productImages, setProductImages,
     sellingPoints, setSellingPoints, productBusy, productErr, productMsg, productStage,
     pointsEdit, setPointsEdit, addImageFiles, onProductPaste, onGenerateProduct,
-    estSec, rate, targetSec, setTargetSec, videoDur, onFitLength,
+    estSec, rate, cpsNote, targetSec, setTargetSec, videoDur, onFitLength,
     hookCands, hooksBusy, onFetchHooks, onApplyHook, onClearHooks,
   } = props;
   // 목표 대비 예상 길이 상태: ok(±10%) / over / under — 미터 색과 '맞추기' 버튼 노출 결정
@@ -396,7 +397,7 @@ export function ScriptStage(props: {
                   : lenState === "ok" ? "bg-emerald-500/10 text-emerald-400 ring-emerald-500/25"
                     : "bg-white/5 text-slate-400 ring-[var(--line)]"
               }`}
-              title="공백 제외 글자수 ÷ 성우 말속도(실측 보정) — TTS를 들어볼수록 정확해져요"
+              title={`공백 제외 글자수 ÷ 성우 말속도 추정.\n${cpsNote}`}
             >
               예상 {estSec >= 60 ? `${Math.floor(estSec / 60)}분 ${Math.round(estSec % 60)}초` : `${Math.round(estSec)}초`} @ {rate.toFixed(1)}x
               {lenState === "over" && effTarget != null && ` · 목표보다 +${Math.round(estSec - effTarget)}초`}

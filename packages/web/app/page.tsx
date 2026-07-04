@@ -6,7 +6,7 @@ import { CaptionLineData } from "./caption/types";
 import { apiBase, postJSON, errMsg } from "./lib/api";
 import { JobState, PreviewInfo, LibraryEntry, TypecastVoice } from "./lib/types";
 import { normLines } from "./lib/format";
-import { estimateSec, recordCps, visChars } from "./lib/duration";
+import { estimateSec, getCpsInfo, recordCps, visChars } from "./lib/duration";
 import { CaptionStyle, DEFAULT_STYLE } from "./caption/style";
 import { StageKey } from "./lib/stage";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -198,12 +198,25 @@ export default function Home() {
 
   // 현재 대본(제품/AI가공/직접편집)을 job+라이브러리에 저장 — STT만 저장하던 구멍 보완.
   // 이어하기/새로고침에서 최신 대본 복구. job 없으면(영상 없이 제품만) 서버 저장 대상 없음.
+  // 서버 재시작으로 job이 소실되면(인메모리 JOBS) 404 — 그 job으론 저장 중지(반복 404 노이즈 방지).
+  const goneJobRef = useRef<string | null>(null);
   async function saveScriptToLibrary() {
-    if (!job?.id) return;
+    if (!job?.id || goneJobRef.current === job.id) return;
     const s = script.trim();
     if (!s || s === lastSavedScriptRef.current) return;   // 변경 없으면 skip
     lastSavedScriptRef.current = s;
-    try { await postJSON(`/jobs/${job.id}/script`, { script: s }); } catch {}
+    try {
+      const r = await fetch(`${apiBase()}/jobs/${job.id}/script`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: s }),
+      });
+      if (r.status === 404) {
+        goneJobRef.current = job.id;
+        console.warn("[대본 자동저장] 작업 세션이 서버에 없어요(서버 재시작으로 소실). "
+          + "화면 편집은 그대로 유지되고, 소스 단계에서 '이어하기'로 다시 불러오면 저장이 재개돼요.");
+      }
+    } catch {}
   }
 
   // 대본 스테이지를 떠날 때(상단 보이스 클릭 / 다음 바 / 렌더 등) 대본 자동저장.
@@ -637,6 +650,9 @@ export default function Home() {
               onGenFromVideo={genScript} scriptBusy={scriptBusy}
               job={job}
               estSec={estSec} rate={rate}
+              cpsNote={(() => { const i = getCpsInfo(voice); return i.n
+                ? `이 성우 실측 보정 ${i.n}회 (실효 ${i.cps}자/초 — 쉼·발음 포함)`
+                : "보정 전(기본 5.5자/초) — TTS 미리듣기 한 번이면 이 성우 속도로 보정돼요"; })()}
               targetSec={targetSec} setTargetSec={setTargetSec}
               videoDur={srcDur ?? preview?.duration ?? null}
               onFitLength={() => refineScript("concise", effTargetSec)}
