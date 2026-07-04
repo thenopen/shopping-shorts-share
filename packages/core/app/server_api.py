@@ -407,14 +407,18 @@ def captions_edit(req: CaptionEditReq):
     시간은 원본 전체 구간[첫줄 start ~ 끝줄 end]을 글자수 비례로 재배분.
     """
     from app.pipeline.caption import (
-        split_korean_lines, style_from_dict, lines_to_payload, CaptionLine,
+        _meaning_segments, _split_text_dp, _break_index, _clean_caption_text,
+        style_from_dict, lines_to_payload, CaptionLine,
     )
 
     src = [ln for ln in (req.lines or []) if (ln.get("text") or "").strip()]
     if not src:
         raise HTTPException(400, "no caption lines to edit")
 
-    text = " ".join((ln.get("text") or "").replace("\n", " ").strip() for ln in src).strip()
+    # 원본 자막 줄 경계를 \n으로 보존 — 대본 의미단위(문장/구)를 재분할의 1차 경계로.
+    # (전엔 다 합쳐 split_korean_lines 그리디로 재분할 → 한국어 문장구조 무시가 문제였음.)
+    joined = "\n".join((ln.get("text") or "").replace("\n", " ").strip()
+                       for ln in src if (ln.get("text") or "").strip())
     try:
         t0 = min(float(ln.get("start", 0.0)) for ln in src)
         t1 = max(float(ln.get("end", 0.0)) for ln in src)
@@ -431,14 +435,25 @@ def captions_edit(req: CaptionEditReq):
             from app.pipeline.refine import rewrite_caption_text, available
             if not available():
                 raise HTTPException(400, "AI 다듬기는 Gemini 키가 필요합니다(auth/gemini_key.txt).")
-            text = rewrite_caption_text(text, d)
-            chunks = split_korean_lines(text, ideal=8, max_chars=10, min_chars=6)
-        elif d == "shorter":
-            chunks = split_korean_lines(text, ideal=6, max_chars=8, min_chars=4)
-        elif d == "longer":
-            chunks = split_korean_lines(text, ideal=11, max_chars=14, min_chars=8)
+            joined = rewrite_caption_text(joined.replace("\n", " "), d)
+            mc = 10
+        elif d == "shorter":     # 촘촘히 — 한 자막 줄을 더 짧게(청크 폭 축소)
+            mc = 7
+        elif d == "longer":      # 넓게 — 한 자막 줄을 더 길게(청크 폭 확대)
+            mc = 13
         else:
-            chunks = split_korean_lines(text, ideal=8, max_chars=10, min_chars=6)
+            mc = 10
+        # 생성과 동일 로직: 의미단위(문장/줄) → DP 균형분할 → 폭 초과 청크는 \n으로 2줄.
+        chunks: list[str] = []
+        for sg in _meaning_segments(joined):
+            for chunk in _split_text_dp(sg, mc):
+                clean = _clean_caption_text(chunk)
+                bi = _break_index(clean)
+                if bi is not None:
+                    toks = clean.split()
+                    clean = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
+                if clean:
+                    chunks.append(clean)
     except HTTPException:
         raise
     except Exception as e:
@@ -448,11 +463,12 @@ def captions_edit(req: CaptionEditReq):
         raise HTTPException(500, "edit produced no lines")
 
     style = style_from_dict(req.caption_style)
-    total_chars = sum(len(c.replace(" ", "")) for c in chunks) or 1
+    vlen = lambda c: len(c.replace(" ", "").replace("\n", ""))   # noqa: E731 (폭=공백·개행 제외 글자수)
+    total_chars = sum(vlen(c) for c in chunks) or 1
     out: list = []
     t = t0
     for c in chunks:
-        seg = span * (len(c.replace(" ", "")) / total_chars)
+        seg = span * (vlen(c) / total_chars)
         out.append(CaptionLine(text=c, start=round(t, 2), end=round(t + seg, 2), style=style))
         t += seg
     if out:

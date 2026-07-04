@@ -425,6 +425,10 @@ def _group_words(items: list, style, ideal_chars: int, min_chars: int,
         nonlocal cur, cur_start
         text = _clean_caption_text(joined())
         if text and cur_start is not None:
+            bi = _break_index(text)   # 폭 초과면 생성 시점에 \n으로 2줄(렌더/프리뷰는 \n만 존중)
+            if bi is not None:
+                toks = text.split()
+                text = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
             end = float(cur[-1].get("offset", 0.0)) + float(cur[-1].get("duration", 0.0))
             # words 텍스트를 자막 텍스트 어절로 정렬 — 클리닝으로 어절 수/표기가 달라져도 일치 보장.
             lines.append(CaptionLine(text=text, start=round(cur_start, 2), end=round(end, 2),
@@ -594,6 +598,13 @@ def _emit_seg(lines: list, seg_text: str, cs: float, ce: float, wmeta: list,
         cw = wmeta if (len(chunks) == 1 and wmeta) else [w for w in (wmeta or [])
                                                          if s <= (w["start"] + w["end"]) / 2 < e]
         clean = _clean_caption_text(chunk)
+        # 줄바꿈은 '텍스트의 \n'으로만 표현(렌더·프리뷰가 자동 재분할 안 함). 폭 초과 청크는
+        # 생성 시점에 최적 지점(_break_index)에서 \n을 박아 2줄로 — 편집창에 엔터로 보이고
+        # 유저가 직접 조정 가능. 자유위치 드래그 땐 자동 줄바꿈이 위치를 흔들지 않는다.
+        bi = _break_index(clean)
+        if bi is not None:
+            toks = clean.split()
+            clean = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
         # words 텍스트를 대본 원문 어절로 정렬(타이밍만 유지) — 웹 미리보기/애니에 발음 표기 노출 방지.
         aligned = _align_words_to_text(clean, cw)
         lines.append(CaptionLine(text=clean, start=round(s, 2),
@@ -729,6 +740,10 @@ def _lines_uniform(text: str, total: float, style: CaptionStyle,
     for c in chunks:
         share = _vis_len(c) / total_chars
         dur = min(max_dur, max(0.7, total * share))
+        bi = _break_index(c)   # 폭 초과면 \n으로 2줄(렌더/프리뷰 일관)
+        if bi is not None:
+            toks = c.split()
+            c = " ".join(toks[:bi]) + "\n" + " ".join(toks[bi:])
         lines.append(CaptionLine(text=c, start=round(t, 2),
                                  end=round(t + dur, 2), style=style))
         t += dur
@@ -917,14 +932,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for i, ln in enumerate(lines):
         st = getattr(ln, "style", None) or CaptionStyle()
         raw = ln.text or ""
-        # 2줄 배치: 수동 줄바꿈(\n) 있으면 그대로 존중, 없으면 폭 초과 시 최적 지점에 \N.
-        # WrapStyle:2(자동 줄바꿈 없음)라 명시하지 않으면 긴 줄이 화면 폭을 넘어간다.
-        if "\n" in raw:
-            text = raw.replace("\n", "\\N")
-            l1, l2, brk = text, None, None
-        else:
-            l1, l2, brk = _two_lines(raw)
-            text = l1 + (("\\N" + l2) if l2 else "")
+        # 줄바꿈은 '텍스트의 \n'만 존중(자동 폭맞춤 재분할 없음 — 생성 시점에 \n을 박아둠).
+        # WrapStyle:2라 명시한 \n(→\N)만 개행. raw_lines가 여러 줄이면 줄별로 강조 적용.
+        text = raw.replace("\n", "\\N")
+        raw_lines = raw.split("\n")
+        # 애니(워드) 경로용 \n 분할 어절 인덱스 — 윗줄 어절 수(2줄 이상이면 첫 경계만 반영).
+        nl_brk = len(raw_lines[0].split()) if len(raw_lines) > 1 else None
         sname = line_style_name[i] if i < len(line_style_name) else "S0"
         start, end = _ass_time(ln.start), _ass_time(ln.end)
         # 자유위치(pos_x/pos_y)면 중심 앵커 절대배치 — 모든 레이어(글로우/섀도/메인)에 prepend.
@@ -955,15 +968,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 메인 텍스트(최상단 Layer 1) — Style 행이 색/외곽선/박스/하드 드롭섀도 처리.
         # animate=on이고 단어 타임스탬프 있으면 워드바이워드 애니, 아니면 정적 색팝 강조.
         if word_anim:
-            main_text = _ass_animated(ln, st, intro_fad=not ev_tag, brk=brk)
+            main_text = _ass_animated(ln, st, intro_fad=not ev_tag, brk=nl_brk)
         else:
             emph = getattr(ln, "emph", None)
-            if brk is not None and l2 is not None:
-                # 2줄: 줄별로 강조 적용(수동 emph는 단어 인덱스라 아랫줄은 brk만큼 시프트)
-                e1 = [x for x in emph if x < brk] if emph is not None else None
-                e2 = [x - brk for x in emph if x >= brk] if emph is not None else None
-                main_text = (_ass_emphasis(l1, st, e1, inline=inline) + "\\N"
-                             + _ass_emphasis(l2, st, e2, inline=inline))
+            if len(raw_lines) > 1:
+                # 여러 줄(\n): 줄마다 강조 적용, 강조 인덱스는 어절 누적으로 줄별 시프트
+                parts = []
+                cum = 0
+                for rl in raw_lines:
+                    n = len(rl.split())
+                    e = [x - cum for x in emph if cum <= x < cum + n] if emph is not None else None
+                    parts.append(_ass_emphasis(rl, st, e, inline=inline))
+                    cum += n
+                main_text = "\\N".join(parts)
             else:
                 main_text = _ass_emphasis(text, st, emph, inline=inline)
             if inline:

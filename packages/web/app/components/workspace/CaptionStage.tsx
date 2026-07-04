@@ -272,11 +272,14 @@ export function CaptionStage({
                         <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">
                           {Math.max(0, ln.end - ln.start).toFixed(1)}s
                         </span>
-                        <input
+                        {/* textarea — 엔터로 줄바꿈(\n) 직접 넣어 자막 2줄 배치. 자동 줄바꿈은
+                            안 하고 여기 엔터가 그대로 자막 줄바꿈이 된다(프리뷰=렌더 일치). */}
+                        <textarea
                           value={ln.text}
                           onChange={(e) => editText(i, e.target.value)}
-                          className="field min-w-0 flex-1 rounded-lg px-3 py-1 text-sm outline-none"
-                          placeholder="자막 내용"
+                          rows={ln.text.includes("\n") ? 2 : 1}
+                          className="field min-w-0 flex-1 resize-none rounded-lg px-3 py-1 text-sm leading-snug outline-none"
+                          placeholder="자막 내용 (엔터로 줄바꿈)"
                         />
                       </div>
                     </div>

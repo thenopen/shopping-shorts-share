@@ -42,7 +42,8 @@ export function breakIndex(text: string): number | null {
   return best ?? loose;
 }
 
-// 표시용 줄 분해 — 수동 줄바꿈(\n) 존중, 없으면 breakIndex로 2줄.
+// 표시용 줄 분해 — 오직 텍스트의 줄바꿈(\n)으로만 나눈다(자동 폭맞춤 재분할 없음).
+// 줄바꿈은 생성 시점에 \n으로 박히거나 유저가 편집창 엔터로 넣는다 → 표시는 그대로 존중.
 // emph(수동 강조 단어 인덱스)는 줄별로 시프트해서 반환(강조 위치 보존).
 export function displayLines(
   text: string,
@@ -51,22 +52,14 @@ export function displayLines(
   const shift = (arr: number[] | null | undefined, from: number, to: number) =>
     arr == null ? null : arr.filter((i) => i >= from && i < to).map((i) => i - from);
 
-  if (text.includes("\n")) {
-    const lines = text.split("\n").filter((l) => l.trim());
-    const out: { text: string; emph: number[] | null }[] = [];
-    let cum = 0;
-    for (const l of lines) {
-      const n = l.split(/\s+/).filter(Boolean).length;
-      out.push({ text: l, emph: shift(emph, cum, cum + n) });
-      cum += n;
-    }
-    return out;
+  if (!text.includes("\n")) return [{ text, emph: emph ?? null }];
+  const lines = text.split("\n").filter((l) => l.trim());
+  const out: { text: string; emph: number[] | null }[] = [];
+  let cum = 0;
+  for (const l of lines) {
+    const n = l.split(/\s+/).filter(Boolean).length;
+    out.push({ text: l, emph: shift(emph, cum, cum + n) });
+    cum += n;
   }
-  const k = breakIndex(text);
-  if (k == null) return [{ text, emph: emph ?? null }];
-  const toks = text.split(/\s+/).filter(Boolean);
-  return [
-    { text: toks.slice(0, k).join(" "), emph: shift(emph, 0, k) },
-    { text: toks.slice(k).join(" "), emph: shift(emph, k, toks.length) },
-  ];
+  return out;
 }

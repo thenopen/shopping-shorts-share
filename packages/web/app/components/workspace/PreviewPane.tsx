@@ -8,7 +8,7 @@ import { PipelineProgress } from "../PipelineProgress";
 import type { JobState } from "../../lib/types";
 import type { CaptionLineData } from "../../caption/types";
 import { CaptionStyle, styleToCssScaled, emphasizeNodes, animCss, autoEmphIndices } from "../../caption/style";
-import { breakIndex, displayLines } from "../../caption/linebreak";
+import { displayLines } from "../../caption/linebreak";
 import { apiBase } from "../../lib/api";
 import type { OverlaySel } from "../../lib/types";
 
@@ -180,11 +180,13 @@ export function PreviewPane(props: {
     const eff = line.style ?? defaultStyle;
     const css: CSSProperties = styleToCssScaled(eff, SCALE);
     // 애니(워드바이워드): 말하는 단어(t∈[start,end)) 팝 + 강조어 색 유지. 아니면 정적 emphasizeNodes.
-    // 2줄 배치는 caption/linebreak.ts(백엔드 \N과 동일 분할점) — 프리뷰=렌더 줄바꿈 일치.
+    // 줄바꿈은 텍스트의 \n(윗줄 어절 수)만 — 자동 폭맞춤 없음(백엔드 render_ass와 동일).
     let inner: React.ReactNode;
     if (eff.animate && line.words && line.words.length) {
       const emphSet = new Set(line.emph ?? autoEmphIndices(line.text));
-      const bk = breakIndex(line.text);
+      const bk = line.text.includes("\n")
+        ? line.text.split("\n")[0].split(/\s+/).filter(Boolean).length
+        : null;
       inner = line.words.map((w, i) => {
         // 팝은 단어 시작 후 0.17초만(최종 ASS \t 70+100ms와 동일) — 발화 내내 커져 있으면 렌더와 다르게 보임
         const dt = t - w.start;
