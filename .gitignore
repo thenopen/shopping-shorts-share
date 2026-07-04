@@ -77,3 +77,6 @@ packages/core/app/pipeline/ProPainter/
 # 서버 debug 로그(로컬 진단용)
 packages/core/_server.log
 packages/core/_server.err.log
+
+# 추출된 오버레이 에셋(ae-sources/*.zip에서 scripts/extract_overlays.py로 생성) — LFS zip이 원본
+packages/core/assets/overlays/

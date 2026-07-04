@@ -21,6 +21,64 @@ def _escape_drawtext(s: str) -> str:
     return s.replace("\\", "\\\\").replace(":", "\\:").replace("'", "’")
 
 
+def apply_overlays(video_path: Path, out_path: Path, overlays: list) -> Path:
+    """이미 합성된 9:16 영상 위에 오버레이(말풍선 PNG·알파 MOV 스티커/트랜지션) 얹기.
+
+    overlays 각 항목:
+      file(절대경로), type("image"|"video"), x/y(0~1 중심 좌표), scale(0~1, TARGET_W 대비 폭),
+      start/end(초, end 없으면 끝까지 또는 클립길이), fullscreen(bool, 화면 꽉 채움=트랜지션).
+    알파(RGBA/ProRes yuva)는 overlay 필터가 자동 반영. 오디오는 원본 유지.
+    """
+    video_path, out_path = Path(video_path), Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    ov = [o for o in (overlays or []) if o.get("file") and Path(o["file"]).exists()]
+    if not ov:
+        # 오버레이 없으면 원본 그대로 복사 대신 그대로 반환(호출측이 스킵하게)
+        return video_path
+
+    cmd = [FFMPEG, "-y", "-i", str(video_path)]
+    for o in ov:
+        cmd += ["-i", str(o["file"])]
+
+    parts = []
+    last = "[0:v]"
+    for i, o in enumerate(ov, start=1):
+        start = float(o.get("start", 0.0))
+        end = o.get("end")
+        scale = float(o.get("scale", 0.5))
+        pre = f"[{i}:v]"
+        if o.get("fullscreen"):
+            sc = (f"scale={TARGET_W}:{TARGET_H}:force_original_aspect_ratio=increase,"
+                  f"crop={TARGET_W}:{TARGET_H}")
+        else:
+            sc = f"scale={int(scale * TARGET_W)}:-1"
+        chain = f"{pre}{sc}"
+        if o.get("type") == "video":
+            # 클립을 start 시점에 배치(부족분은 그 이후 사라짐). 알파 포맷 보존.
+            chain += f",format=yuva444p,setpts=PTS-STARTPTS+{start}/TB"
+        chain += f"[o{i}]"
+        parts.append(chain)
+        # 중심 앵커 배치
+        x = f"(main_w*{o.get('x', 0.5)})-(overlay_w/2)"
+        y = f"(main_h*{o.get('y', 0.5)})-(overlay_h/2)"
+        en = ""
+        if end is not None:
+            en = f":enable='between(t,{start},{float(end)})'"
+        elif o.get("type") == "image":
+            en = f":enable='gte(t,{start})'"
+        nl = f"[v{i}]"
+        parts.append(f"{last}[o{i}]overlay={x}:{y}{en}{nl}")
+        last = nl
+
+    cmd += ["-filter_complex", ";".join(parts), "-map", last, "-map", "0:a?",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy", "-pix_fmt", "yuv420p", str(out_path)]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        raise RuntimeError(f"ffmpeg overlay 실패 (code {r.returncode}):\n{r.stderr[-1200:]}")
+    return out_path
+
+
 def compose(
     video_path: Path,
     audio_path: Path | None,
