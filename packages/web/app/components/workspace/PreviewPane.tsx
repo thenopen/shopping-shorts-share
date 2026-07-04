@@ -200,7 +200,7 @@ export function PreviewPane(props: {
                 display: "inline-block",
                 color: isE ? eff.emphasisColor : undefined,
                 fontWeight: isE ? 900 : undefined,
-                transform: popping ? `scale(${isE ? 1.3 : 1.18})` : "scale(1)",
+                transform: popping ? "scale(1.18)" : "scale(1)",
                 transition: "transform 90ms ease-out",
               }}
             >

@@ -28,17 +28,15 @@ def _dur(src: Path) -> float:
 
 
 def thumb(src: Path, out: Path, is_video: bool):
-    # 알파 에셋(흰 말풍선·손글씨 ㅋㅋㅋ)이 보이게 회색 배경에 합성.
-    # 영상은 클립 중간(55%)을 output-seek로(정확) — 손글씨가 다 그려진 프레임 확보(input-seek는 빈 프레임).
+    # 투명 PNG로 출력(알파 유지) — 픽커는 어두운 컨테이너에 얹혀 보이고, 프리뷰는 영상 위 회색박스 없이 표시.
+    # 영상은 클립 중간(55%)을 output-seek(-ss를 -i 뒤에)로 정확히 — 손글씨 다 그려진 프레임(시작부는 빈 프레임).
     out.parent.mkdir(parents=True, exist_ok=True)
-    fc = ("[1:v]scale=240:240:force_original_aspect_ratio=decrease[fg];"
-          "[0:v][fg]overlay=(W-w)/2:(H-h)/2[o]")
-    cmd = [FFMPEG, "-y", "-f", "lavfi", "-i", "color=c=0x2a2f3a:s=240x240",
-           "-i", str(src), "-filter_complex", fc, "-map", "[o]"]
+    cmd = [FFMPEG, "-y", "-i", str(src)]
     if is_video:
         d = _dur(src)
         cmd += ["-ss", f"{max(0.4, d * 0.55):.2f}" if d > 0 else "1"]
-    cmd += ["-frames:v", "1", str(out)]
+    cmd += ["-vf", "scale=240:240:force_original_aspect_ratio=decrease,format=rgba",
+            "-frames:v", "1", str(out)]
     subprocess.run(cmd, capture_output=True)
 
 

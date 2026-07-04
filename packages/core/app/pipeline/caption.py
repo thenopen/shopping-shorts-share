@@ -281,7 +281,7 @@ def split_korean_lines(text: str, ideal: int = 8, max_chars: int = 10,
 def _ass_emphasis(text: str, style, emph: list | None = None, inline: str = "") -> str:
     """라인 텍스트의 핵심 단어를 ASS 인라인 태그로 강조.
 
-    매칭 구간을 {\\1c색\\fscx112\\fscy112\\b1}...{\\r} 로 감싸 색팝+살짝 키움.
+    매칭 구간을 {\\1c색\\b1}...{\\r} 로 감싸 색만 강조(크기 유지 — 사용자 요청).
     emph(단어 인덱스 list) 지정 시 그 단어만(수동), None이면 자동(가격/키워드 정규식).
     style.emphasis=False면 원문 그대로.
     inline: 줄 등장 효과(팝 스케일 \\t) — {\\r}가 라인 태그를 리셋하므로 \\r 뒤마다 재적용.
@@ -290,7 +290,7 @@ def _ass_emphasis(text: str, style, emph: list | None = None, inline: str = "") 
     if not getattr(style, "emphasis", True) or not text:
         return text
     col = _ass_c(getattr(style, "emphasis_color", "FFE600"))
-    wrap = f"{{\\1c{col}\\fscx112\\fscy112\\b1}}%s{{\\r{inline}}}"
+    wrap = f"{{\\1c{col}\\b1}}%s{{\\r{inline}}}"
 
     if emph is not None:
         # 수동: 공백런 분할 단어(프론트 splitWords와 동일) 중 지정 인덱스만 강조.
@@ -365,7 +365,8 @@ def _ass_animated(ln, st, intro_fad: bool = True, brk: int | None = None) -> str
             continue
         on = max(0, int(round((float(w.get("start", line_start)) - line_start) * 1000)))
         is_e = use_emph and (i in emph_set)
-        pop = 130 if is_e else 118
+        # 강조어도 팝 크기는 동일(118) — 강조는 색으로만(크기 안 변함, 사용자 요청).
+        pop = 118
         anim = f"\\t({on},{on + 70},\\fscx{pop}\\fscy{pop})\\t({on + 70},{on + 170},\\fscx100\\fscy100)"
         if is_e:
             parts.append(f"{{\\1c{accent}\\b1{anim}}}{txt}{{\\r}}")

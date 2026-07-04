@@ -144,7 +144,7 @@ export function emphasizeNodes(text: string, s: CaptionStyle, emph?: number[] | 
       <span key={i}>
         {i > 0 ? " " : ""}
         {set.has(i)
-          ? <span style={{ color: s.emphasisColor, fontWeight: 900, fontSize: "1.12em" }}>{w}</span>
+          ? <span style={{ color: s.emphasisColor, fontWeight: 900 }}>{w}</span>
           : w}
       </span>
     ));
@@ -157,7 +157,7 @@ export function emphasizeNodes(text: string, s: CaptionStyle, emph?: number[] | 
     if (!m[0]) { EMPH_RE.lastIndex++; continue; }
     if (m.index > last) out.push(text.slice(last, m.index));
     out.push(
-      <span key={`${m.index}-${m[0]}`} style={{ color: s.emphasisColor, fontWeight: 900, fontSize: "1.12em" }}>
+      <span key={`${m.index}-${m[0]}`} style={{ color: s.emphasisColor, fontWeight: 900 }}>
         {m[0]}
       </span>
     );
