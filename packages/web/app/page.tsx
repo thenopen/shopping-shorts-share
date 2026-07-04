@@ -261,7 +261,19 @@ export default function Home() {
       if (typeof c.pos === "number") setCtaPos(c.pos);
       setOverlays(s.overlays || []);
       if (s.target_sec !== undefined) setTargetSec(s.target_sec);
-      setJob(null); setPreview(null); setStage("source"); setView("edit");
+      setPreview(null); setJob(null);
+      // 소스 영상 복원 — 라이브러리 캐시에 있으면 즉시 렌더 가능하게 job 로드.
+      // 프로젝트의 대본/자막은 유지(라이브러리 script로 덮어쓰지 않음). 없으면 url만(사용자가 분석).
+      if (s.source_url) {
+        try {
+          const lr = await postJSON<{ job_id: string }>("/library/load", { url: s.source_url });
+          const jr = await fetch(`${apiBase()}/jobs/${lr.job_id}`);
+          if (jr.ok) setJob(await jr.json());
+          const ent = libEntries.find((e) => e.url === s.source_url);
+          if (ent?.duration) setSrcDur(ent.duration);
+        } catch { /* 캐시에 없음 → url만 복원, 사용자가 소스 단계서 분석 */ }
+      }
+      setStage("source"); setView("edit");
     } catch { alert("불러오기 실패"); }
   }
 
