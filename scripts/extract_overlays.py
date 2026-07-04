@@ -18,15 +18,27 @@ JOBS = [
 ]
 
 
+def _dur(src: Path) -> float:
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=nk=1:nw=1", str(src)], capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip())
+    except Exception:
+        return 0.0
+
+
 def thumb(src: Path, out: Path, is_video: bool):
-    # 알파 에셋(흰 말풍선 등)이 보이게 회색 배경에 합성.
+    # 알파 에셋(흰 말풍선·손글씨 ㅋㅋㅋ)이 보이게 회색 배경에 합성.
+    # 영상은 클립 중간(55%)을 output-seek로(정확) — 손글씨가 다 그려진 프레임 확보(input-seek는 빈 프레임).
     out.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [FFMPEG, "-y", "-f", "lavfi", "-i", "color=c=0x2a2f3a:s=240x240"]
+    fc = ("[1:v]scale=240:240:force_original_aspect_ratio=decrease[fg];"
+          "[0:v][fg]overlay=(W-w)/2:(H-h)/2[o]")
+    cmd = [FFMPEG, "-y", "-f", "lavfi", "-i", "color=c=0x2a2f3a:s=240x240",
+           "-i", str(src), "-filter_complex", fc, "-map", "[o]"]
     if is_video:
-        cmd += ["-ss", "1"]
-    cmd += ["-i", str(src), "-filter_complex",
-            "[1:v]scale=240:240:force_original_aspect_ratio=decrease[fg];"
-            "[0:v][fg]overlay=(W-w)/2:(H-h)/2", "-frames:v", "1", str(out)]
+        d = _dur(src)
+        cmd += ["-ss", f"{max(0.4, d * 0.55):.2f}" if d > 0 else "1"]
+    cmd += ["-frames:v", "1", str(out)]
     subprocess.run(cmd, capture_output=True)
 
 
@@ -46,7 +58,8 @@ def main():
             ext = Path(m.filename).suffix.lower()
             name = f"{prefix}_{idx:02d}{ext}"
             fp = outdir / name
-            fp.write_bytes(z.read(m.filename))
+            if not fp.exists():                 # 이미 있으면 재복사 스킵(썸네일만 갱신)
+                fp.write_bytes(z.read(m.filename))
             tp = outdir / "thumb" / f"{prefix}_{idx:02d}.png"
             thumb(fp, tp, is_video=(ext == ".mov"))
             manifest[cat].append({"id": f"{cat}_{idx:02d}", "file": f"{cat}/{name}",
