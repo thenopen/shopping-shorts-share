@@ -667,7 +667,7 @@ export default function Home() {
               onFocusScript={beginSnapshot}
               onBlurScript={commitSnapshotIfChanged}
               canUndo={canUndo} canRedo={canRedo} onUndo={handleScriptUndo} onRedo={redoScript}
-              onRefine={refineScript} refineBusy={refineBusy}
+              onRefine={(dir) => refineScript(dir, effTargetSec)} refineBusy={refineBusy}
               onGenFromVideo={genScript} scriptBusy={scriptBusy}
               job={job}
               estSec={estSec} rate={rate}

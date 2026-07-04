@@ -167,6 +167,7 @@ export function PreviewPane(props: {
 
   // 오버레이 싱크용 현재 재생 시각(onTime과 동일 소스 — 자체 onTimeUpdate에서 갱신)
   const [t, setT] = useState(0);
+  const [paused, setPaused] = useState(true);   // 정지 중에만 첫 줄을 드래그 핸들로 표시
 
   // 현재 시각이 속한 자막 줄(t ∈ [start, end)) — 완성본이면 자막이 이미 구워져 있어 오버레이 끔
   const activeLine =
@@ -265,6 +266,8 @@ export function PreviewPane(props: {
               const d = e.currentTarget.duration;
               if (!isFinal && d && isFinite(d) && d > 0) onDuration?.(d);
             }}
+            onPlay={() => setPaused(false)}
+            onPause={() => setPaused(true)}
             onTimeUpdate={(e) => {
               const now = e.currentTarget.currentTime;
               setT(now);
@@ -285,10 +288,13 @@ export function PreviewPane(props: {
           </span>
         </div>
 
-        {/* 자막 오버레이 — 재생 중이면 활성 줄, 정지 중엔 선택 줄(없으면 첫 줄)을 드래그 핸들로 */}
+        {/* 자막 오버레이 — 재생 중엔 활성 줄만(빈 구간은 자막 없음), 정지 중엔 선택/첫 줄을 드래그 핸들로.
+            재생 중 자막 없는 구간(자막 짧고 영상 긴 경우)에 첫 줄이 계속 떠 '반복'처럼 보이던 문제 방지. */}
         {(() => {
           if (!(captionsOn && !isFinal && captionLines.length)) return null;
-          const handle = activeLine ?? captionLines[selectedCap ?? 0] ?? captionLines[0];
+          const handle = paused
+            ? (activeLine ?? captionLines[selectedCap ?? 0] ?? captionLines[0])
+            : activeLine;
           return handle ? renderCaption(handle) : null;
         })()}
 
