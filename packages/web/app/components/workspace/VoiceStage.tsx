@@ -2,7 +2,7 @@
 
 // 보이스 스테이지 — Typecast 보이스 브라우저(검색/필터) + 감정(Smart/프리셋) + 말속도 + 미리듣기.
 import { useMemo, useState } from "react";
-import { Mic, Search, Play, Sparkles, KeyRound } from "lucide-react";
+import { Mic, Search, Play, Pause, Sparkles, KeyRound } from "lucide-react";
 import { Spinner } from "../../ui";
 import type { TypecastVoice } from "../../lib/types";
 
@@ -23,10 +23,14 @@ export function VoiceStage(props: {
   onPreviewTts: () => void; ttsBusy: boolean; hasScript: boolean;
   onOpenSettings: () => void;
   estSec: number | null;
+  // 성우별 미리듣기(고정 문구 샘플) — page.tsx useVoicePreview와 배선
+  playing: string | null; loadingVoice: string | null;
+  onToggleVoice: (voiceId: string) => void;
 }) {
   const {
     voices, voice, setVoice, emotion, setEmotion, emotionIntensity, setEmotionIntensity,
     rate, setRate, onPreviewTts, ttsBusy, hasScript, onOpenSettings, estSec,
+    playing, loadingVoice, onToggleVoice,
   } = props;
 
   const [q, setQ] = useState("");
@@ -109,14 +113,21 @@ export function VoiceStage(props: {
         <div className="thin-scroll mt-3 max-h-72 space-y-1.5 overflow-y-auto pr-1">
           {filtered.map((v) => {
             const on = v.voice_id === voice;
+            const isPlaying = playing === v.voice_id;
+            const isLoading = loadingVoice === v.voice_id;
+            const select = () => {
+              setVoice(v.voice_id);
+              if (emotion !== "smart" && !v.emotions.includes(emotion)) setEmotion("smart");
+            };
             return (
-              <button
+              // 행=선택, ▶=미리듣기 — 버튼 중첩(invalid HTML) 피하려고 행은 div[role=button]
+              <div
                 key={v.voice_id}
-                onClick={() => {
-                  setVoice(v.voice_id);
-                  if (emotion !== "smart" && !v.emotions.includes(emotion)) setEmotion("smart");
-                }}
-                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
+                role="button"
+                tabIndex={0}
+                onClick={select}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(); } }}
+                className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
                   on ? "border-pink-500/50 bg-pink-500/10 ring-1 ring-pink-500/30" : "border-[var(--line)] bg-[var(--panel-2)] hover:bg-white/5"
                 }`}
               >
@@ -129,8 +140,22 @@ export function VoiceStage(props: {
                     {v.gender === "female" ? "여성" : "남성"} · {AGE_LABEL[v.age] || v.age} · 감정 {v.emotions.length}종
                   </div>
                 </div>
-                {on && <Play className="h-3.5 w-3.5 flex-none text-pink-400" />}
-              </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggleVoice(v.voice_id); }}
+                  title={isPlaying ? "미리듣기 정지" : "이 목소리 미리듣기"}
+                  className={`flex h-7 w-7 flex-none items-center justify-center rounded-full transition ${
+                    isPlaying || isLoading
+                      ? "bg-pink-500 text-white"
+                      : "bg-white/5 text-slate-300 ring-1 ring-[var(--line)] hover:bg-pink-500/20 hover:text-pink-300"
+                  }`}
+                >
+                  {isLoading
+                    ? <Spinner className="h-3.5 w-3.5 border-white/40 border-t-white" />
+                    : isPlaying
+                      ? <Pause className="h-3.5 w-3.5" />
+                      : <Play className="h-3.5 w-3.5" />}
+                </button>
+              </div>
             );
           })}
           {!filtered.length && <div className="py-6 text-center text-[13px] text-slate-500">검색 결과 없음</div>}

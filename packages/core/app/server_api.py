@@ -440,6 +440,47 @@ def tts_preview(req: CaptionPreviewReq):
         raise HTTPException(500, f"tts preview failed: {str(e)[:300]}") from e
 
 
+# 성우 샘플 고정 문구 — 1크레딧=1자라 짧게. 파일 캐시로 보이스당 최초 1회만 과금.
+_VOICE_SAMPLE_TEXT = "안녕하세요, 이 목소리로 쇼츠를 만들어 드릴게요."
+_VOICE_SAMPLE_LOCK = threading.Lock()  # 같은 보이스 동시 클릭 → 이중 합성(크레딧 2배) 방지
+_VOICE_ID_RE = re.compile(r"^(tc|uc)_[0-9A-Za-z]+$")
+
+
+@app.get("/tts/voice_sample")
+def tts_voice_sample(voice_id: str):
+    """성우별 미리듣기 샘플 — 고정 짧은 문구를 Typecast로 합성해 wav 서빙.
+
+    반복 미리듣기가 크레딧을 태우지 않도록 workdir/voice_samples/<voice_id>.wav
+    파일 캐시 필수 — 캐시가 있으면 절대 재합성하지 않는다.
+    """
+    from app.pipeline import typecast_tts
+
+    if not _VOICE_ID_RE.match(voice_id or ""):  # 경로/쿼리 오염 차단(traversal 겸용)
+        raise HTTPException(400, "invalid voice_id")
+    if not typecast_tts.available():
+        raise HTTPException(400, "Typecast API 키가 없습니다. 설정에서 키를 입력하세요.")
+    cache_dir = WORKDIR / "voice_samples"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    final = cache_dir / f"{voice_id}.wav"
+
+    def _cached() -> bool:
+        return final.exists() and final.stat().st_size > 100
+
+    if not _cached():
+        with _VOICE_SAMPLE_LOCK:
+            if not _cached():  # 락 대기 중 다른 요청이 이미 만들었으면 재합성 금지
+                tmp = cache_dir / f"_tmp_{voice_id}.wav"
+                try:
+                    # emotion='normal' — 샘플은 프리셋 없이 기본 톤(결정적·재현 가능).
+                    typecast_tts.synthesize(_VOICE_SAMPLE_TEXT, tmp, voice_id=voice_id, emotion="normal")
+                    os.replace(tmp, final)  # 완성본만 캐시로 — 부분 파일 서빙 방지
+                except Exception as e:
+                    tmp.unlink(missing_ok=True)
+                    raise HTTPException(502, f"voice sample synth failed: {str(e)[:200]}") from e
+    return FileResponse(str(final), media_type="audio/wav",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.post("/script/product")
 def script_product(req: ProductScriptReq):
     """제품 상세페이지(URL/캡처이미지/수동) → 소구포인트 추출 + 영상내용 결합 대본.

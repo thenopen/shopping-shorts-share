@@ -679,6 +679,7 @@ export default function Home() {
               onPreviewTts={previewTts} ttsBusy={ttsBusy} hasScript={!!script.trim()}
               onOpenSettings={() => setSettingsOpen(true)}
               estSec={estSec}
+              playing={playing} loadingVoice={loadingVoice} onToggleVoice={toggleVoice}
             />
           )}
           {stage === "caption" && (
