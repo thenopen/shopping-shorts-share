@@ -11,7 +11,7 @@ export function useVoicePreview() {
   const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  function toggleVoice(voiceId: string) {
+  function toggleVoice(voiceId: string, engine: string = "typecast") {
     const el = audioRef.current;
     if (!el) return;
     if (playing === voiceId) {    // 같은 보이스 다시 누르면 정지
@@ -21,7 +21,7 @@ export function useVoicePreview() {
     }
     // iOS/인앱브라우저: play()는 사용자 제스처 안에서 동기 호출돼야 한다.
     // load() 호출하면 진행중 play()가 AbortError로 취소됨 → src만 바꾸고 play().
-    const q = `voice_id=${encodeURIComponent(voiceId)}`;
+    const q = `voice_id=${encodeURIComponent(voiceId)}&engine=${encodeURIComponent(engine)}`;
     if (!el.src.endsWith(q)) el.src = `${apiBase()}/tts/voice_sample?${q}`;
     el.currentTime = 0;
     setLoadingVoice(voiceId);     // 클릭 즉시 로딩 표시(첫 합성은 수 초 걸릴 수 있음)

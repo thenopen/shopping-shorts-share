@@ -273,14 +273,41 @@ def status() -> dict:
             tts_set, tts_email = True, obj.get("client_email", "")
     except Exception:
         pass
+    # 멀티엔진 TTS BYOK 키(각 엔진 모듈이 auth/에 보관) — 마스킹만 노출.
+    try:
+        from app.pipeline import elevenlabs_tts as _el
+        el_key = _el.api_key() or ""
+    except Exception:
+        el_key = ""
+    try:
+        from app.pipeline import google_api_tts as _gapi
+        gapi_key = _gapi.api_key() or ""
+    except Exception:
+        gapi_key = ""
     return {
         "gemini": {"set": bool(gem), "masked": _mask(gem)},
         "google_tts": {"set": tts_set, "email": tts_email},  # email은 식별용(비밀 아님)
+        "elevenlabs": {"set": bool(el_key), "masked": _mask(el_key)},
+        "google_api": {"set": bool(gapi_key), "masked": _mask(gapi_key)},
         "modal": _modal_status(),
         "modal_accounts": modal_accounts_masked(),   # 로테이션 풀(마스킹)
         "limits": get_limits(),
         "download_dir": get_download_dir(),
     }
+
+
+def save_elevenlabs_key(key: str) -> None:
+    if not (key or "").strip():
+        return
+    from app.pipeline import elevenlabs_tts
+    elevenlabs_tts.save_key(key)
+
+
+def save_google_api_key(key: str) -> None:
+    if not (key or "").strip():
+        return
+    from app.pipeline import google_api_tts
+    google_api_tts.save_key(key)
 
 
 # ---- 유효성 테스트(설정 패널 '테스트' 버튼) ----
@@ -307,6 +334,30 @@ def test_tts() -> dict:
         return {"ok": True, "msg": "인증 로드 OK"}
     except Exception as e:
         return {"ok": False, "msg": str(e)[:140]}
+
+
+def test_elevenlabs() -> dict:
+    """ElevenLabs 키 검증 + 잔여 글자수(합성 안 함, 무과금)."""
+    from app.pipeline import elevenlabs_tts
+    if not elevenlabs_tts.available():
+        return {"ok": False, "msg": "키 없음"}
+    c = elevenlabs_tts.check_key()
+    if c.get("ok"):
+        rem = c.get("remaining")
+        plan = c.get("plan") or ""
+        return {"ok": True, "msg": (f"{plan} · 잔여 {rem:,}자" if rem is not None else "OK")}
+    return {"ok": False, "msg": c.get("error", "실패")}
+
+
+def test_google_api() -> dict:
+    """Google API 키 검증 — 보이스 목록 1회 조회(합성 안 함, 무과금)."""
+    from app.pipeline import google_api_tts
+    if not google_api_tts.available():
+        return {"ok": False, "msg": "키 없음"}
+    c = google_api_tts.check_key()
+    if c.get("ok"):
+        return {"ok": True, "msg": f"OK · 보이스 {c.get('count', 0)}개"}
+    return {"ok": False, "msg": c.get("error", "실패")}
 
 
 def test_modal() -> dict:

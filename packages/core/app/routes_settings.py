@@ -21,6 +21,8 @@ def usage_stats():
 class SettingsReq(BaseModel):
     gemini_key: str | None = None
     typecast_key: str | None = None   # Typecast(talescale) TTS API 키(BYOK)
+    elevenlabs_key: str | None = None  # ElevenLabs TTS API 키(BYOK)
+    google_api_key: str | None = None  # Google Cloud TTS API 키(BYOK, 서비스계정과 별개)
     tts_json: str | None = None
     modal_token_id: str | None = None
     modal_token_secret: str | None = None
@@ -58,6 +60,16 @@ def save_settings(req: SettingsReq):
             typecast_tts.save_key(req.typecast_key)
         except Exception as e:
             errs["typecast"] = str(e)[:140]
+    if req.elevenlabs_key:
+        try:
+            settings.save_elevenlabs_key(req.elevenlabs_key)
+        except Exception as e:
+            errs["elevenlabs"] = str(e)[:140]
+    if req.google_api_key:
+        try:
+            settings.save_google_api_key(req.google_api_key)
+        except Exception as e:
+            errs["google_api"] = str(e)[:140]
     if req.tts_json:
         try:
             settings.save_tts_json(req.tts_json)
@@ -95,9 +107,7 @@ def typecast_status():
     return {"set": True, **typecast_tts.check_key()}
 
 
-@router.get("/tts/voices")
-def tts_voices():
-    """Typecast 보이스 목록(프론트 검색/필터용). 감정은 ssfm-v30 기준."""
+def _typecast_voices() -> dict:
     from app.pipeline import typecast_tts
     if not typecast_tts.available():
         raise HTTPException(400, "Typecast 키가 필요합니다.")
@@ -116,6 +126,64 @@ def tts_voices():
             "korean": typecast_tts.is_korean_voice(v.get("voice_name", "")),
         })
     return {"voices": out, "default": typecast_tts.DEFAULT_VOICE_ID}
+
+
+def _elevenlabs_voices() -> dict:
+    from app.pipeline import elevenlabs_tts
+    if not elevenlabs_tts.available():
+        raise HTTPException(400, "ElevenLabs 키가 필요합니다.")
+    out = []
+    for v in elevenlabs_tts.list_voices():
+        labels = v.get("labels") or {}
+        gender = (labels.get("gender") or "").lower()
+        out.append({
+            "voice_id": v.get("voice_id"),
+            "name": v.get("name", ""),
+            "gender": "male" if gender.startswith("m") else "female" if gender.startswith("f") else "",
+            "age": labels.get("age", ""),
+            "use_cases": [labels.get("use_case")] if labels.get("use_case") else [],
+            "emotions": [],
+            "shorts": False,
+            "korean": False,
+            "preview_url": v.get("preview_url", ""),
+        })
+    return {"voices": out, "default": (out[0]["voice_id"] if out else "")}
+
+
+def _google_voices(lang: str | None) -> dict:
+    from app.pipeline import google_api_tts
+    if not google_api_tts.available():
+        raise HTTPException(400, "Google API 키가 필요합니다.")
+    out = []
+    for v in google_api_tts.list_voices(lang=lang or "ko-KR"):
+        codes = v.get("languageCodes") or []
+        g = (v.get("ssmlGender") or "").lower()
+        name = v.get("name", "")
+        out.append({
+            "voice_id": name,
+            "name": f'{name} · {",".join(codes)}',
+            "gender": "male" if g == "male" else "female" if g == "female" else "",
+            "age": "",
+            "use_cases": [],
+            "emotions": [],
+            "shorts": False,
+            "korean": any(c.startswith("ko") for c in codes),
+        })
+    # 기본은 한국어 Chirp3-HD 우선, 없으면 첫 항목.
+    default = next((o["voice_id"] for o in out if "Chirp3-HD" in o["voice_id"]),
+                   out[0]["voice_id"] if out else "")
+    return {"voices": out, "default": default}
+
+
+@router.get("/tts/voices")
+def tts_voices(engine: str = "typecast", lang: str | None = None):
+    """선택 엔진의 보이스 목록(프론트 검색/필터용). engine=typecast|elevenlabs|google."""
+    e = (engine or "typecast").strip().lower()
+    if e == "elevenlabs":
+        return _elevenlabs_voices()
+    if e == "google":
+        return _google_voices(lang)
+    return _typecast_voices()
 
 
 
@@ -188,6 +256,10 @@ def test_settings(req: SettingsTestReq):
         if c.get("ok"):
             return {"ok": True, "msg": f"{c.get('plan')} · 잔여 {c.get('remaining'):,}자"}
         return {"ok": False, "msg": c.get("error", "실패")}
+    if s == "elevenlabs":
+        return settings.test_elevenlabs()
+    if s == "google_api":
+        return settings.test_google_api()
     if s == "gemini":
         return settings.test_gemini()
     if s == "tts":

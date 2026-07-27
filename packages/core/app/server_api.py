@@ -209,7 +209,9 @@ class RefineReq(BaseModel):
 class RenderReq(BaseModel):
     job_id: str
     script: str = ""
-    voice: str = ""                  # Typecast voice_id(tc_/uc_). 빈값=기본 보이스
+    voice: str = ""                  # 엔진별 voice_id(Typecast tc_/uc_, ElevenLabs id, Google name)
+    engine: str = "typecast"         # typecast | elevenlabs | google
+    tts_opts: dict | None = None     # 엔진별 옵션(eleven: stability/similarity/style, google: pitch)
     speaking_rate: float = 1.0
     emotion: str = "smart"           # smart(문맥) | happy/sad/angry/whisper/toneup/tonedown
     emotion_intensity: float = 1.3   # 프리셋 강도(0~2)
@@ -226,7 +228,9 @@ class RenderReq(BaseModel):
 class CaptionPreviewReq(BaseModel):
     job_id: str
     script: str = ""
-    voice: str = ""                  # Typecast voice_id
+    voice: str = ""                  # 엔진별 voice_id
+    engine: str = "typecast"         # typecast | elevenlabs | google
+    tts_opts: dict | None = None     # 엔진별 옵션
     speaking_rate: float = 1.0
     emotion: str = "smart"
     emotion_intensity: float = 1.3
@@ -372,6 +376,7 @@ def captions_preview(req: CaptionPreviewReq):
         _dub, stamps = synthesize_by_nickname(
             req.script, dub, nickname=req.voice, speaking_rate=req.speaking_rate,
             emotion=req.emotion, emotion_intensity=req.emotion_intensity,
+            engine=req.engine, opts=req.tts_opts,
         )
         # 프리뷰도 렌더와 동일하게: 타임스탬프 없으면 whisper 재정렬(싱크 일치).
         if not stamps and _dub:
@@ -510,6 +515,7 @@ def tts_preview(req: CaptionPreviewReq):
         _dub, _stamps = synthesize_by_nickname(
             req.script, synth, nickname=req.voice, speaking_rate=req.speaking_rate,
             emotion=req.emotion, emotion_intensity=req.emotion_intensity,
+            engine=req.engine, opts=req.tts_opts,
         )
         raw_sz = Path(_dub).stat().st_size if Path(_dub).exists() else 0
         pr = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=format_name",
@@ -541,25 +547,28 @@ def tts_preview(req: CaptionPreviewReq):
 # 성우 샘플 고정 문구 — 1크레딧=1자라 짧게. 파일 캐시로 보이스당 최초 1회만 과금.
 _VOICE_SAMPLE_TEXT = "안녕하세요, 이 목소리로 쇼츠를 만들어 드릴게요."
 _VOICE_SAMPLE_LOCK = threading.Lock()  # 같은 보이스 동시 클릭 → 이중 합성(크레딧 2배) 방지
-_VOICE_ID_RE = re.compile(r"^(tc|uc)_[0-9A-Za-z]+$")
+_VOICE_ID_RE = re.compile(r"^[0-9A-Za-z_\-]+$")  # 엔진 공통 안전 charset(traversal 차단)
+_SAMPLE_EXT = {"typecast": "wav", "elevenlabs": "mp3", "google": "mp3"}
 
 
 @app.get("/tts/voice_sample")
-def tts_voice_sample(voice_id: str):
-    """성우별 미리듣기 샘플 — 고정 짧은 문구를 Typecast로 합성해 wav 서빙.
+def tts_voice_sample(voice_id: str, engine: str = "typecast"):
+    """성우별 미리듣기 샘플 — 고정 짧은 문구를 선택 엔진으로 합성해 서빙.
 
-    반복 미리듣기가 크레딧을 태우지 않도록 workdir/voice_samples/<voice_id>.wav
-    파일 캐시 필수 — 캐시가 있으면 절대 재합성하지 않는다.
+    반복 미리듣기가 크레딧을 태우지 않도록 workdir/voice_samples/<engine>_<voice_id>.<ext>
+    파일 캐시 필수 — 캐시가 있으면 절대 재합성하지 않는다. engine=typecast|elevenlabs|google.
     """
-    from app.pipeline import typecast_tts
+    from app.pipeline.tts import synthesize_by_nickname
 
+    e = (engine or "typecast").strip().lower()
+    if e not in _SAMPLE_EXT:
+        raise HTTPException(400, "invalid engine")
     if not _VOICE_ID_RE.match(voice_id or ""):  # 경로/쿼리 오염 차단(traversal 겸용)
         raise HTTPException(400, "invalid voice_id")
-    if not typecast_tts.available():
-        raise HTTPException(400, "Typecast API 키가 없습니다. 설정에서 키를 입력하세요.")
+    ext = _SAMPLE_EXT[e]
     cache_dir = WORKDIR / "voice_samples"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    final = cache_dir / f"{voice_id}.wav"
+    final = cache_dir / f"{e}_{voice_id}.{ext}"
 
     def _cached() -> bool:
         return final.exists() and final.stat().st_size > 100
@@ -567,15 +576,16 @@ def tts_voice_sample(voice_id: str):
     if not _cached():
         with _VOICE_SAMPLE_LOCK:
             if not _cached():  # 락 대기 중 다른 요청이 이미 만들었으면 재합성 금지
-                tmp = cache_dir / f"_tmp_{voice_id}.wav"
+                tmp = cache_dir / f"_tmp_{e}_{voice_id}.{ext}"
                 try:
                     # emotion='normal' — 샘플은 프리셋 없이 기본 톤(결정적·재현 가능).
-                    typecast_tts.synthesize(_VOICE_SAMPLE_TEXT, tmp, voice_id=voice_id, emotion="normal")
+                    synthesize_by_nickname(_VOICE_SAMPLE_TEXT, tmp, nickname=voice_id,
+                                           emotion="normal", engine=e)
                     os.replace(tmp, final)  # 완성본만 캐시로 — 부분 파일 서빙 방지
-                except Exception as e:
+                except Exception as ex:
                     tmp.unlink(missing_ok=True)
-                    raise HTTPException(502, f"voice sample synth failed: {str(e)[:200]}") from e
-    return FileResponse(str(final), media_type="audio/wav",
+                    raise HTTPException(502, f"voice sample synth failed: {str(ex)[:200]}") from ex
+    return FileResponse(str(final), media_type=f"audio/{'wav' if ext == 'wav' else 'mpeg'}",
                         headers={"Cache-Control": "public, max-age=86400"})
 
 
@@ -1150,6 +1160,8 @@ def _render_worker(jid: str, req: RenderReq):
                 speaking_rate=req.speaking_rate,
                 emotion=req.emotion,
                 emotion_intensity=req.emotion_intensity,
+                engine=req.engine,
+                opts=req.tts_opts,
             )
             # Typecast는 네이티브 단어 타임스탬프를 줌 → 아래 whisper 재정렬은 stamps 없을 때만(폴백).
             # 자막 싱크 정확도 확보(없으면 caption이 글자수 균등분할로 폴백).

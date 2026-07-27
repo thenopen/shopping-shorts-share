@@ -19,6 +19,8 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
       if (r.ok) setTcStat(await r.json());
     } catch {}
   }
+  const [elevenKey, setElevenKey] = useState("");
+  const [googleApiKey, setGoogleApiKey] = useState("");
   const [ttsJson, setTtsJson] = useState("");
   const [modalId, setModalId] = useState("");
   const [modalSecret, setModalSecret] = useState("");
@@ -131,13 +133,15 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
       };
       if (geminiKey.trim()) body.gemini_key = geminiKey.trim();
       if (typecastKey.trim()) body.typecast_key = typecastKey.trim();
+      if (elevenKey.trim()) body.elevenlabs_key = elevenKey.trim();
+      if (googleApiKey.trim()) body.google_api_key = googleApiKey.trim();
       if (ttsJson.trim()) body.tts_json = ttsJson.trim();
       if (modalId.trim()) body.modal_token_id = modalId.trim();
       if (modalSecret.trim()) body.modal_token_secret = modalSecret.trim();
       body.download_dir = dlDir.trim();
       const r = await postJSON<{ ok: boolean; errors: Record<string, string>; status: SettingsStatus }>("/settings", body);
       setSt(r.status);
-      setGeminiKey(""); setTypecastKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
+      setGeminiKey(""); setTypecastKey(""); setElevenKey(""); setGoogleApiKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
       if (typecastKey.trim()) loadTc();   // Typecast 상태(잔여 크레딧) 갱신
       if (!r.ok) alert("일부 저장 실패:\n" + Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
       onSaved();
@@ -217,9 +221,37 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
           </div>
         </div>
 
+        {/* ElevenLabs(TTS 음성) 키 — BYOK */}
         <div className="mb-4">
           <div className="mb-1 flex items-center justify-between text-sm font-semibold text-slate-200">
-            <span>Google TTS 서비스계정 JSON</span>
+            <span>ElevenLabs API 키 <span className="text-[11px] font-normal text-slate-500">(음성 생성)</span></span>
+            <span className="text-[11px] font-medium">{st ? badge(st.elevenlabs.set, st.elevenlabs.masked) : "…"}</span>
+          </div>
+          <input type="password" value={elevenKey} onChange={(e) => setElevenKey(e.target.value)} placeholder="sk_… (새 키 입력 시에만)" className={inp} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+            <button onClick={() => runTest("elevenlabs")} className={tBtn}>테스트</button>
+            <span className="text-slate-500">elevenlabs.io → Profile → API Keys</span>
+            <TestView svc="elevenlabs" />
+          </div>
+        </div>
+
+        {/* Google Cloud TTS API 키 — BYOK(서비스계정 JSON과 별개, 키만 넣으면 음성목록 자동) */}
+        <div className="mb-4">
+          <div className="mb-1 flex items-center justify-between text-sm font-semibold text-slate-200">
+            <span>Google Cloud API 키 <span className="text-[11px] font-normal text-slate-500">(음성 생성 · 간편)</span></span>
+            <span className="text-[11px] font-medium">{st ? badge(st.google_api.set, st.google_api.masked) : "…"}</span>
+          </div>
+          <input type="password" value={googleApiKey} onChange={(e) => setGoogleApiKey(e.target.value)} placeholder="AIza… (새 키 입력 시에만)" className={inp} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+            <button onClick={() => runTest("google_api")} className={tBtn}>테스트</button>
+            <span className="text-slate-500">Cloud Console에서 Text-to-Speech API 활성화 + API 키 발급</span>
+            <TestView svc="google_api" />
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <div className="mb-1 flex items-center justify-between text-sm font-semibold text-slate-200">
+            <span>Google TTS 서비스계정 JSON <span className="text-[11px] font-normal text-slate-500">(선택 · 고급)</span></span>
             <span className="max-w-[55%] truncate text-[11px] font-medium">{st ? badge(st.google_tts.set, st.google_tts.email) : "…"}</span>
           </div>
           <textarea value={ttsJson} onChange={(e) => setTtsJson(e.target.value)} placeholder={'{ "type": "service_account", ... }  붙여넣기'} rows={3} className={`${inp} font-mono text-[11px]`} />

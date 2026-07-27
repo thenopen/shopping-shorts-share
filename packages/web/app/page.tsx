@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import CaptionEditor from "./CaptionEditor";
 import { CaptionLineData } from "./caption/types";
 import { apiBase, postJSON, errMsg } from "./lib/api";
-import { JobState, PreviewInfo, LibraryEntry, TypecastVoice, OverlayLib, OverlaySel } from "./lib/types";
+import { JobState, PreviewInfo, LibraryEntry, TypecastVoice, TtsEngine, OverlayLib, OverlaySel } from "./lib/types";
 import { normLines } from "./lib/format";
 import { estimateSec, getCpsInfo, recordCps, visChars } from "./lib/duration";
 import { CaptionStyle, DEFAULT_STYLE } from "./caption/style";
@@ -28,22 +28,35 @@ import { useVoicePreview } from "./hooks/useVoicePreview";
 
 export default function Home() {
   const [url, setUrl] = useState("");
-  const [voice, setVoice] = useState("");            // Typecast voice_id(빈값=기본)
-  const [emotion, setEmotion] = useState("smart");   // smart | happy/sad/angry/whisper/toneup/tonedown
+  const [engine, setEngine] = useState<TtsEngine>("typecast");  // TTS 엔진: typecast|elevenlabs|google
+  const [voice, setVoice] = useState("");            // 엔진별 voice_id(빈값=기본)
+  const [emotion, setEmotion] = useState("smart");   // smart | happy/sad/angry/whisper/toneup/tonedown (Typecast)
   const [emotionIntensity, setEmotionIntensity] = useState(1.3);
-  // Typecast 보이스 목록(설정 키 있을 때) — 처음 로드 시 기본 voice_id 선택.
+  // 엔진별 고급 옵션(eleven: stability/similarity/style, google: pitch). 미리듣기/렌더에 tts_opts로 전달.
+  const [ttsOpts, setTtsOpts] = useState<Record<string, number>>({ stability: 0.5, similarity: 0.75, style: 0, pitch: 0 });
+  // 보이스 목록(설정 키 있을 때) — 엔진 바뀌면 재로드하고 기본 voice_id 선택. 키 없으면 빈 목록.
   const [tcVoices, setTcVoices] = useState<TypecastVoice[]>([]);
+  const [voicesErr, setVoicesErr] = useState(false);  // 키 없음/조회실패(엔진 안내 표시용)
   useEffect(() => {
+    let live = true;
     (async () => {
+      setTcVoices([]); setVoicesErr(false);
       try {
-        const r = await fetch(`${apiBase()}/tts/voices`);
-        if (!r.ok) return;
+        const r = await fetch(`${apiBase()}/tts/voices?engine=${engine}`);
+        if (!live) return;
+        if (!r.ok) { setVoicesErr(true); return; }
         const j = await r.json();
+        if (!live) return;
         setTcVoices(j.voices || []);
-        setVoice((cur) => cur || j.default || (j.voices?.[0]?.voice_id ?? ""));
-      } catch {}
+        // 엔진 전환 시 이전 엔진 voice_id가 새 목록에 없으면 기본으로 교체.
+        setVoice((cur) => {
+          const ok = cur && (j.voices || []).some((v: TypecastVoice) => v.voice_id === cur);
+          return ok ? cur : (j.default || (j.voices?.[0]?.voice_id ?? ""));
+        });
+      } catch { if (live) setVoicesErr(true); }
     })();
-  }, []);
+    return () => { live = false; };
+  }, [engine]);
   // 오버레이 에셋 라이브러리(말풍선·트랜지션·리액션) + 선택 목록
   const [overlayLib, setOverlayLib] = useState<OverlayLib>({ bubble: [], transition: [], reaction: [] });
   const [overlays, setOverlays] = useState<OverlaySel[]>([]);
@@ -125,7 +138,7 @@ export default function Home() {
     if (!script.trim() || ttsBusy) return;  // 분석 전이어도 대본만 있으면 들어보기 가능
     setTtsBusy(true);
     try {
-      const d = await postJSON<{ audio?: string; duration?: number; debug?: string[] }>("/tts/preview", { job_id: job?.id ?? "", script, voice, speaking_rate: rate, emotion, emotion_intensity: emotionIntensity });
+      const d = await postJSON<{ audio?: string; duration?: number; debug?: string[] }>("/tts/preview", { job_id: job?.id ?? "", script, voice, engine, tts_opts: ttsOpts, speaking_rate: rate, emotion, emotion_intensity: emotionIntensity });
       if (d.debug?.length) console.log("[TTS미리듣기 DEBUG] 서버 ↓\n" + d.debug.join("\n"));
       console.log(`[TTS미리듣기] script ${script.length}자, 서버 duration=${d.duration}s, url=${d.audio}`);
       if (d.audio) {
@@ -221,7 +234,7 @@ export default function Home() {
       source_url: srcUrl,
       script,
       script_tone: scriptTone,
-      voice: { voice_id: voice, emotion, emotion_intensity: emotionIntensity, rate },
+      voice: { voice_id: voice, engine, tts_opts: ttsOpts, emotion, emotion_intensity: emotionIntensity, rate },
       captionStyle, captionLines, caption_on: captionsOn,
       cta: { on: ctaOn, text: cta, size: ctaSize, pos: ctaPos },
       overlays,
@@ -267,8 +280,8 @@ export default function Home() {
     const t = setTimeout(() => doSave(), 1500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, script, scriptTone, captionsOn, ctaOn, cta, ctaSize, ctaPos, voice, emotion, emotionIntensity, rate, targetSec, productUrl, sellingPoints,
-      JSON.stringify(captionLines), JSON.stringify(overlays), JSON.stringify(captionStyle)]);
+  }, [projectId, script, scriptTone, captionsOn, ctaOn, cta, ctaSize, ctaPos, voice, engine, emotion, emotionIntensity, rate, targetSec, productUrl, sellingPoints,
+      JSON.stringify(ttsOpts), JSON.stringify(captionLines), JSON.stringify(overlays), JSON.stringify(captionStyle)]);
 
   async function loadProject(id: string) {
     skipAutosaveRef.current = true;   // 불러오기 직후 자동저장 1회 스킵(로드=변경 아님)
@@ -282,6 +295,8 @@ export default function Home() {
       setScript(s.script || ""); scriptDirtyRef.current = false;
       setScriptTone(s.script_tone || "");
       const v = s.voice || {};
+      if (v.engine) setEngine(v.engine);   // 엔진 먼저 — 보이스 목록 재로드가 voice_id 보존/교체 처리
+      if (v.tts_opts && typeof v.tts_opts === "object") setTtsOpts((o) => ({ ...o, ...v.tts_opts }));
       if (v.voice_id) setVoice(v.voice_id);
       if (v.emotion) setEmotion(v.emotion);
       if (typeof v.emotion_intensity === "number") setEmotionIntensity(v.emotion_intensity);
@@ -517,6 +532,8 @@ export default function Home() {
           job_id: job.id,
           script,
           voice,
+          engine,
+          tts_opts: ttsOpts,
           speaking_rate: rate,
           emotion,
           emotion_intensity: emotionIntensity,
@@ -658,7 +675,7 @@ export default function Home() {
     setBusy(true);
     try {
       const { job_id } = await postJSON<{ job_id?: string }>("/render", {
-        job_id: job.id, script, voice, speaking_rate: rate, emotion, emotion_intensity: emotionIntensity, cta,
+        job_id: job.id, script, voice, engine, tts_opts: ttsOpts, speaking_rate: rate, emotion, emotion_intensity: emotionIntensity, cta,
         cta_on: ctaOn, cta_size: ctaSize, cta_pos: ctaPos,
         captions: captionsOn,
         caption_style: captionStyle,
@@ -853,6 +870,9 @@ export default function Home() {
           )}
           {stage === "voice" && (
             <VoiceStage
+              engine={engine} setEngine={setEngine}
+              voicesErr={voicesErr}
+              ttsOpts={ttsOpts} setTtsOpts={setTtsOpts}
               voices={tcVoices}
               voice={voice} setVoice={setVoice}
               emotion={emotion} setEmotion={setEmotion}
@@ -861,7 +881,8 @@ export default function Home() {
               onPreviewTts={previewTts} ttsBusy={ttsBusy} hasScript={!!script.trim()}
               onOpenSettings={() => setSettingsOpen(true)}
               estSec={estSec}
-              playing={playing} loadingVoice={loadingVoice} onToggleVoice={toggleVoice}
+              playing={playing} loadingVoice={loadingVoice}
+              onToggleVoice={(vid) => toggleVoice(vid, engine)}
             />
           )}
           {stage === "caption" && (

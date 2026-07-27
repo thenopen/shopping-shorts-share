@@ -27,6 +27,8 @@ export type Usage = {
 export type SettingsStatus = {
   gemini: { set: boolean; masked: string };
   google_tts: { set: boolean; email: string };
+  elevenlabs: { set: boolean; masked: string };
+  google_api: { set: boolean; masked: string };
   modal: { set: boolean; masked: string; profile: string | null };
   limits: { gemini_rpd: number; gemini_tpm: number; tts_chars: number; modal_credit: number };
   download_dir: string;
@@ -48,10 +50,14 @@ export type LibraryEntry = {
   has_thumb: boolean; stages: Stages;
 };
 
-// Typecast 보이스(GET /tts/voices)
+// TTS 엔진 선택
+export type TtsEngine = "typecast" | "elevenlabs" | "google";
+
+// 보이스(GET /tts/voices?engine=) — 엔진 공통 형태. emotions/korean/shorts는 Typecast만 채움.
 export type TypecastVoice = {
   voice_id: string; name: string; gender: string; age: string;
   use_cases: string[]; emotions: string[]; shorts: boolean; korean: boolean;
+  preview_url?: string;   // ElevenLabs 기본 제공 미리듣기(있으면)
 };
 
 // 오버레이 에셋(말풍선·트랜지션·리액션)
