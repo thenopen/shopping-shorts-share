@@ -87,3 +87,7 @@ packages/core/projects/
 # runtime logs (local)
 packages/core/server_run.log
 packages/core/server_run.err.log
+
+# 개인 PC 전용 런처(IP/경로 하드코딩) — 공유 제외, 각자 scripts/*.ps1 사용
+run_shopping_shorts.bat
+폰_접속_허용.bat
