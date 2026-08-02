@@ -22,12 +22,49 @@ export function useProductScript({ script, commitScript, videoDuration }: { scri
     return () => clearInterval(id);
   }, [productBusy]);
 
+  // 캡처 이미지를 그대로 base64로 보내면 상세페이지 캡처가 10MB를 넘어 프록시(요청 본문 한도)에
+  // 걸려 요청이 끊긴다 → 업로드 시 폭 1280px·JPEG로 축소해 전송(글자 가독성 유지 + Gemini 부담↓).
+  function downscaleToDataURL(file: File, maxW = 1280, maxH = 8000, quality = 0.85): Promise<string> {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let scale = Math.min(1, maxW / img.width);
+          if (img.height * scale > maxH) scale = Math.min(scale, maxH / img.height);
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) { throw new Error("no canvas ctx"); }
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        } catch {
+          // 축소 실패 시 원본으로 폴백(작은 이미지면 문제없음)
+          const rd = new FileReader();
+          rd.onload = () => resolve(String(rd.result || ""));
+          rd.readAsDataURL(file);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        const rd = new FileReader();
+        rd.onload = () => resolve(String(rd.result || ""));
+        rd.readAsDataURL(file);
+      };
+      img.src = url;
+    });
+  }
+
   function addImageFiles(files: FileList | File[] | null) {
     const list = Array.from(files || []).filter((f) => f.type.startsWith("image/"));
     list.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => setProductImages((prev) => [...prev, String(reader.result || "")]);
-      reader.readAsDataURL(file);
+      downscaleToDataURL(file).then((dataUrl) =>
+        setProductImages((prev) => [...prev, dataUrl])
+      );
     });
   }
 
