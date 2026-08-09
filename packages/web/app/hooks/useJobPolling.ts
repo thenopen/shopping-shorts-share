@@ -1,6 +1,7 @@
 "use client";
 import { type Dispatch, type SetStateAction, useEffect, useRef } from "react";
-import { apiBase } from "../lib/api";
+import { apiFetch, AuthError } from "../lib/api";
+import { toast } from "../components/ui/Toast";
 import type { JobState } from "../lib/types";
 
 // 작업(job) 상태 폴링 — page.tsx Home에서 인라인이던 pollJob/stopPoll + 1회 콘솔로그 ref를 그대로 이관.
@@ -35,24 +36,24 @@ export function useJobPolling(opts: {
     if (!id) {
       stopPoll();
       setBusy(false); setScriptBusy(false);
-      alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요.");
+      toast.error("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요.");
       return;
     }
     stopPoll();
     let fails = 0;
     pollRef.current = setInterval(async () => {
       try {
-        const r = await fetch(`${apiBase()}/jobs/${id}`);
+        const r = await apiFetch(`/jobs/${id}`);
         if (!r.ok) {
           if (r.status === 404) {
             stopPoll();
             setBusy(false); setScriptBusy(false);
-            alert("작업을 찾을 수 없습니다. 서버가 재시작되었을 수 있습니다.");
+            toast.error("작업을 찾을 수 없습니다. 서버가 재시작되었을 수 있습니다.");
             return;
           }
           throw new Error(`HTTP ${r.status}`);
         }
-        fails = 0;
+        fails = 0
         const j: JobState = await r.json();
         setJob(j);
         // 자막제거에 실제로 쓰인 엔진을 브라우저 콘솔에 1회 기록.
@@ -100,14 +101,20 @@ export function useJobPolling(opts: {
           setScriptBusy(false);
           done?.(j);
         }
-      } catch {
+      } catch (e) {
+        // 토큰 인증 실패(401) → 폴링 중단, page.tsx 가 토큰 입력 오버레이를 띄움.
+        if (e instanceof AuthError) {
+          stopPoll();
+          setBusy(false); setScriptBusy(false);
+          return;
+        }
         // 일시적 네트워크 오류는 관용 — 연속 실패가 누적되면 폴링 중단.
         fails += 1;
         if (fails >= 5) {
           stopPoll();
           setBusy(false);
           setScriptBusy(false);
-          alert("서버 연결이 끊겼습니다.");
+          toast.error("서버 연결이 끊겼습니다.");
         }
       }
     }, 1200);

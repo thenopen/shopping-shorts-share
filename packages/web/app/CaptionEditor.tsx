@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { FONTS } from "./data/fonts";
+import { confirmDialog } from "./components/ui/Modal";
 import { CaptionStyle, styleToCss, styleToCssScaled, emphasizeNodes, animCss, ANIMS, PRESET_TEMPLATES } from "./caption/style";
 import { displayLines } from "./caption/linebreak";
 import { Toggle } from "./components/ui/Toggle";
@@ -76,10 +77,10 @@ function CaptionEditor({
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }
 
-  function confirmSaveTemplate() {
+  async function confirmSaveTemplate() {
     const name = tplName.trim();
     if (!name) return;
-    if (templates[name] && !window.confirm(`'${name}' 템플릿을 덮어쓸까요?`)) return;
+    if (templates[name] && !(await confirmDialog({ title: "템플릿 덮어쓰기", message: `'${name}' 템플릿을 덮어쓸까요?`, danger: true }))) return;
     persist({ ...templates, [name]: value });
     setTplName("");
     setSaveModalOpen(false);
@@ -354,7 +355,7 @@ function CaptionEditor({
                   <button onClick={() => loadTemplate(name)} className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-[var(--text-strong)] transition hover:bg-white/20">
                     적용
                   </button>
-                  <button onClick={() => { if (window.confirm(`'${name}' 템플릿을 삭제할까요?`)) deleteTemplate(name); }} className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400">
+                  <button onClick={async () => { if (await confirmDialog({ title: "템플릿 삭제", message: `'${name}' 템플릿을 삭제할까요?`, danger: true })) deleteTemplate(name); }} className="rounded-full px-2 py-1 text-xs text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400">
                     삭제
                   </button>
                 </div>

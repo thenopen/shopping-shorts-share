@@ -37,4 +37,8 @@ def _resolve_ff(name: str) -> str:
 FFMPEG = _resolve_ff("ffmpeg")
 FFPROBE = _resolve_ff("ffprobe")
 
-DEFAULT_FONT = "C:/Windows/Fonts/malgun.ttf"
+# CTA 자막(compose.py drawtext) 기본 폰트.
+# 번들된 Pretendard.ttf 를 쓴다 — Windows/macOS/Linux 모두 같은 경로(플랫폼 분기 불필요).
+# 과거 "C:/Windows/Fonts/malgun.ttf" 하드코딩은 macOS/Linux에서 폰트를 못 찾아 CTA가 깨졌음.
+# caption.py(본문 자막, ASS)의 기본 폰트명("Pretendard")과 동일 파일 → 시각적 통일.
+DEFAULT_FONT = str(BACKEND_ROOT / "assets" / "fonts" / "Pretendard.ttf")

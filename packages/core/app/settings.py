@@ -214,21 +214,58 @@ def set_account_deployed(token_id: str, deployed: bool = True) -> None:
         set_modal_accounts(accts)
 
 
-def effective_accounts() -> list[dict]:
-    """실제 로테이션·크레딧 합산 대상 = 풀 계정 + 기존(대표, ~/.modal.toml) 계정.
+def multi_account_enabled() -> bool:
+    """Modal 멀티계정 로테이션 활성 여부.
 
-    개발 중엔 기존 계정도 함께 돌리고 크레딧도 합산한다. 기존 계정이 이미 풀에
-    있으면(같은 token_id) 중복 추가하지 않는다.
+    기본은 단일 계정(~/.modal.toml 대표 프로필). 멀티 풀은 명시적 옵트인일 때만:
+      - 환경변수 MODAL_MULTI_ACCOUNT=1, 또는
+      - settings.json 의 allow_multi_account == True
+    이유: 다수 무료 계정을 돌리는 건 Modal ToS 멀티어카운팅에 걸려 계정 정지 위험이 있어
+    기본 동작으로 두지 않는다(2026-08-09, 보안 개선). 사용자가 위험을 알고 명시할 때만.
     """
-    pool = get_modal_accounts()
-    ids = {a.get("token_id") for a in pool}
-    out = list(pool)
+    if os.environ.get("MODAL_MULTI_ACCOUNT") == "1":
+        return True
+    try:
+        if _load_settings().get("allow_multi_account") is True:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def set_allow_multi_account(enabled: bool) -> None:
+    """settings.json 의 allow_multi_account 플래그 쓰기.
+
+    /modal/accounts/add 가 풀에 첫 계정을 넣을 때 자동으로 True 로 세팅(추가 행위 = 옵트인).
+    env(MODAL_MULTI_ACCOUNT)는 여전히 우선이므로, settings 가 False 여도 env=1 이면 활성.
+    """
+    cur = _load_settings()
+    cur["allow_multi_account"] = bool(enabled)
+    _save_settings(cur)
+
+
+def effective_accounts() -> list[dict]:
+    """실제 로테이션·크레딧 합산 대상 계정 목록.
+
+    기본(단일): ~/.modal.toml 의 활성(대표) 프로필 1개만.
+    멀티 옵트인(multi_account_enabled) 시: 풀 계정(settings.json modal_accounts) + 대표 프로필.
+    같은 token_id 이면 중복 추가하지 않는다. 기존 풀 데이터는 보존(활성화만 off).
+    """
     name, data = _read_modal()
     prof = data.get(name, {}) if data else {}
     tid, tsec = prof.get("token_id"), prof.get("token_secret")
-    if tid and tsec and tid not in ids:
-        out.append({"token_id": tid, "token_secret": tsec,
-                    "label": name or "기존", "default": True})
+    default = ({"token_id": tid, "token_secret": tsec,
+                "label": name or "기존", "default": True}
+               if (tid and tsec) else None)
+
+    if not multi_account_enabled():
+        return [default] if default else []
+
+    pool = get_modal_accounts()
+    ids = {a.get("token_id") for a in pool}
+    out = list(pool)
+    if default and default["token_id"] not in ids:
+        out.append(default)
     return out
 
 

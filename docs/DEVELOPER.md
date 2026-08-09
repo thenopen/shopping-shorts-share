@@ -201,6 +201,29 @@ py -3.12 -m venv .venv      # (py 런처 없으면 설치된 python312\python.ex
 
 > 프론트엔드(`web`)까지 띄우려면 Node.js 설치 후 `scripts\start-all.ps1` (코어+웹 동시). 지금은 **백엔드 우선이라 `start-core.ps1`만으로 충분**합니다.
 
+### 4-1. 테스트 실행 (2026-08-09~)
+
+코드 변경 전후로 아래 두 검증을 돌려 회귀를 잡습니다. 둘 다 외부 API/GPU 없이 수 초 내 끝납니다.
+
+**코어(Python, pytest):**
+```powershell
+cd packages\core
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # 최초 1회(pytest/pytest-cov)
+.venv\Scripts\python.exe -m pytest                                # 전체 실행(약 1초)
+.venv\Scripts\python.exe -m pytest tests/test_caption_pure.py -v  # 개별 파일
+```
+- `tests/` 디렉토리: `caption`/`refine`/`url_extract`/`voices`/`security`/`auth_token`/`settings_modal`/`server_auth_integration` 8개 모듈.
+- 커버리지 측정: `python -m pytest --cov=app.security --cov=app.auth_token --cov-report=term-missing`
+
+**웹(TypeScript, tsc):**
+```powershell
+cd packages\web
+npm install        # 최초 1회
+npx tsc --noEmit   # 타입 체크(exit 0 이면 OK)
+```
+
+> ⚠️ 현재 CI(`.github/workflows/`)는 없습니다. 커밋 전 반드시 위 두 검증을 수동으로 돌리세요. CI 도입은 다음 라운드 과제입니다.
+
 ---
 
 ## 5. 현재 진행 상황 및 이슈

@@ -1,5 +1,8 @@
 # 쇼핑 쇼츠 메이커 (Shopping Shorts Maker)
 
+![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)
+> *배지의 OWNER/REPO 를 실제 저장소로 바꿔주세요.*
+
 > 상품 영상 링크 → **한국어 쇼핑 쇼츠(9:16 세로 영상)** 로 자동 변환하는 도구입니다.
 > 영상에서 중국어 자막/워터마크를 AI로 지우고 → 한국어 대본·더빙·자막을 입혀 → 완성 쇼츠를 뽑아냅니다.
 >
@@ -43,6 +46,12 @@ Windows PC 기준, 아래 4가지가 필요합니다. (설치 상세는 [docs/SE
 
 > 아래는 요약입니다. 처음이라면 [docs/SETUP.md](docs/SETUP.md)를 한 번 그대로 따라 하세요.
 
+> 📦 **폰트 파일은 저장소에 포함되지 않습니다**(총 1.7GB라 GitHub 부적합).
+> 자막 burn-in용 한글 폰트는 `packages/core/assets/fonts/` 에 직접 넣어야 합니다.
+> 최소한 `Pretendard.ttf`(CTA·자막 기본 폰트)와 자막에 쓸 폰트들을
+> [Pretendard GitHub](https://github.com/orioncactus/pretendard) 등에서 받아 넣어주세요.
+> 웹 폰트 미리보기용 woff2는 `packages/web/public/fonts/` 에 넣고 `npm run gen:fonts` 로 CSS를 재생성하세요.
+
 ```powershell
 # 0) 이 저장소 받기
 git clone <이 저장소 주소> shopping-shorts-maker
@@ -69,9 +78,10 @@ npm install
 
 ## 3. 실행
 
-프로젝트 폴더에서 **`scripts\start-all.ps1`** 을 실행하면 코어(엔진)와 웹이 함께 켜집니다.
-(또는 PowerShell에서 아래를 각각 실행)
+프로젝트 폴더에서 **`scripts\start-all.ps1`**(Windows) 또는 **`scripts/start-all.sh`**(macOS/Linux) 을 실행하면 코어(엔진)와 웹이 함께 켜집니다.
+(또는 터미널에서 아래를 각각 실행)
 
+**Windows (PowerShell):**
 ```powershell
 # 코어 엔진 (8000)
 powershell -File scripts\start-core.ps1
@@ -79,7 +89,21 @@ powershell -File scripts\start-core.ps1
 powershell -File scripts\start-web.ps1
 ```
 
+**macOS / Linux (bash):**
+```bash
+# 코어 엔진 (8000)
+bash scripts/start-core.sh
+# 웹 화면 (3000)
+bash scripts/start-web.sh
+```
+
 브라우저에서 **http://localhost:3000** 접속 → 오른쪽 위 **⚙️ 설정**에서 API 키를 넣습니다.
+
+> **🔐 접속 토큰 (2026-08-09~)**: 코어 서버가 처음 켜질 때 **접속 토큰** 1개를 만들어
+> 터미널(콘솔)에 큰 글씨로 표시합니다. 같은 PC 웹은 토큰 없이 바로 되지만,
+> **폰/다른 기기**에서 접속할 땐 이 토큰이 처음 한 번 필요해요. 토큰을 잊으면
+> `packages\core\workdir\auth_token.txt` 를 삭제하고 서버를 다시 켜면 새 토큰이 나와요.
+> (혼자 쓰는 PC에서 토큰 입력이 귀찮으면 코어 실행 전 `ALLOW_NO_AUTH=1` 환경변수로 끌 수 있어요 — 단, 폰 접속 등 외부 노출 땐 끄지 마세요.)
 
 ---
 
@@ -139,8 +163,10 @@ AI가 상품 이미지·영상에서 대본을 만들어 줍니다.
 ## 6. 폰·아이패드에서 접속
 
 같은 와이파이라면 폰·아이패드에서도 쓸 수 있어요.
-1. 실행 창에 뜨는 **`http://192.168.x.x:3000`** 주소(내 PC의 IP)를 폰 브라우저에 입력
-2. 폰에서 접속이 안 되면 → 방화벽에서 **3000 포트**를 열어주세요 (`scripts\allow-phone-access.ps1` 참고)
+1. 코어 서버가 켜진 터미널(콘솔)에 표시된 **접속 토큰**을 확인하세요 (예: `http://<이 PC IP>:3000/?token=XXXXXXXX` 형태의 주소가 콘솔에 같이 나와요).
+2. 폰 브라우저에 그 주소(`?token=...` 포함)를 그대로 입력 → 토큰이 폰에 자동 저장돼 다음부턴 토큰 없이 써요.
+3. 폰에서 접속이 안 되면 → 방화벽에서 **3000 포트**를 열어주세요 (`scripts\allow-phone-access.ps1` 참고)
+4. 주소만 입력하고 토큰을 깜빡했다면 → 열린 화면의 토큰 입력창에 토큰을 붙여넣으면 돼요.
 
 ---
 
@@ -152,6 +178,8 @@ AI가 상품 이미지·영상에서 대본을 만들어 줍니다.
 - **대본 생성 시 "Internal Server Error"** → ⚙️ 설정에 **Gemini 키**가 없어서예요. 넣으면 됩니다.
 - **음성 화면이 "키가 필요해요"** → 그 엔진의 API 키를 설정에 넣으면 목록이 떠요. 위 탭에서 다른 엔진으로 바꿀 수도 있어요.
 - **자막 제거가 안 됨** → Modal 토큰이 필요하고, 첫 실행 때 GPU 함수 배포(몇 분)가 끝나야 합니다.
+- **폰/다른 기기에서 "인증 필요(401)"** → 접속 토큰이 없거나 틀려서예요. 코어 서버 터미널에 표시된 토큰으로 `?token=...` 주소로 다시 들어가거나, 토큰 입력창에 붙여넣으세요.
+- **접속 토큰을 잊음** → `packages\core\workdir\auth_token.txt` 를 삭제하고 코어를 다시 켜면 새 토큰이 나와요.
 
 ---
 

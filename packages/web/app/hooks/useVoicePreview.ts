@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { apiBase } from "../lib/api";
+import { toast } from "../components/ui/Toast";
 
 // 보이스 미리듣기 — 숨은 <audio> 하나로 재생(iOS 인앱브라우저 호환). audioRef/playing은
 // TTS 대본 미리듣기(previewTts)와 공유해야 하므로 그대로 노출.
@@ -33,7 +34,7 @@ export function useVoicePreview() {
         if (name === "AbortError") return; // 다른 보이스로 빠르게 전환 시 정상 — 무시
         setLoadingVoice(null);
         setPlaying(null);
-        alert(`미리듣기 재생 실패: ${err instanceof Error ? err.message : String(err)}`);
+        toast.error(`미리듣기 재생 실패: ${err instanceof Error ? err.message : String(err)}`);
       });
   }
 

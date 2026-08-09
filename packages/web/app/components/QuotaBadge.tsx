@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { Cloud, ExternalLink, Mic, Sparkles } from "lucide-react";
-import { apiBase } from "../lib/api";
+import { apiFetch } from "../lib/api";
 import { Usage } from "../lib/types";
 import { fmtK } from "../lib/format";
 
@@ -21,7 +21,7 @@ function QuotaBadgeImpl({ refreshKey, active }: { refreshKey: number; active: bo
     let live = true;
     const load = async () => {
       try {
-        const r = await fetch(`${apiBase()}/usage`);
+        const r = await apiFetch(`/usage`);
         if (!r.ok) return;
         const j: Usage = await r.json();
         if (!live) return;

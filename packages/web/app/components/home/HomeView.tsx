@@ -59,7 +59,7 @@ export function HomeView(props: {
           )}
           <QuotaBadge refreshKey={usageRefresh} active={usageActive} />
           <ThemeToggle />
-          <button onClick={onOpenSettings} aria-label="설정" className="btn-ghost flex h-9 w-9 items-center justify-center rounded-lg">
+          <button onClick={onOpenSettings} aria-label="설정" className="btn-ghost flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg">
             <Settings className="h-4 w-4 text-slate-300" />
           </button>
         </div>

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Settings, X, Lock, FileText, TriangleAlert } from "lucide-react";
-import { apiBase, postJSON, errMsg } from "../lib/api";
+import { apiFetch, postJSON, errMsg } from "../lib/api";
+import { toast } from "./ui/Toast";
 import { Spinner } from "../ui";
 import { SettingsStatus, TestResult, ModalAcct } from "../lib/types";
 
@@ -15,7 +16,7 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
   const [tcStat, setTcStat] = useState<{ set: boolean; plan?: string; remaining?: number } | null>(null);
   async function loadTc() {
     try {
-      const r = await fetch(`${apiBase()}/tts/typecast/status`);
+      const r = await apiFetch(`/tts/typecast/status`);
       if (r.ok) setTcStat(await r.json());
     } catch {}
   }
@@ -31,6 +32,7 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
   const [modalAccts, setModalAccts] = useState<ModalAcct[]>([]);       // Modal 로테이션 풀
   const [acctTotal, setAcctTotal] = useState(0);                       // 실효 계정수(풀+기존)
   const [defaultIncluded, setDefaultIncluded] = useState(false);       // 기존(대표) 자동 포함?
+  const [multiEnabled, setMultiEnabled] = useState(false);             // 멀티 로테이션 옵트인 여부
   const [newAcct, setNewAcct] = useState({ label: "", token_id: "", token_secret: "" });
   const [acctBusy, setAcctBusy] = useState(false);
   const [acctTest, setAcctTest] = useState<TestResult | null>(null);
@@ -39,7 +41,7 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
     let live = true;
     (async () => {
       try {
-        const r = await fetch(`${apiBase()}/settings`);
+        const r = await apiFetch(`/settings`);
         if (!r.ok) return;
         const j: SettingsStatus = await r.json();
         if (!live) return;
@@ -66,12 +68,13 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
 
   async function loadAccts() {
     try {
-      const r = await fetch(`${apiBase()}/modal/accounts`);
+      const r = await apiFetch(`/modal/accounts`);
       if (!r.ok) return;
       const j = await r.json();
       setModalAccts(j.accounts || []);
       setAcctTotal(j.total ?? (j.accounts || []).length);
       setDefaultIncluded(!!j.default_included);
+      setMultiEnabled(!!j.multi_enabled);
     } catch {}
   }
   async function addAcct() {
@@ -86,14 +89,14 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
       onDeploy();   // 추가 즉시 자동 배포 시작 → 헤더 배포중 감시
 
     } catch (e) {
-      alert(errMsg(e, "계정 추가 실패"));
+      toast.error(errMsg(e, "계정 추가 실패"));
     } finally {
       setAcctBusy(false);
     }
   }
   async function delAcct(i: number) {
     try {
-      const r = await fetch(`${apiBase()}/modal/accounts/${i}`, { method: "DELETE" });
+      const r = await apiFetch(`/modal/accounts/${i}`, { method: "DELETE" });
       const j = await r.json();
       setModalAccts(j.accounts || []);
       onSaved();
@@ -105,7 +108,7 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
       loadAccts();  // 배포중 상태 반영 시작
       onDeploy();   // 헤더 배포중 감시 시작
     } catch (e) {
-      alert(errMsg(e, "배포 시작 실패"));
+      toast.error(errMsg(e, "배포 시작 실패"));
     }
   }
   async function testNewAcct() {
@@ -143,10 +146,10 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
       setSt(r.status);
       setGeminiKey(""); setTypecastKey(""); setElevenKey(""); setGoogleApiKey(""); setTtsJson(""); setModalId(""); setModalSecret("");
       if (typecastKey.trim()) loadTc();   // Typecast 상태(잔여 크레딧) 갱신
-      if (!r.ok) alert("일부 저장 실패:\n" + Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
+      if (!r.ok) toast.error("일부 저장 실패:\n" + Object.entries(r.errors).map(([k, v]) => `${k}: ${v}`).join("\n"));
       onSaved();
     } catch (e) {
-      alert(errMsg(e, "저장 실패"));
+      toast.error(errMsg(e, "저장 실패"));
     } finally {
       setSaving(false);
     }
@@ -280,6 +283,12 @@ export function SettingsPanel({ onClose, onSaved, onDeploy }: { onClose: () => v
         {/* Modal 계정 풀 — 여러 계정 로테이션(병렬 처리·크레딧 분산·페일오버) */}
         <div className="mb-4 rounded-2xl border border-[var(--line)] p-3">
           <div className="mb-1 text-sm font-semibold text-slate-200">Modal 계정 풀 · 로테이션 <span className="font-medium text-slate-500">(여러 영상 병렬)</span></div>
+          {!multiEnabled && (
+            <p className="mb-2 rounded-lg bg-sky-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-sky-300">
+              ⓘ 현재 <b>단일 계정(대표 프로필 1개)</b> 모드. 풀에 여러 계정을 등록해도 로테이션하지 않음.
+              멀티 로테이션(병렬·크레딧 분산)을 케려면 서버 환경변수 <code className="font-mono">MODAL_MULTI_ACCOUNT=1</code> 또는 settings.json 의 <code className="font-mono">allow_multi_account=true</code> 필요.
+            </p>
+          )}
           <p className="mb-2 rounded-lg bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-300"><TriangleAlert className="mr-1 inline h-3 w-3" />무료계정 다수로 크레딧 불리기는 ToS 멀티어카운팅 위반 소지(정지 위험). 계정 추가하면 그 계정에 자동 배포됨(첫 배포는 이미지 빌드로 수 분).</p>
           {modalAccts.length > 0 ? (
             <div className="mb-2 flex flex-col gap-1">

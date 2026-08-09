@@ -91,3 +91,21 @@ packages/core/server_run.err.log
 # 개인 PC 전용 런처(IP/경로 하드코딩) — 공유 제외, 각자 scripts/*.ps1 사용
 run_shopping_shorts.bat
 폰_접속_허용.bat
+
+# ZCode/에이전트 세션 산물 (로컬 도구)
+.zcode/
+.codex/
+
+# 폰트 파일 (총 1.7GB — GitHub 부적합, 별도 배포).
+# 자막 burn-in용 ttf(545개) + 웹 미리보기용 woff2(599개).
+# 복구: docs/SETUP.md 또는 packages/core/assets/fonts/README 참고해 직접 다운로드.
+packages/core/assets/fonts/
+packages/web/public/fonts/
+packages/web/app/fonts.generated.css
+
+# 테스트/커버리지 산출물
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+ae-work/

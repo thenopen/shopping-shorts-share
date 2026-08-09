@@ -1,0 +1,29 @@
+{
+  "_comment": "BGM 라이브러리 매니페스트. 각 항목 id 는 오버레이 id 체계와 공유(overlays.py resolve_file). file 은 이 디렉토리 기준 상대경로. 음원은 CC0/PD 무료 출처에서 직접 다운로드해 이 디렉토리에 넣으세요(저작권상 레포에 미번들).",
+  "items": [
+    {
+      "id": "bgm_upbeat_cute",
+      "file": "upbeat_cute.mp3",
+      "title": "업비트 · 귀여운",
+      "mood": "upbeat",
+      "duration": 30,
+      "source": "Pixabay Music (CC0) — 직접 다운로드 필요"
+    },
+    {
+      "id": "bgm_calm_clean",
+      "file": "calm_clean.mp3",
+      "title": "차분 · 클린",
+      "mood": "calm",
+      "duration": 30,
+      "source": "Pixabay Music (CC0) — 직접 다운로드 필요"
+    },
+    {
+      "id": "bgm_trendy",
+      "file": "trendy.mp3",
+      "title": "트렌디",
+      "mood": "trendy",
+      "duration": 30,
+      "source": "Pixabay Music (CC0) — 직접 다운로드 필요"
+    }
+  ]
+}

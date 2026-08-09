@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { promptDialog } from "../components/ui/Modal";
 
 // 기본 제공 CTA 문구(텍스트 자체를 값으로 사용 — 서버가 커스텀 문구도 그대로 받음)
 const DEFAULT_CTAS = [
@@ -32,8 +33,8 @@ export function useCtas() {
     setCtaList(list);
     try { localStorage.setItem(CTA_STORAGE_KEY, JSON.stringify(list)); } catch {}
   }
-  function addCustomCta() {
-    const v = window.prompt("추가할 CTA 문구를 입력하세요");
+  async function addCustomCta() {
+    const v = await promptDialog({ title: "CTA 추가", message: "추가할 CTA 문구를 입력하세요", placeholder: "예: 지금 프로필 링크에서 확인하세요" });
     const t = (v || "").trim();
     if (!t) return;
     if (!ctaList.includes(t)) persistCtas([...ctaList, t]);

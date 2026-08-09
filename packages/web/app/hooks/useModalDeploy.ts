@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { apiBase } from "../lib/api";
+import { apiFetch } from "../lib/api";
 
 // Modal 계정 배포 감시 — 마운트 시 1회 + watchDeploy() 호출 시 폴링. 배포중 0되면 멈춤.
 export function useModalDeploy() {
@@ -12,7 +12,7 @@ export function useModalDeploy() {
     let done = false;
     const poll = async () => {
       try {
-        const r = await fetch(`${apiBase()}/modal/accounts`);
+        const r = await apiFetch(`/modal/accounts`);
         if (!r.ok) return;
         const j = await r.json();
         const n = (j.accounts || []).filter((a: { deploy: string }) => a.deploy === "deploying").length;

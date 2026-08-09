@@ -227,7 +227,7 @@ export function ScriptStage(props: {
                     <img src={src} alt={`제품 캡처 ${i + 1}`} className="h-16 w-16 rounded-lg object-cover ring-1 ring-[var(--line)]" />
                     <button
                       onClick={() => setProductImages((prev) => prev.filter((_, j) => j !== i))}
-                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+                      className="absolute -right-2 -top-2 flex min-h-[28px] min-w-[28px] items-center justify-center rounded-full bg-rose-500 text-white shadow"
                       title="제거"
                       aria-label={`캡처 ${i + 1} 제거`}
                     >

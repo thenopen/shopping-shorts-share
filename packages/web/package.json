@@ -8,7 +8,9 @@
     "prebuild": "node scripts/gen-font-css.mjs",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit"
   },
   "dependencies": {
     "lucide-react": "^1.23.0",

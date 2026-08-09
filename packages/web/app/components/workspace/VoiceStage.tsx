@@ -188,7 +188,7 @@ export function VoiceStage(props: {
                     <button
                       onClick={(e) => { e.stopPropagation(); onToggleVoice(v.voice_id); }}
                       title={isPlaying ? "미리듣기 정지" : "이 목소리 미리듣기"}
-                      className={`flex h-7 w-7 flex-none items-center justify-center rounded-full transition ${
+                      className={`flex min-h-[44px] min-w-[44px] flex-none items-center justify-center rounded-full transition ${
                         isPlaying || isLoading
                           ? "bg-pink-500 text-white"
                           : "bg-white/5 text-slate-300 ring-1 ring-[var(--line)] hover:bg-pink-500/20 hover:text-pink-300"

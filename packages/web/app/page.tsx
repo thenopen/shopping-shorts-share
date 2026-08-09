@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CaptionEditor from "./CaptionEditor";
 import { CaptionLineData } from "./caption/types";
-import { apiBase, postJSON, errMsg } from "./lib/api";
+import { apiBase, apiFetch, postJSON, errMsg, setToken, hasToken, onUnauthorized } from "./lib/api";
 import { JobState, PreviewInfo, LibraryEntry, TypecastVoice, TtsEngine, OverlayLib, OverlaySel } from "./lib/types";
 import { normLines } from "./lib/format";
 import { estimateSec, getCpsInfo, recordCps, visChars } from "./lib/duration";
@@ -16,7 +16,9 @@ import { PreviewPane } from "./components/workspace/PreviewPane";
 import { SourceStage } from "./components/workspace/SourceStage";
 import { ScriptStage } from "./components/workspace/ScriptStage";
 import { VoiceStage } from "./components/workspace/VoiceStage";
-import { CaptionStage } from "./components/workspace/CaptionStage";
+import CaptionStage from "./components/workspace/CaptionStage";
+import { ToastContainer, toast } from "./components/ui/Toast";
+import { ModalContainer, confirmDialog, promptDialog } from "./components/ui/Modal";
 import { RenderStage } from "./components/workspace/RenderStage";
 import { StageFooter } from "./components/workspace/StageFooter";
 import { useCtas } from "./hooks/useCtas";
@@ -27,7 +29,76 @@ import { useProductScript } from "./hooks/useProductScript";
 import { useVoicePreview } from "./hooks/useVoicePreview";
 
 export default function Home() {
+  // ── 부팅 토큰 인증 게이트 ──
+  // 게이트 결정 흐름:
+  //  1) 마운트 시 URL ?token=... 있으면 저장 + 게이트 해제.
+  //  2) 보호 경로(/library)로 인증 필요 여부 능동 감지 → 200이면 게이트 해제(서버가 ALLOW_NO_AUTH=1 인 경우),
+  //     401이면 토큰 보유 여부로 게이트 판단(있으면 해제, 없으면 오버레이).
+  //  3) 런타임에 401(잘못된 토큰)이면 onUnauthorized 리스너가 authed=false 로 되돌려 오버레이 재표시.
+  // 이 3단계로 "잘못된 토큰 → 영구 차단" 회귀와 "서버 인증 off인데 오버레이 뜸" 결함을 둘 다 잡는다.
+  const [authed, setAuthed] = useState(hasToken());   // 초기: 토큰 있으면 true, 없으면 false(아래 probe로 보정)
+  const [gateResolved, setGateResolved] = useState(hasToken());   // probe 완료 전엔 게이트 미표시(깜빡임 방지)
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenErr, setTokenErr] = useState(false);
+
+  // (1) URL ?token= 처리
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      const t = u.searchParams.get("token");
+      if (t) {
+        setToken(t);
+        setAuthed(true);
+        setGateResolved(true);
+        u.searchParams.delete("token");
+        window.history.replaceState({}, "", u.toString());
+      }
+    } catch {}
+  }, []);
+
+  // (2) 토큰 없을 때 서버 인증 필요 여부 능동 감지 — /library 한 번 호출
+  //     200(인증 off) → 게이트 해제, 401 → 토큰 입력 대기, 네트워크 오류 → 해제(서버 다운 시 UI 보이게)
+  useEffect(() => {
+    if (hasToken()) { setGateResolved(true); return; }   // 이미 토큰 있으면 스킵
+    let live = true;
+    (async () => {
+      try {
+        const r = await apiFetch("/library");
+        if (live && r.status === 200) setAuthed(true);   // 서버가 인증 안 요구 → 통과
+      } catch {
+        // AuthError(401) → authed 그대로 false → 오버레이 표시. 다른 네트워크 오류면 통과(서버 다운 대비).
+        if (live) { /* 401이면 authed=false 유지, 그 외엔 게이트 열어 UI 보이게 */ setAuthed(true); }
+      } finally {
+        if (live) setGateResolved(true);
+      }
+    })();
+    return () => { live = false; };
+  }, []);
+
+  // (3) 런타임 401(잘못된 토큰) → 오버레이 재표시
+  useEffect(() => onUnauthorized(() => {
+    setAuthed(false);
+    setTokenErr(true);
+  }), []);
+
+  function submitToken() {
+    const t = tokenInput.trim();
+    if (!t) return;
+    setToken(t);
+    setAuthed(true);
+    setTokenInput("");
+    setTokenErr(false);
+  }
+
   const [url, setUrl] = useState("");
+  // BGM 라이브러리(assets/bgm/manifest) + 선택. 음원은 사용자가 assets/bgm/ 에 직접 넣어야 available.
+  const [bgmList, setBgmList] = useState<{ id: string; title: string; mood: string; available: boolean }[]>([]);
+  const [bgm, setBgm] = useState<string>("");   // 선택한 BGM id(""=없음)
+  useEffect(() => {
+    (async () => {
+      try { const r = await apiFetch("/bgm"); if (r.ok) setBgmList((await r.json()).items || []); } catch {}
+    })();
+  }, []);
   const [engine, setEngine] = useState<TtsEngine>("typecast");  // TTS 엔진: typecast|elevenlabs|google
   const [voice, setVoice] = useState("");            // 엔진별 voice_id(빈값=기본)
   const [emotion, setEmotion] = useState("smart");   // smart | happy/sad/angry/whisper/toneup/tonedown (Typecast)
@@ -42,7 +113,7 @@ export default function Home() {
     (async () => {
       setTcVoices([]); setVoicesErr(false);
       try {
-        const r = await fetch(`${apiBase()}/tts/voices?engine=${engine}`);
+        const r = await apiFetch(`/tts/voices?engine=${engine}`);
         if (!live) return;
         if (!r.ok) { setVoicesErr(true); return; }
         const j = await r.json();
@@ -64,7 +135,7 @@ export default function Home() {
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch(`${apiBase()}/overlays`);
+        const r = await apiFetch(`/overlays`);
         if (r.ok) setOverlayLib(await r.json());
       } catch {}
     })();
@@ -79,6 +150,9 @@ export default function Home() {
   const [capBusy, setCapBusy] = useState(false);
   const [capEditBusy, setCapEditBusy] = useState(false);            // AI 자막 다듬기 진행중
   const [capEditPrev, setCapEditPrev] = useState<CaptionLineData[] | null>(null); // 다듬기 직전(되돌리기용)
+  // CaptionStage memo 안정화 — captionLinesRef 만 여기 선언(scriptRef 는 useScriptHistory 결과 아래).
+  const captionLinesRef = useRef(captionLines);
+  useEffect(() => { captionLinesRef.current = captionLines; }, [captionLines]);
   // 선택 자막 — null이면 '전체 자막'(기본 스타일), 값이면 그 줄만 편집/드래그.
   const [selectedCap, setSelectedCap] = useState<number | null>(null);
   const capSel = selectedCap != null && selectedCap < captionLines.length ? selectedCap : null;
@@ -128,6 +202,9 @@ export default function Home() {
     commitScript, undoScript, redoScript, canUndo, canRedo,
     beginSnapshot, commitSnapshotIfChanged,
   } = useScriptHistory();
+  // scriptRef — CaptionStage memo 안정화(genCaptions 가 script 를 ref 로 읽어 deps 에서 제외).
+  const scriptRef = useRef(script);
+  useEffect(() => { scriptRef.current = script; }, [script]);
   const [rate, setRate] = useState(1.0);
   const [renderSeq, setRenderSeq] = useState(0); // 재렌더 시 결과영상 캐시버스터 카운터
   const [ttsBusy, setTtsBusy] = useState(false);
@@ -149,10 +226,10 @@ export default function Home() {
         setTtsUrl(`${apiBase()}${d.audio}?t=${renderSeq}-${voice}`);
       } else {
         console.warn("[TTS미리듣기] audio 없음", d);
-        alert("음성 생성 실패.");
+        toast.error("음성 생성 실패.");
       }
     } catch {
-      alert("음성 생성 실패. 서버 상태를 확인하세요.");
+      toast.error("음성 생성 실패. 서버 상태를 확인하세요.");
     } finally {
       setTtsBusy(false);
     }
@@ -170,7 +247,6 @@ export default function Home() {
   } = useProductScript({ script, commitScript, videoDuration: scriptTargetSec });
 
   const { audioRef, playing, setPlaying, loadingVoice, toggleVoice, onAudioEnded } = useVoicePreview();
-  const [genderFilter, setGenderFilter] = useState<"all" | "F" | "M">("all");
   const [job, setJob] = useState<JobState | null>(null);
   const [busy, setBusy] = useState(false);
   const [scriptBusy, setScriptBusy] = useState(false);
@@ -181,7 +257,7 @@ export default function Home() {
   // 다운로드 라이브러리(최근 재사용 목록) 로드
   async function loadLibrary() {
     try {
-      const r = await fetch(`${apiBase()}/library`);
+      const r = await apiFetch(`/library`);
       if (!r.ok) return;
       const j = await r.json();
       setLibEntries(j.entries || []);
@@ -191,9 +267,9 @@ export default function Home() {
 
   // 새 프로젝트 — 현재 작업(링크·대본·자막·job)을 접고 소스부터 새로 시작 + 편집 화면 진입.
   // 스타일/보이스/CTA 등 환경설정은 유지(반복 작업 편의). 다운로드/대본은 '이어하기'로 복구 가능.
-  function newProject() {
+  async function newProject() {
     if ((url.trim() || script.trim() || job) &&
-        !window.confirm("새 프로젝트를 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)")) return;
+        !(await confirmDialog({ title: "새 프로젝트", message: "새 프로젝트를 시작할까요? 현재 링크·대본·자막이 초기화돼요. (받아둔 영상·대본은 '이어하기'로 다시 불러올 수 있어요)", danger: true }))) return;
     setUrl("");
     setPreview(null);
     setSrcDur(null);
@@ -259,7 +335,7 @@ export default function Home() {
       setProjectId(r.id); setProjectName(r.name); setSaveState("saved");
       loadProjects();
     } catch (e) {
-      alert(errMsg(e, "저장 실패")); setSaveState("idle");
+      toast.error(errMsg(e, "저장 실패")); setSaveState("idle");
     } finally {
       setSaving(false);
     }
@@ -286,8 +362,8 @@ export default function Home() {
   async function loadProject(id: string) {
     skipAutosaveRef.current = true;   // 불러오기 직후 자동저장 1회 스킵(로드=변경 아님)
     try {
-      const r = await fetch(`${apiBase()}/projects/${id}`);
-      if (!r.ok) { alert("프로젝트를 불러오지 못했어요."); return; }
+      const r = await apiFetch(`/projects/${id}`);
+      if (!r.ok) { toast.error("프로젝트를 불러오지 못했어요."); return; }
       const doc = await r.json();
       const s = doc.state || {};
       setProjectId(doc.id); setProjectName(doc.name || "");
@@ -322,36 +398,36 @@ export default function Home() {
       if (s.source_url) {
         try {
           const lr = await postJSON<{ job_id: string }>("/library/load", { url: s.source_url });
-          const jr = await fetch(`${apiBase()}/jobs/${lr.job_id}`);
+          const jr = await apiFetch(`/jobs/${lr.job_id}`);
           if (jr.ok) { const j = await jr.json(); setJob(j); console.debug("[프로젝트 불러오기] 소스 복원 OK", j.preview); }
           const ent = libEntries.find((e) => e.url === s.source_url);
           if (ent?.duration) setSrcDur(ent.duration);
         } catch (e) { console.warn("[프로젝트 불러오기] 소스 복원 실패(캐시 없음 → 소스 단계서 분석):", e); }
       }
       setStage("source"); setView("edit");
-    } catch { alert("불러오기 실패"); }
+    } catch { toast.error("불러오기 실패"); }
   }
 
   const [projectsList, setProjectsList] = useState<{ id: string; name: string; updated: number; source_url: string; n_captions: number; n_overlays: number }[]>([]);
   async function loadProjects() {
     try {
-      const r = await fetch(`${apiBase()}/projects`);
+      const r = await apiFetch(`/projects`);
       if (r.ok) setProjectsList((await r.json()).projects || []);
     } catch {}
   }
   useEffect(() => { loadProjects(); }, []);
   async function deleteProject(id: string) {
-    if (!window.confirm("이 프로젝트를 삭제할까요?")) return;
-    try { await fetch(`${apiBase()}/projects/${id}`, { method: "DELETE" }); } catch {}
+    if (!(await confirmDialog({ title: "프로젝트 삭제", message: "이 프로젝트를 삭제할까요?", danger: true }))) return;
+    try { await apiFetch(`/projects/${id}`, { method: "DELETE" }); } catch {}
     if (projectId === id) { setProjectId(null); setProjectName(""); }
     loadProjects();
   }
 
   // 다운로드 기록 항목 삭제(항목별). 확인 후 DELETE → 목록 새로고침.
   async function deleteLibraryEntry(key: string) {
-    if (!window.confirm("이 다운로드 기록을 삭제할까요? (원본·자막제거본 캐시가 지워져요)")) return;
+    if (!(await confirmDialog({ title: "다운로드 기록 삭제", message: "이 다운로드 기록을 삭제할까요? (원본·자막제거본 캐시가 지워져요)", danger: true }))) return;
     try {
-      await fetch(`${apiBase()}/library/${key}`, { method: "DELETE" });
+      await apiFetch(`/library/${key}`, { method: "DELETE" });
     } catch {}
     loadLibrary();
   }
@@ -366,7 +442,7 @@ export default function Home() {
     if (!s || s === lastSavedScriptRef.current) return;   // 변경 없으면 skip
     lastSavedScriptRef.current = s;
     try {
-      const r = await fetch(`${apiBase()}/jobs/${job.id}/script`, {
+      const r = await apiFetch(`/jobs/${job.id}/script`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script: s }),
@@ -434,7 +510,7 @@ export default function Home() {
     try {
       const r = await postJSON<{ job_id: string; loaded: string; script: string }>(
         "/library/load", { url: t });
-      const jr = await fetch(`${apiBase()}/jobs/${r.job_id}`);
+      const jr = await apiFetch(`/jobs/${r.job_id}`);
       if (jr.ok) {
         const j: JobState = await jr.json();
         setJob(j);
@@ -447,9 +523,9 @@ export default function Home() {
       setPreview(null);
       setStage("script");  // 불러온 뒤 자연스러운 다음 단계로 이동
       setView("edit");     // 홈에서 이어하기 → 편집 화면 진입
-      alert(`이어하기 완료 · ${lbl[r.loaded] || r.loaded}까지 불러왔어요. 이어서 진행하세요.`);
+      toast.success(`이어하기 완료 · ${lbl[r.loaded] || r.loaded}까지 불러왔어요. 이어서 진행하세요.`);
     } catch (e) {
-      alert(errMsg(e, "이어하기 실패"));
+      toast.error(errMsg(e, "이어하기 실패"));
     }
   }
 
@@ -463,7 +539,7 @@ export default function Home() {
       setQFrames(r.frames || []);
       setQEngine(r.engine ?? null);
     } catch (e) {
-      alert(errMsg(e, "품질 확인 실패"));
+      toast.error(errMsg(e, "품질 확인 실패"));
     } finally {
       setQBusy(false);
     }
@@ -484,7 +560,7 @@ export default function Home() {
         url: target, subtitle_backend: subtitleBackend,
         reuse_nosub: opts?.reuseNosub ?? true,
       });
-      if (!job_id) { setBusy(false); alert("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
+      if (!job_id) { setBusy(false); toast.error("작업 ID를 받지 못했습니다. 백엔드 로그를 확인하세요."); return; }
       // 분석 끝나면 라이브러리 갱신 + 미리보기 갱신 + 다음 단계(대본)로 이동
       // target 고정 — 입력창(url)은 stale일 수 있어(opts.url 분석 시) 엉뚱한 미리보기 갱신 방지
       pollJob(job_id, ["analyzed", "error"], (j) => {
@@ -494,7 +570,7 @@ export default function Home() {
       });
     } catch {
       setBusy(false);
-      alert("서버 연결 실패. 8000 포트 백엔드를 확인하세요.");
+      toast.error("서버 연결 실패. 8000 포트 백엔드를 확인하세요.");
     }
   }
 
@@ -513,24 +589,28 @@ export default function Home() {
       });
     } catch {
       setScriptBusy(false);
-      alert("자동 대본 생성 실패.");
+      toast.error("자동 대본 생성 실패.");
     }
   }
 
   // 대본 → 서버서 TTS 돌려 자동자막 줄(타임코드) 받아 타임라인 편집기에 채움.
-  async function genCaptions() {
-    if (!job?.id || !script.trim() || capBusy) return;
+  // useCallback 로 안정화 — script/captionLines 는 ref 로 읽어(대본 타이핑마다 참조가 바뀌어
+  // CaptionStage memo 가 깨지는 것 방지). 실제 의존성은 job.id/voice/engine/스타일 등.
+  const genCaptions = useCallback(async () => {
+    const s = scriptRef.current;
+    const caps = captionLinesRef.current;
+    if (!job?.id || !s.trim() || capBusy) return;
     // 재생성은 서버가 새 줄을 만들어 줄별 스타일(잠금)·수동 강조가 전부 초기화됨 — 편집분 있으면 확인.
-    if (captionLines.some((l) => l.style || l.emph) &&
-        !window.confirm("자막을 다시 생성하면 줄별 스타일(잠금)·단어 강조 편집이 초기화돼요. 계속할까요?")) return;
+    if (caps.some((l) => l.style || l.emph) &&
+        !(await confirmDialog({ title: "자막 재생성", message: "자막을 다시 생성하면 줄별 스타일(잠금)·단어 강조 편집이 초기화돼요. 계속할까요?", danger: true }))) return;
     setCapBusy(true);
     try {
-      const r = await fetch(`${apiBase()}/captions/preview`, {
+      const r = await apiFetch(`/captions/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           job_id: job.id,
-          script,
+          script: s,
           voice,
           engine,
           tts_opts: ttsOpts,
@@ -542,7 +622,7 @@ export default function Home() {
       });
       if (!r.ok) {
         const msg = await r.text();
-        alert(`자동 자막 생성 실패: ${msg}`);
+        toast.error(`자동 자막 생성 실패: ${msg}`);
         return;
       }
       const data = await r.json();
@@ -552,46 +632,55 @@ export default function Home() {
       setSelectedCap(null);   // 새 자막 → 선택 해제(전체 모드)
       // 마지막 줄 끝 = 실측 TTS 길이 → 예상길이(CPS) 보정
       const lastEnd = lines.length ? lines[lines.length - 1].end : 0;
-      if (lastEnd > 1) recordCps(voice, visChars(script), lastEnd, rate);
+      if (lastEnd > 1) recordCps(voice, visChars(s), lastEnd, rate);
     } catch {
-      alert("자동 자막 생성 실패. 서버 연결을 확인하세요.");
+      toast.error("자동 자막 생성 실패. 서버 연결을 확인하세요.");
     } finally {
       setCapBusy(false);
       bumpUsage();
     }
-  }
+  }, [job?.id, capBusy, voice, engine, ttsOpts, rate, emotion, emotionIntensity, captionStyle]);
 
   // AI/규칙 기반 자막 다듬기 — 방향(shorter/longer/natural/impact/friendly/concise)을
   // 서버 /captions/edit로 보내 변환된 줄로 교체. 직전 상태는 되돌리기용으로 보관.
-  async function editCaptions(direction: string) {
-    if (!captionLines.length || capEditBusy) return;
+  const editCaptions = useCallback(async (direction: string) => {
+    const caps = captionLinesRef.current;
+    if (!caps.length || capEditBusy) return;
     setCapEditBusy(true);
-    const prev = captionLines;
+    const prev = caps;
     try {
       const d = await postJSON<{ lines: CaptionLineData[] }>("/captions/edit", {
-        lines: captionLines,
+        lines: caps,
         direction,
         caption_style: captionStyle,
       });
       const next: CaptionLineData[] = normLines(d.lines);
-      if (!next.length) { alert("다듬기 결과가 비었습니다."); return; }
+      if (!next.length) { toast.error("다듬기 결과가 비었습니다."); return; }
       setCapEditPrev(prev);
       setCaptionLines(next);
       setSelectedCap(null);   // 재분할로 줄 수/경계 변경 → 위치 기반 선택 무효
     } catch (e) {
-      alert(errMsg(e, "자막 다듬기 실패."));
+      toast.error(errMsg(e, "자막 다듬기 실패."));
     } finally {
       setCapEditBusy(false);
       bumpUsage();
     }
-  }
+  }, [capEditBusy, captionStyle]);
 
-  function undoCaptionEdit() {
+  const undoCaptionEdit = useCallback(() => {
     if (!capEditPrev) return;
     setCaptionLines(capEditPrev);
     setCapEditPrev(null);
     setSelectedCap(null);   // 줄 구성이 되돌아감 → 선택 초기화
-  }
+  }, [capEditPrev]);
+
+  // CaptionStage memo 안정화용 안정 콜백들 — 인라인 화살표를 추출해 참조 고정.
+  const onSelectCap = useCallback((i: number | null) => setSelectedCap(i), []);
+  const onToggleLock = useCallback((i: number) => {
+    const ln = captionLinesRef.current[i];
+    if (!ln) return;
+    updateLineStyle(i, ln.style ? null : { ...(ln.style ?? captionStyle) });
+  }, [captionStyle]);
 
   // 훅(첫 문장) 대안 3개 — 택1해서 대본 첫 줄 교체.
   const [hookCands, setHookCands] = useState<string[]>([]);
@@ -601,10 +690,10 @@ export default function Home() {
     setHooksBusy(true);
     try {
       const d = await postJSON<{ hooks: string[] }>("/script/hooks", { script });
-      if (!d.hooks?.length) alert("훅 후보 생성 실패 — 잠시 후 다시 시도해 주세요.");
+      if (!d.hooks?.length) toast.error("훅 후보 생성 실패 — 잠시 후 다시 시도해 주세요.");
       setHookCands(d.hooks || []);
     } catch (e) {
-      alert(errMsg(e, "훅 후보 생성 실패."));
+      toast.error(errMsg(e, "훅 후보 생성 실패."));
     } finally {
       setHooksBusy(false);
       bumpUsage();
@@ -623,7 +712,7 @@ export default function Home() {
   // 가공 채택/되돌리기 로깅 — 어떤 방향이 자주 버려지는지(프롬프트 개선 근거). 실패 무시.
   const lastRefineRef = useRef<{ dir: string; t: number } | null>(null);
   function logRefine(direction: string, action: "apply" | "undo") {
-    fetch(`${apiBase()}/metrics/refine`, {
+    apiFetch(`/metrics/refine`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ direction, action }),
@@ -645,13 +734,13 @@ export default function Home() {
     if (!script.trim() || refineBusy) return;
     setRefineBusy(true);
     try {
-      const r = await fetch(`${apiBase()}/refine`, {
+      const r = await apiFetch(`/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script, direction: direction ?? null, target_sec: fitSec ?? null }),
       });
       if (!r.ok) {
-        alert("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
+        toast.error("AI 가공 실패. GEMINI_API_KEY 또는 auth/gemini_key.txt가 필요합니다.");
       } else {
         const data = await r.json();
         if (data.script) {
@@ -662,7 +751,7 @@ export default function Home() {
         }
       }
     } catch {
-      alert("AI 가공 실패.");
+      toast.error("AI 가공 실패.");
     } finally {
       setRefineBusy(false);
       bumpUsage();
@@ -682,12 +771,13 @@ export default function Home() {
         // 타임라인 편집기서 손댄 줄이 있으면 그대로, 없으면 null(서버 자동생성)
         caption_lines: captionLines.length ? captionLines : null,
         overlays: overlays.length ? overlays.map((o) => ({ id: o.id, x: o.x, y: o.y, scale: o.scale, start: o.start, end: o.end, fullscreen: o.fullscreen })) : null,
+        bgm: bgm || null,   // BGM id(""=없음 → null)
       });
-      if (!job_id) { setBusy(false); alert("렌더 작업 ID를 받지 못했습니다."); return; }
+      if (!job_id) { setBusy(false); toast.error("렌더 작업 ID를 받지 못했습니다."); return; }
       pollJob(job_id, ["done", "error"]);
     } catch {
       setBusy(false);
-      alert("렌더 요청 실패.");
+      toast.error("렌더 요청 실패.");
     }
   }
 
@@ -719,8 +809,54 @@ export default function Home() {
   const hasWork = !!(url.trim() || script.trim() || job);
   const workLabel = preview?.title || (url.trim() ? url.trim() : undefined);
 
+  // 토큰이 없고 서버가 인증을 요구하는 상황 → 토큰 입력 오버레이. (서버가 ALLOW_NO_AUTH=1 이면
+  // 게이트 렌더링 — probe 중(gateResolved=false)엔 로딩, probe 후 미인증이면 토큰 입력 오버레이.
+  // probe: 서버가 인증을 요구하는지(/library 한 번 호출) 능동 감지. 그 전엔 깜빡임 방지용 로딩.
+  if (!gateResolved) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[var(--bg)] text-[var(--text-mut)]">
+        <div className="animate-pulse text-sm">서버에 연결 중…</div>
+      </div>
+    );
+  }
+  if (!authed) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-[var(--bg)] p-6 text-[var(--text)]">
+        <div className="max-w-md rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6 text-center">
+          <div className="mb-2 text-lg font-bold">🔒 서버 접속 토큰 필요</div>
+          <p className="mb-4 text-sm text-[var(--text-mut)]">
+            코어 서버가 켜진 터미널(콘솔)에 표시된 토큰을 입력하세요.<br />
+            폰/다른 기기에서 접속할 때 처음 한 번만 필요합니다.
+          </p>
+          <input
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submitToken(); }}
+            placeholder="토큰 붙여넣기"
+            autoFocus
+            className="w-full rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm outline-none"
+          />
+          {tokenErr && <p className="mt-2 text-xs text-rose-400">토큰이 올바르지 않아요. 다시 확인해 주세요.</p>}
+          <div className="mt-3 flex gap-2">
+            <button onClick={submitToken} className="flex-1 rounded-lg bg-pink-500 px-4 py-2 text-sm font-semibold text-white">
+              접속
+            </button>
+            <button
+              onClick={() => { setAuthed(true); }}   // 서버가 인증 안 켰을 수도 있으니 통과 시도
+              className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm text-[var(--text-mut)]"
+            >
+              건너뛰기
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen flex-col overflow-hidden text-[var(--text)]">
+      <ToastContainer />
+      <ModalContainer />
       {/* 보이스 미리듣기용 단일 오디오 엘리먼트(iOS 인앱브라우저 호환) */}
       <audio ref={audioRef} onEnded={onAudioEnded} preload="auto" className="hidden" />
 
@@ -897,11 +1033,8 @@ export default function Home() {
               currentTime={currentTime}
               onSeek={seekTo}
               selected={capSel}
-              onSelect={(i) => setSelectedCap(i)}
-              onToggleLock={(i) => {
-                const ln = captionLines[i];
-                updateLineStyle(i, ln.style ? null : { ...(ln.style ?? captionStyle) });
-              }}
+              onSelect={onSelectCap}
+              onToggleLock={onToggleLock}
             />
           )}
           {stage === "render" && (
@@ -919,6 +1052,7 @@ export default function Home() {
               outputUrl={job?.output ? previewUrl : null}
               absUrl={absUrl}
               estSec={estSec}
+              bgmList={bgmList} bgm={bgm} setBgm={setBgm}
             />
           )}
         </main>

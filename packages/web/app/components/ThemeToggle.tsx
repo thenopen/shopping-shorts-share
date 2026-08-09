@@ -26,7 +26,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={light ? "다크 모드로 전환" : "라이트 모드로 전환"}
       title={light ? "다크 모드" : "라이트 모드"}
-      className="btn-ghost flex h-9 w-9 items-center justify-center rounded-lg"
+      className="btn-ghost flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg"
     >
       {light ? <Moon className="h-4 w-4 text-slate-400" /> : <Sun className="h-4 w-4 text-slate-300" />}
     </button>

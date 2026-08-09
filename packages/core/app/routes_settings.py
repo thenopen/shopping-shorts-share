@@ -232,15 +232,45 @@ def overlays_list():
     return data
 
 
+@router.get("/bgm")
+def bgm_list():
+    """BGM 라이브러리 목록(assets/bgm/manifest.json). 렌더 스테이지 BGM 선택용.
+
+    실제 음원 파일은 저작권상 레포에 미번들 — 사용자가 assets/bgm/ 에 직접 넣어야 함.
+    파일이 없으면 available=false(선택 불가), manifest 는 항상 반환(어떤 id 들이 있는지 안내).
+    """
+    import json
+    from pathlib import Path
+    from app.config import BACKEND_ROOT
+    mf = BACKEND_ROOT / "assets" / "bgm" / "manifest.json"
+    items = []
+    if mf.exists():
+        try:
+            data = json.loads(mf.read_text(encoding="utf-8"))
+            items = data.get("items", []) if isinstance(data, dict) else []
+        except Exception:
+            items = []
+    bgm_dir = BACKEND_ROOT / "assets" / "bgm"
+    for it in items:
+        fp = bgm_dir / (it.get("file") or "")
+        it["available"] = fp.exists()
+    return {"items": items}
+
+
 @router.get("/overlays/asset/{path:path}")
 def overlay_asset(path: str):
-    """오버레이 썸네일/파일 서빙(assets/overlays 하위만)."""
+    """오버레이 썸네일/파일 서빙(assets/overlays 하위만).
+
+    path:path 는 슬래시를 포함할 수 있으므로 '/' 로 쪼개 safe_path 에게 여러 세그먼트로 넘긴다.
+    traversal 탈출(../, %2e%2e, 절대경로)은 safe_path 의 SAFE_SEG 정규식 + is_relative_to 로 통일 차단.
+    """
     from app import overlays
-    if ".." in path:
+    from app.security import safe_path
+    parts = [p for p in (path or "").split("/") if p]
+    f = safe_path(overlays.OVERLAY_DIR, *parts, must_exist=False)
+    if f is None:
         raise HTTPException(403, "invalid path")
-    base = overlays.OVERLAY_DIR.resolve()
-    f = (base / path).resolve()
-    if not f.is_relative_to(base) or not f.exists():
+    if not f.exists():
         raise HTTPException(404, "not found")
     return FileResponse(str(f))
 
@@ -296,7 +326,8 @@ def modal_accounts_status():
     pool_n = len(out)
     total_n = len(settings.effective_accounts())         # 풀 + 기존(대표)
     return {"accounts": out, "limit": lim, "total": total_n,
-            "default_included": total_n > pool_n}
+            "default_included": total_n > pool_n,
+            "multi_enabled": settings.multi_account_enabled()}
 
 
 class ModalAccountReq(BaseModel):
@@ -307,12 +338,19 @@ class ModalAccountReq(BaseModel):
 
 @router.post("/modal/accounts/add")
 def modal_account_add(req: ModalAccountReq):
-    """계정 추가(기존 시크릿 재전송 없이) + 그 계정에 자동 배포(백그라운드). 갱신 목록 반환."""
+    """계정 추가(기존 시크릿 재전송 없이) + 그 계정에 자동 배포(백그라운드). 갱신 목록 반환.
+
+    풀에 계정을 추가하는 행위 자체가 멀티 로테이션 옵트인 의사표시이므로, 추가 시
+    settings.allow_multi_account=true 로 자동 세팅(명시적 env 없이도 풀이 즉시 활성화).
+    단일 계정 정책을 유지하려면 사용자가 풀에서 계정을 빼면 됨(자동으로 off 로 바뀌진 않음).
+    """
     from app import settings, modal_pool
     try:
         settings.add_modal_account(req.token_id, req.token_secret, req.label)
     except Exception as e:
         raise HTTPException(400, str(e)[:140]) from e
+    # 풀에 첫 계정 추가 = 멀티 옵트인 의사 → settings.json 에 기록(env 없이도 활성화).
+    settings.set_allow_multi_account(True)
     # 추가 즉시 그 계정 워크스페이스에 shorts-propainter 배포 시작(사용자가 CLI 없이 활성화).
     modal_pool.deploy_account(req.token_id, req.token_secret)
     return modal_accounts_status()
@@ -324,8 +362,14 @@ class ModalDeployReq(BaseModel):
 
 @router.post("/modal/accounts/deploy")
 def modal_account_deploy(req: ModalDeployReq):
-    """풀의 index 계정에 shorts-propainter 재배포(백그라운드). 상태는 /modal/accounts에."""
+    """풀의 index 계정에 shorts-propainter 재배포(백그라운드). 상태는 /modal/accounts에.
+
+    풀 계정 배포는 멀티 로테이션이 켜져 있을 때만 의미가 있으므로 게이트. (멀티 off면
+    effective_accounts 가 풀을 무시하므로 배포해도 로테이션에 안 쓰임 — 좀비 계정 방지.)
+    """
     from app import settings, modal_pool
+    if not settings.multi_account_enabled():
+        raise HTTPException(400, "멀티 계정 로테이션이 꺼져 있습니다. 먼저 계정을 추가하거나 MODAL_MULTI_ACCOUNT=1 을 설정하세요.")
     accts = settings.get_modal_accounts()
     if not (0 <= req.index < len(accts)):
         raise HTTPException(400, "bad index")

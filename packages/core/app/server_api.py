@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
 import threading
 import time
@@ -28,25 +29,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 부팅 토큰 인증 — 코어가 0.0.0.0 으로 LAN/Tailscale 노출되므로 모든 API에 토큰 요구.
+# CORS 다음에 추가(Starlette 은 역순 실행이라 CORS preflight 를 먼저 통과시키기 위함).
+# ALLOW_NO_AUTH=1 이면 미들웨어가 즉시 pass(본인 PC 단독 개발용 escape hatch).
+from starlette.requests import Request  # noqa: E402
+from starlette.responses import Response  # noqa: E402
+from app import auth_token  # noqa: E402
+
+# 인증 없이 허용하는 경로(상태 확인·웰니스 체크만).
+_PUBLIC_PATHS = {"/", "/health"}
+
+
+@app.middleware("http")
+async def _token_auth(request: Request, call_next):
+    if auth_token.auth_disabled():
+        return await call_next(request)
+    # preflight(OPTIONS)는 CORS 미들웨어가 처리하도록 그대로 통과.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if request.url.path in _PUBLIC_PATHS:
+        return await call_next(request)
+    token = auth_token.get_or_create_token()
+    # 1) Authorization: Bearer <t>  2) ?token=<t>  (폰 1회 입력 지원)
+    provided = ""
+    authz = request.headers.get("authorization") or ""
+    if authz.lower().startswith("bearer "):
+        provided = authz[7:].strip()
+    if not provided:
+        provided = (request.query_params.get("token") or "").strip()
+    if provided and secrets.compare_digest(provided, token):
+        return await call_next(request)
+    return Response(
+        "인증 필요(401). 서버 콘솔에 표시된 토큰을 Authorization: Bearer 또는 ?token= 로 보내세요.",
+        status_code=401,
+        headers={"WWW-Authenticate": "Bearer"},
+        media_type="text/plain; charset=utf-8",
+    )
+
+
 # 관리용 엔드포인트(설정·사용량·Modal 계정)는 별도 라우터로 분리 — 경로·동작 동일.
 from app.routes_settings import router as settings_router  # noqa: E402
 app.include_router(settings_router)
 
 
+@app.get("/health")
+def _health():
+    """인증 없이 접근 가능한 헬스 체크(살아있으면 200)."""
+    return {"ok": True}
+
+
 @app.on_event("startup")
 def _restore_jobs_on_boot() -> None:
-    """서버 부팅 시 job 백업 복원 — 재시작 후에도 대본 자동저장·이어하기 유지."""
+    """서버 부팅 시 job 백업 복원 + 인증 토큰 콘솔 출력."""
     _load_jobs()
+    if not auth_token.auth_disabled():
+        t = auth_token.get_or_create_token()
+        bar = "═" * 48
+        print(f"\n╔{bar}╗", flush=True)
+        print(f"║  폰/다른 기기 접속용 토큰:  {t:<24} ║", flush=True)
+        print(f"║  토큰을 잊으면 workdir/auth_token.txt 삭제 후 재기동.        ║", flush=True)
+        print(f"╚{bar}╝\n", flush=True)
+        print("  - 같은 PC 웹:    http://localhost:3000/?token=" + t, flush=True)
+        print("  - 폰(LAN IP):    http://<이 PC IP>:3000/?token=" + t, flush=True)
+        print("  - 직접 API curl: -H 'Authorization: Bearer " + t + "'\n", flush=True)
 
-_JOBS_DIR = WORKDIR / "jobs"           # job 상태 파일 백업(서버 재시작 후 복구)
+_JOBS_DIR = WORKDIR / "jobs"           # 과거 파일 백업(마이그레이션 소스)
+_JOBS_DB_PATH = WORKDIR / "jobs.db"    # 현재 영속화(SQLite)
 _TERMINAL_STATUS = {"analyzed", "transcribed", "done", "error"}
 
 
-class PersistentJob(dict):
-    """변경될 때마다 workdir/jobs/<id>.json에 원자적 저장 — 서버 재시작에도 유지.
+def _open_jobs_db() -> "JobsDB":
+    """JobsDB 싱글톤 지연 생성 — server_api import 시점엔 WORKDIR 만 있으면 됨."""
+    global _DB
+    if _DB is None:
+        from app.jobs_db import JobsDB
+        _DB = JobsDB(_JOBS_DB_PATH)
+    return _DB
 
-    인메모리 JOBS가 재시작 시 소실돼 대본 자동저장이 404 나던 문제 근본 해결.
-    status 변화는 즉시 저장, progress만 바뀌는 고빈도 변경은 0.5초 throttle(I/O 절감).
+
+_DB: "JobsDB | None" = None   # 지연 초기화(JobsDB import 가 테스트 격리 시 monkeypatch 되게)
+
+
+class PersistentJob(dict):
+    """변경될 때마다 SQLite(jobs.db)에 저장 — 서버 재시작에도 유지.
+
+    dict 인터페이스를 그대로 유지(워커 코드의 job.update/job["k"]=v 변경 없이 DB 백업).
+    status 변화는 즉시 DB 저장, progress만 바뀌는 고빈도 변경은 0.5초 throttle(I/O 절감).
     중첩 dict(meta) 변경은 __setitem__에 안 걸리지만, 워커들이 meta 수정 직후 반드시
     job.update(status/stage)를 호출해 함께 저장된다.
     """
@@ -71,11 +139,7 @@ class PersistentJob(dict):
             st = self.get("status")
             if not force and st == self._last_status and now - self._last_saved < 0.5:
                 return
-            _JOBS_DIR.mkdir(parents=True, exist_ok=True)
-            p = _JOBS_DIR / f"{self.get('id')}.json"
-            tmp = p.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(dict(self), ensure_ascii=False), encoding="utf-8")
-            os.replace(tmp, p)   # 원자적 교체 — 부분 파일 방지
+            _open_jobs_db().update(dict(self))
             self._last_saved = now
             self._last_status = st
         except Exception:
@@ -86,17 +150,30 @@ JOBS: dict[str, PersistentJob] = {}
 
 
 def _load_jobs() -> None:
-    """부팅 시 job 파일 복원. 진행중(비종료)이던 job은 스레드가 죽었으니 '중단'으로 표시."""
-    if not _JOBS_DIR.exists():
-        return
-    for f in _JOBS_DIR.glob("*.json"):
+    """부팅 시 DB에서 job 복원. 진행중(비종료)이던 job은 스레드가 죽었으니 '중단'으로 표시.
+
+    기존 workdir/jobs/*.json 파일이 있으면 DB로 1회 마이그레이션.
+    """
+    db = _open_jobs_db()
+    # 과거 파일 백업이 있으면 DB로 일회성 import.
+    try:
+        if _JOBS_DIR.exists():
+            migrated = db.migrate_from_json(_JOBS_DIR)
+            if migrated:
+                print(f"  [jobs DB 마이그레이션: {migrated}개 json → SQLite]")
+    except Exception as e:
+        print(f"  [jobs DB 마이그레이션 실패(무시): {str(e)[:120]}]")
+    # DB에서 전체 job 로드 → 비종료는 error 마킹.
+    for j in db.all():
         try:
-            j = json.loads(f.read_text(encoding="utf-8"))
-            jid = j.get("id") or f.stem
+            jid = j.get("id")
+            if not jid:
+                continue
             if j.get("status") not in _TERMINAL_STATUS:
                 j["status"] = "error"
                 j["stage"] = "서버 재시작으로 중단됨"
                 j["error"] = j.get("error") or "서버가 재시작돼 진행 중이던 작업이 멈췄어요. '이어하기'로 다시 시작하세요."
+                db.update(j)
             JOBS[jid] = PersistentJob(j, _restoring=True)
         except Exception:
             pass
@@ -138,7 +215,16 @@ CTA_TEXT = {
 
 
 def _prune_jobs() -> None:
-    """오래된 job을 JOBS·workdir에서 정리. _new_job마다 기회주의적 호출."""
+    """오래된 job을 JOBS(메모리)·DB·workdir에서 정리. _new_job마다 기회주의적 호출."""
+    # DB에서 TTL 만료 job 삭제 + workdir/<jid> 도 정리.
+    try:
+        deleted = _open_jobs_db().prune(_DONE_TTL, _HARD_TTL)
+        for jid in deleted:
+            JOBS.pop(jid, None)
+            shutil.rmtree(WORKDIR / jid, ignore_errors=True)
+    except Exception:
+        pass
+    # 메모리 JOBS 도 동기 정리(DB엔 없을 수 있는 세션 잔재 방지).
     now = time.time()
     for jid in list(JOBS.keys()):
         j = JOBS.get(jid) or {}
@@ -146,10 +232,6 @@ def _prune_jobs() -> None:
         if (j.get("status") in ("done", "error") and age > _DONE_TTL) or age > _HARD_TTL:
             JOBS.pop(jid, None)
             shutil.rmtree(WORKDIR / jid, ignore_errors=True)
-            try:
-                (_JOBS_DIR / f"{jid}.json").unlink()   # 백업 파일도 함께 정리
-            except FileNotFoundError:
-                pass
 
 
 def _new_job() -> str:
@@ -172,17 +254,17 @@ def _new_job() -> str:
 
 
 def _require_job(jid: str) -> dict:
-    """job 존재 확인 후 반환. 메모리에 없으면 백업 파일에서 복원 시도, 그래도 없으면 404."""
+    """job 존재 확인 후 반환. 메모리에 없으면 DB에서 복원 시도, 그래도 없으면 404."""
     job = JOBS.get(jid)
     if job is None:
-        p = _JOBS_DIR / f"{jid}.json"
-        if p.exists():
-            try:
-                job = PersistentJob(json.loads(p.read_text(encoding="utf-8")), _restoring=True)
+        try:
+            d = _open_jobs_db().get(jid)
+            if d:
+                job = PersistentJob(d, _restoring=True)
                 JOBS[jid] = job
                 return job
-            except Exception:
-                pass
+        except Exception:
+            pass
         raise HTTPException(404, "job not found")
     return job
 
@@ -223,6 +305,9 @@ class RenderReq(BaseModel):
     caption_style: dict | None = None  # 웹 CaptionStyle (font/size/color/...) — 기본 스타일
     caption_lines: list | None = None  # 타임라인 편집기서 수정한 줄들(있으면 자동생성 대신 이걸 burn)
     overlays: list | None = None       # 오버레이 [{id,x,y,scale,start,end,fullscreen}] — 말풍선·스티커
+    bgm: str | None = None             # BGM 오버레이 id(assets/bgm manifest). None=배경음 없음.
+    bgm_volume: float = 0.2            # BGM 볼륨(0~1, 기본 20%)
+    sfx: list | None = None            # SFX [(overlay_id, at_sec), ...] — 현재 웹에선 미사용(예약)
 
 
 class CaptionPreviewReq(BaseModel):
@@ -730,24 +815,16 @@ def quality_frames(req: QualityReq):
             "engine_note": job.get("subtitle_engine_note")}
 
 
-# 파일명 세그먼트 화이트리스트 — 유니코드 글자(한글 성우명 등) 허용, 경로 구분자/제어문자만 차단.
-# 슬래시·역슬래시·공백·'..' 불허 → is_relative_to(base) 가드와 함께 traversal 차단.
-_SAFE_SEG = re.compile(r"^[^\s/\\\x00-\x1f]+$")
+from app.security import safe_path
 
 
 @app.get("/file/{jid}/{name}")
 def get_file(jid: str, name: str):
-    # Path traversal 가드: 세그먼트 화이트리스트 + workdir 밖 탈출 차단.
-    if not (_SAFE_SEG.match(jid) and _SAFE_SEG.match(name)) or ".." in jid or ".." in name:
+    # Path traversal 가드는 app.security.safe_path 로 통일 — 화이트리스트 + is_relative_to 이중 검증.
+    # must_exist=False 로 resolve 한 뒤 traversal 탈출(403)과 파일 부재(404)를 구분.
+    f = safe_path(WORKDIR, jid, name, must_exist=False)
+    if f is None:
         raise HTTPException(403, "invalid path")
-    base = WORKDIR.resolve()
-    f = (base / jid / name).resolve()
-    try:
-        inside = f.is_relative_to(base)
-    except AttributeError:  # py<3.9 안전망(런타임은 3.12)
-        inside = str(f).startswith(str(base))
-    if not inside:
-        raise HTTPException(403, "forbidden")
     if not f.exists():
         raise HTTPException(404, "file not found")
     return FileResponse(str(f))
@@ -1170,6 +1247,21 @@ def _render_worker(jid: str, req: RenderReq):
                 job.update(stage="자막 싱크 정렬", progress=55)
                 with gpu_slot(job, wait_stage="GPU 대기 중 (자막 정렬 대기열)"):
                     stamps = word_timestamps(dub, language="ko")
+
+            # BGM/효과음 믹싱 — dub(더빙) 위에 BGM+SFX 얹기. 실패 시 원본 dub 유지(그래프 깨짐 방지).
+            if dub and (req.bgm or req.sfx):
+                try:
+                    from app.pipeline.audio_mix import mix_audio
+                    from app.overlays import resolve_file
+                    bgm_fp = resolve_file(req.bgm) if req.bgm else None
+                    job.update(stage="BGM·효과음 믹싱", progress=70)
+                    dub = mix_audio(
+                        dub, job_dir / "mixed.mp3",
+                        bgm_path=bgm_fp, bgm_volume=req.bgm_volume,
+                        sfx=None, duration=_probe_dur(dub),
+                    )
+                except Exception as me:
+                    print(f"  [audio_mix 실패, 원본 더빙 사용: {str(me)[:160]}]")
 
         job.update(status="composing", stage="영상 합성", progress=0)
         out = compose(

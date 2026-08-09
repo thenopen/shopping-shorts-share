@@ -1,0 +1,4 @@
+# 개발/테스트 의존성 — runtime(requirements.txt)과 분리.
+# 설치: pip install -r requirements-dev.txt  (이미 requirements.txt 가 설치된 venv에서)
+pytest==8.4.4
+pytest-cov==5.0.0

@@ -13,14 +13,18 @@ export function Spinner({
 }
 
 // on/off 알약 스위치(슬라이딩 노브).
+// 시각적 알약은 h-7(28px) 유지하되, 클릭 영역(hit-area)은 44px 로 확장(모바일 터치타깃).
+// 버튼 자체를 44×44 로 만들고 알약은 그 안에 절대 배치.
 export function Switch({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel: string }) {
   return (
     <button
       onClick={onToggle}
-      className={`relative h-7 w-12 flex-none rounded-full transition-colors ${on ? "bg-pink-500" : "bg-white/15"}`}
+      className={`relative flex h-11 w-11 flex-none items-center justify-center rounded-lg`}
       aria-label={ariaLabel}
     >
-      <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+      <span className={`relative h-7 w-12 rounded-full transition-colors ${on ? "bg-pink-500" : "bg-white/15"}`}>
+        <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+      </span>
     </button>
   );
 }

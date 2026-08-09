@@ -888,17 +888,18 @@ def _entrance_tags(st, video_w: int, video_h: int, margin_v: int) -> tuple:
     return "", ""
 
 
-def render_ass(lines: list, out_ass: Path, video_w: int, video_h: int,
-               margin_v: int = 346) -> Path:  # 1920 기준 18% — 쇼츠 하단 UI 위, 프리뷰 bottom-[18%]와 일치
-    """CaptionLine 리스트 → .ass 자막 파일(libass burn-in용).
+def render_ass_text(lines: list, video_w: int, video_h: int,
+                    margin_v: int = 346) -> str:  # 1920 기준 18% — 쇼츠 하단 UI 위, 프리뷰 bottom-[18%]와 일치
+    """CaptionLine 리스트 → ASS 자막 텍스트(문자열, I/O 없음).
 
     구간(줄)별로 다른 스타일 지원 — 줄마다 ln.style 보고 ASS Style를 만들어
     중복 제거 후 각 Dialogue가 자기 줄 스타일을 참조한다.
     margin_v: 하단에서 자막까지 픽셀(쇼츠 하단 CTA와 안 겹치게).
-    """
-    out_ass = Path(out_ass)
-    out_ass.parent.mkdir(parents=True, exist_ok=True)
 
+    render_ass 의 조립부를 순수 함수로 분리 — 결정론적(타임스탬프/랜덤/환경 의존 0)이라
+    골든 테스트가 동일 입력 → 동일 출력을 보장. 과거 "0,," 아티팩트(Format 헤더 필드 수 불일치)
+    같은 ASS 구조 회귀를 잡는 안전망.
+    """
     # 줄별 스타일 → 시그니처로 dedupe, 이름 부여(S0,S1,...).
     sig_to_name: dict = {}
     style_rows: list[str] = []
@@ -987,7 +988,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if inline:
                 main_text = f"{{{inline}}}" + main_text
         dialog.append(f"Dialogue: 1,{start},{end},{sname},,0,0,0,,{pp}{intro}{main_text}")
-    out_ass.write_text(header + "\n".join(dialog) + "\n", encoding="utf-8")
+    return header + "\n".join(dialog)
+
+
+def render_ass(lines: list, out_ass: Path, video_w: int, video_h: int,
+               margin_v: int = 346) -> Path:
+    """CaptionLine 리스트 → .ass 자막 파일(libass burn-in용).
+
+    render_ass_text 로 조립한 뒤 파일로 쓰는 얇은 I/O 래퍼. 동작은 분리 전과 동일
+    (write_text 에 끝 '\n' 1개 추가 — 과거 header + dialog join + "\n" 형태 보존).
+    """
+    out_ass = Path(out_ass)
+    out_ass.parent.mkdir(parents=True, exist_ok=True)
+    out_ass.write_text(render_ass_text(lines, video_w, video_h, margin_v) + "\n", encoding="utf-8")
     return out_ass
 
 

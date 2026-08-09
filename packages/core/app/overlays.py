@@ -31,12 +31,15 @@ def _index() -> dict:
 
 
 def resolve_file(oid: str) -> Path | None:
-    """오버레이 id → 실제 에셋 절대경로(존재 시)."""
+    """오버레이 id → 실제 에셋 절대경로(존재 시). traversal 가드는 app.security.safe_path 통일."""
+    from app.security import safe_path
     it = _index().get(oid)
     if not it:
         return None
-    f = (OVERLAY_DIR / it["file"]).resolve()
-    return f if f.exists() and f.is_relative_to(OVERLAY_DIR.resolve()) else None
+    fname = it.get("file") or ""
+    # manifest 의 file 이름이 단일 세그먼트(파일명)라 가정하되, 혹시 슬래시가 섞여도 safe_path 가 방어.
+    parts = [p for p in fname.split("/") if p]
+    return safe_path(OVERLAY_DIR, *parts)
 
 
 def resolve_type(oid: str) -> str:

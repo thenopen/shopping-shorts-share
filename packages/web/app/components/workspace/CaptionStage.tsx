@@ -2,7 +2,7 @@
 
 // Vrew식 자막 세그먼트 리스트(워크스페이스 중앙) — 기존 CaptionTimeline의 편집 로직을
 // proto-vrew 룩으로 이식. 프리뷰 currentTime과 활성 줄 싱크 + 줄 클릭 시 시크.
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { Captions, ChevronsDownUp, ChevronsUpDown, Info, Lock, LockOpen, Plus, RefreshCw, Undo2, X } from "lucide-react";
 import { CaptionStyle, splitWords, autoEmphIndices } from "../../caption/style";
 import { CaptionLineData } from "../../caption/types";
@@ -22,7 +22,7 @@ function fmt(t: number) {
   return `${m}:${sec}`;
 }
 
-export function CaptionStage({
+function CaptionStage({
   lines,
   onChange,
   defaultStyle,
@@ -322,3 +322,8 @@ export function CaptionStage({
     </div>
   );
 }
+
+// memo 로 감싸 대본 타이핑(=script 변경) 시 불필요한 리렌더 skip.
+// 단, 모든 props(onGenerate/onAiEdit/onSelect/onToggleLock/onChange 등)가 안정적 참조여야
+// 효과가 있음 → page.tsx 에서 useCallback 로 안정화(2026-08-09).
+export default memo(CaptionStage);

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Clapperboard, Download, Link2, Plus, X, Sticker } from "lucide-react";
+import { Clapperboard, Download, Link2, Plus, X, Sticker, Music } from "lucide-react";
 import { JobState, OverlayLib, OverlaySel, OverlayItem } from "../../lib/types";
 import { apiBase } from "../../lib/api";
+import { toast } from "../ui/Toast";
 import { Spinner, Switch } from "../../ui";
 
 // 오버레이 카테고리별 추가 기본값(말풍선=중앙상단, 트랜지션=풀스크린, 리액션=우하단 스티커)
@@ -22,6 +23,7 @@ export function RenderStage({
   captionsOn, overlayLib, overlays, setOverlays,
   selectedOverlay, setSelectedOverlay, videoDur,
   onRender, busy, job, outputUrl, absUrl, estSec,
+  bgmList, bgm, setBgm,
 }: {
   ctaList: string[]; cta: string; setCta: (v: string) => void;
   onAddCta: () => void; onDeleteCta: (t: string) => void;
@@ -36,6 +38,8 @@ export function RenderStage({
   outputUrl: string | null;
   absUrl: (rel: string) => string;
   estSec: number | null;   // 예상 최종 영상 길이(= 내레이션 예상 초)
+  bgmList: { id: string; title: string; mood: string; available: boolean }[];
+  bgm: string; setBgm: (v: string) => void;
 }) {
   const [ovCat, setOvCat] = useState<"bubble" | "transition" | "reaction">("bubble");
   const dur = videoDur && videoDur > 0 ? videoDur : null;
@@ -90,6 +94,33 @@ export function RenderStage({
           </div>
         )}
       </section>
+
+      {/* BGM 배경음 — assets/bgm/ 매니페스트. 음원 파일이 있어야(available=true) 선택 가능 */}
+      {bgmList.length > 0 && (
+        <section className="panel rounded-2xl p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <Music className="h-4 w-4 text-pink-500" />
+            <div className="text-sm font-semibold text-slate-100">BGM 배경음</div>
+          </div>
+          <select
+            value={bgm}
+            onChange={(e) => setBgm(e.target.value)}
+            className="field w-full rounded-lg px-2.5 py-2 text-sm outline-none"
+          >
+            <option value="">배경음 없음</option>
+            {bgmList.map((b) => (
+              <option key={b.id} value={b.id} disabled={!b.available}>
+                {b.title}{b.available ? "" : " (음원 없음 — assets/bgm/ 에 넣으세요)"}
+              </option>
+            ))}
+          </select>
+          {bgm && !bgmList.find((b) => b.id === bgm)?.available && (
+            <p className="mt-1.5 text-[11px] text-amber-400">
+              ⓘ 선택한 BGM 음원 파일이 없습니다. <code className="font-mono">packages/core/assets/bgm/</code> 에 파일을 넣어주세요.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* 오버레이 — 말풍선·전환·리액션 스티커 */}
       {hasLib && (
@@ -228,7 +259,7 @@ export function RenderStage({
                 try {
                   if (navAny.share) { await navAny.share({ title: "쇼핑 쇼츠", url: link }); return; }
                   await navigator.clipboard.writeText(link);
-                  alert("영상 링크를 복사했어요. 폰 브라우저에 붙여넣어 저장하세요.");
+                  toast.success("영상 링크를 복사했어요. 폰 브라우저에 붙여넣어 저장하세요.");
                 } catch {}
               }}
               className="btn-ghost flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold"

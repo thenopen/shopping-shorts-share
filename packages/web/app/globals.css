@@ -55,8 +55,10 @@ html[data-theme="light"] {
 html[data-theme="light"] .text-slate-100 { color: #0F172A; }
 html[data-theme="light"] .text-slate-200 { color: #1E293B; }
 html[data-theme="light"] .text-slate-300 { color: #334155; }
-html[data-theme="light"] .text-slate-400 { color: #64748B; }
+html[data-theme="light"] .text-slate-400 { color: #475569; }
 html[data-theme="light"] .text-slate-500 { color: #64748B; }
+html[data-theme="light"] .text-slate-600 { color: #475569; }
+html[data-theme="light"] .text-slate-700 { color: #334155; }
 /* 다크 전제 white-알파 표면 → 라이트 잉크 틴트 */
 html[data-theme="light"] .bg-white\/5 { background-color: rgba(15, 23, 42, 0.05); }
 html[data-theme="light"] .bg-white\/10 { background-color: rgba(15, 23, 42, 0.08); }
@@ -64,6 +66,28 @@ html[data-theme="light"] .bg-white\/15 { background-color: rgba(15, 23, 42, 0.10
 html[data-theme="light"] .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05); }
 html[data-theme="light"] .hover\:bg-white\/10:hover { background-color: rgba(15, 23, 42, 0.08); }
 html[data-theme="light"] .hover\:bg-white\/20:hover { background-color: rgba(15, 23, 42, 0.12); }
+html[data-theme="light"] .border-white\/10 { border-color: rgba(15, 23, 42, 0.10); }
+html[data-theme="light"] .border-white\/20 { border-color: rgba(15, 23, 42, 0.15); }
+/* 브랜드/상태 색 — 라이트에선 채도 약간 낮춰 대비(배경이 밝으므로). */
+html[data-theme="light"] .text-pink-400 { color: #DB2777; }
+html[data-theme="light"] .text-pink-500 { color: #DB2777; }
+html[data-theme="light"] .bg-pink-500\/10 { background-color: rgba(219, 39, 119, 0.10); }
+html[data-theme="light"] .bg-pink-500\/15 { background-color: rgba(219, 39, 119, 0.12); }
+html[data-theme="light"] .bg-pink-500\/20 { background-color: rgba(219, 39, 119, 0.15); }
+html[data-theme="light"] .ring-pink-500\/40 { --tw-ring-color: rgba(219, 39, 119, 0.40); }
+html[data-theme="light"] .ring-pink-500\/50 { --tw-ring-color: rgba(219, 39, 119, 0.50); }
+html[data-theme="light"] .text-rose-300 { color: #BE123C; }
+html[data-theme="light"] .text-rose-400 { color: #E11D48; }
+html[data-theme="light"] .bg-rose-500\/10 { background-color: rgba(225, 29, 72, 0.10); }
+html[data-theme="light"] .bg-rose-500\/15 { background-color: rgba(225, 29, 72, 0.12); }
+html[data-theme="light"] .text-emerald-300 { color: #047857; }
+html[data-theme="light"] .text-emerald-400 { color: #059669; }
+html[data-theme="light"] .bg-emerald-500\/10 { background-color: rgba(5, 150, 105, 0.10); }
+html[data-theme="light"] .text-amber-300 { color: #B45309; }
+html[data-theme="light"] .text-amber-400 { color: #D97706; }
+html[data-theme="light"] .bg-amber-400\/10 { background-color: rgba(217, 119, 6, 0.10); }
+html[data-theme="light"] .text-sky-300 { color: #0369A1; }
+html[data-theme="light"] .bg-sky-500\/15 { background-color: rgba(2, 132, 199, 0.12); }
 /* 내 유틸 클래스 라이트 보정 */
 html[data-theme="light"] .btn-ghost { background: rgba(15, 23, 42, 0.04); }
 html[data-theme="light"] .btn-ghost:hover { background: rgba(15, 23, 42, 0.08); }
@@ -150,6 +174,12 @@ body {
 @keyframes capRiseIn {
   from { opacity: 0; transform: translateY(0.55em); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* 전역 토스트 등장(2026-08-09 — alert 대체). */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-0.5em) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
