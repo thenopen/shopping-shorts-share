@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
-const API = "http://127.0.0.1:8000";
+// 코어 API 주소 — 환경변수 CORE_PORT/CORE_HOST 로 포트 충돌 시 변경 가능.
+const API = `http://127.0.0.1:${process.env.CORE_PORT || "8000"}`;
 const API_PREFIXES = [
   "tts", "script", "jobs", "analyze", "transcribe",
   "captions", "refine", "agent", "render", "file", "usage", "settings",

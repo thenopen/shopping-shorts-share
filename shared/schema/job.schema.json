@@ -264,7 +264,6 @@
         "tts_opts": {
           "anyOf": [
             {
-              "additionalProperties": true,
               "type": "object"
             },
             {
@@ -340,7 +339,6 @@
         "caption_style": {
           "anyOf": [
             {
-              "additionalProperties": true,
               "type": "object"
             },
             {
@@ -434,7 +432,6 @@
         "tts_opts": {
           "anyOf": [
             {
-              "additionalProperties": true,
               "type": "object"
             },
             {
@@ -476,7 +473,6 @@
         "caption_style": {
           "anyOf": [
             {
-              "additionalProperties": true,
               "type": "object"
             },
             {
@@ -503,7 +499,6 @@
         "caption_style": {
           "anyOf": [
             {
-              "additionalProperties": true,
               "type": "object"
             },
             {
