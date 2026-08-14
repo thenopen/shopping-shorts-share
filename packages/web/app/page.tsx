@@ -35,14 +35,20 @@ export default function Home() {
   //  2) 보호 경로(/library)로 인증 필요 여부 능동 감지 → 200이면 게이트 해제(서버가 ALLOW_NO_AUTH=1 인 경우),
   //     401이면 토큰 보유 여부로 게이트 판단(있으면 해제, 없으면 오버레이).
   //  3) 런타임에 401(잘못된 토큰)이면 onUnauthorized 리스너가 authed=false 로 되돌려 오버레이 재표시.
-  // 이 3단계로 "잘못된 토큰 → 영구 차단" 회귀와 "서버 인증 off인데 오버레이 뜸" 결함을 둘 다 잡는다.
-  const [authed, setAuthed] = useState(hasToken());   // 초기: 토큰 있으면 true, 없으면 false(아래 probe로 보정)
-  const [gateResolved, setGateResolved] = useState(hasToken());   // probe 완료 전엔 게이트 미표시(깜빡임 방지)
+  //
+  // SSR/클라이언트 hydration mismatch 방지: 초기 렌더는 항상 "결정 안 됨(로딩)" 상태로 통일.
+  // hasToken()이 SSR에선 항상 false(localStorage 접근 불가)라 서버와 클라이언트가 다른 트리를
+  // 렌더하는 hydration 에러를 피하려면, 게이트 결정을 전부 useEffect(클라이언트만 실행) 안에 둔다.
+  const [authed, setAuthed] = useState(false);
+  const [gateResolved, setGateResolved] = useState(false);   // SSR/첫렌더는 무조건 false → 로딩 표시
   const [tokenInput, setTokenInput] = useState("");
   const [tokenErr, setTokenErr] = useState(false);
 
-  // (1) URL ?token= 처리
+  // 게이트 결정 — 전부 클라이언트 마운트(useEffect) 이후에만 실행(SSR은 로딩 상태로 통일 → hydration 안전).
+  // (1) URL ?token= 처리 + (2) 서버 인증 필요 여부 probe를 한 effect에서 순차 처리.
   useEffect(() => {
+    let live = true;
+    // (1) URL ?token= 있으면 저장 + 바로 통과.
     try {
       const u = new URL(window.location.href);
       const t = u.searchParams.get("token");
@@ -52,22 +58,19 @@ export default function Home() {
         setGateResolved(true);
         u.searchParams.delete("token");
         window.history.replaceState({}, "", u.toString());
+        return;   // 토큰 저장했으니 probe 불필요
       }
     } catch {}
-  }, []);
 
-  // (2) 토큰 없을 때 서버 인증 필요 여부 능동 감지 — /library 한 번 호출
-  //     200(인증 off) → 게이트 해제, 401 → 토큰 입력 대기, 네트워크 오류 → 해제(서버 다운 시 UI 보이게)
-  useEffect(() => {
-    if (hasToken()) { setGateResolved(true); return; }   // 이미 토큰 있으면 스킵
-    let live = true;
+    // (2) 토큰 있으면 통과, 없으면 /library probe로 서버 인증 필요 여부 감지.
+    if (hasToken()) { setAuthed(true); setGateResolved(true); return; }
     (async () => {
       try {
         const r = await apiFetch("/library");
         if (live && r.status === 200) setAuthed(true);   // 서버가 인증 안 요구 → 통과
       } catch {
-        // AuthError(401) → authed 그대로 false → 오버레이 표시. 다른 네트워크 오류면 통과(서버 다운 대비).
-        if (live) { /* 401이면 authed=false 유지, 그 외엔 게이트 열어 UI 보이게 */ setAuthed(true); }
+        // AuthError(401) → authed=false 유지 → 오버레이 표시. 다른 네트워크 오류면 통과(서버 다운 대비).
+        if (live) setAuthed(true);
       } finally {
         if (live) setGateResolved(true);
       }
@@ -78,6 +81,7 @@ export default function Home() {
   // (3) 런타임 401(잘못된 토큰) → 오버레이 재표시
   useEffect(() => onUnauthorized(() => {
     setAuthed(false);
+    setGateResolved(true);
     setTokenErr(true);
   }), []);
 
